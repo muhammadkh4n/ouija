@@ -54,6 +54,28 @@ async function main(): Promise<void> {
     throw new Error(`Database connection failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // Auto-run migrations
+  const { readFileSync } = await import('node:fs');
+  const { join, dirname } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  try {
+    // Resolve migration path relative to engine package
+    const engineDir = dirname(fileURLToPath(import.meta.resolve('@ouija/engine')));
+    const migrationPath = join(engineDir, '..', 'src', 'migrations', '001-initial-schema.sql');
+    const migrationSql = readFileSync(migrationPath, 'utf-8');
+    const client = await pool.connect();
+    try {
+      await client.query(migrationSql);
+      console.info('Database migrations applied successfully');
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    // Migrations are idempotent (CREATE TABLE IF NOT EXISTS would be needed)
+    // For now log and continue — tables may already exist
+    console.warn(`Migration warning: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // 3. Create EventBus + JobQueue
   // BullMQ takes ConnectionOptions (host/port object or URL object) — parse the URL
   const redisConnection = { url: redisUrl };

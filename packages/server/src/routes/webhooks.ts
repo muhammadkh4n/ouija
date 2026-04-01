@@ -113,7 +113,9 @@ async function handlePlaneWebhook(
   }
 
   // 4. Deduplication
-  const externalEventId = (body['event_id'] as string | undefined) ?? randomUUID();
+  const externalEventId = (request.headers['x-plane-delivery'] as string | undefined)
+    ?? (body['event_id'] as string | undefined)
+    ?? randomUUID();
   try {
     const isDup = await opts.db.deduplication.isDuplicate(externalEventId);
     if (isDup) {
