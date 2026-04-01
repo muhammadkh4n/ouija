@@ -1,2 +1,3 @@
 // Ouija engine barrel export
-// Engine implementation will be defined in subsequent tasks
+export { transition } from './transition.js';
+export { evaluateGuards } from './guards.js';
