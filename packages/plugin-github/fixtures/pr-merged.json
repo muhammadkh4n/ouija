@@ -1,0 +1,43 @@
+{
+  "action": "closed",
+  "number": 42,
+  "pull_request": {
+    "number": 42,
+    "html_url": "https://github.com/acme/backend/pull/42",
+    "title": "feat: add user authentication endpoint",
+    "body": "Implements JWT-based authentication as described in the spec.\n\n## Changes\n- POST /api/v1/auth/login\n- POST /api/v1/auth/refresh\n- POST /api/v1/auth/logout",
+    "state": "closed",
+    "draft": false,
+    "merged": true,
+    "merged_at": "2026-04-01T12:00:00Z",
+    "created_at": "2026-04-01T10:00:00Z",
+    "updated_at": "2026-04-01T12:00:00Z",
+    "head": {
+      "ref": "feature/user-auth",
+      "sha": "abc123def456abc123def456abc123def456abc1"
+    },
+    "base": {
+      "ref": "main",
+      "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    },
+    "user": {
+      "login": "claude-agent"
+    },
+    "merged_by": {
+      "login": "muhammad"
+    }
+  },
+  "repository": {
+    "id": 123456789,
+    "name": "backend",
+    "full_name": "acme/backend",
+    "html_url": "https://github.com/acme/backend",
+    "private": false,
+    "owner": {
+      "login": "acme"
+    }
+  },
+  "sender": {
+    "login": "muhammad"
+  }
+}
