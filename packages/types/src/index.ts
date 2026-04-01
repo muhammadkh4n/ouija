@@ -1,2 +1,10 @@
-// Ouija types barrel export
-// Types will be defined in subsequent tasks
+export * from './ids.js';
+export * from './events.js';
+export * from './state-machine.js';
+export * from './errors.js';
+export * from './plugin.js';
+export * from './kanban.js';
+export * from './git.js';
+export * from './agent.js';
+export * from './notification.js';
+export * from './repository.js';
