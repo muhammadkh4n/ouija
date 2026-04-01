@@ -55,6 +55,13 @@ export interface PipelineRepository {
 
   /** Hard delete — only valid for cancelled/succeeded instances older than retention period */
   delete(id: InstanceId): Promise<void>;
+
+  /**
+   * Find instances in dispatching/running state whose last activity (dispatchedAt or
+   * lastHeartbeatAt from the state JSONB) predates `cutoff`.
+   * Used by the Layer-2 stall scanner (StallMonitor) for crash recovery.
+   */
+  findStalledCandidates(cutoff: Date): Promise<PipelineInstance[]>;
 }
 
 export interface PipelineEventRepository {

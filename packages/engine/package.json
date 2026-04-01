@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ouija/bus": "*",
     "@ouija/types": "*",
     "pg": "^8.13.3"
   },
