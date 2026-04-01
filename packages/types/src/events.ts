@@ -1,4 +1,5 @@
 import type { CardId, ColumnId, InstanceId, PrId, DispatchId } from './ids.js';
+import type { NotificationLevel, NotificationAction } from './notification.js';
 
 // ---- Event payloads ----
 
@@ -57,6 +58,20 @@ export interface AgentWorkFailedPayload {
   retryable: boolean;
 }
 
+export interface NotificationSendPayload {
+  /** Short notification heading */
+  title: string;
+  /** Notification body text */
+  body: string;
+  level: NotificationLevel;
+  /** Optional action buttons (deep links) */
+  actions?: NotificationAction[];
+  /** Opaque idempotency key — prevents duplicate sends on retry */
+  idempotencyKey: string;
+  /** Pipeline instance ID that originated this notification */
+  instanceId: string;
+}
+
 // ---- Event map: topic → payload type ----
 
 export interface OuijaEventMap {
@@ -68,6 +83,7 @@ export interface OuijaEventMap {
   'agent.work.pr_ready': AgentWorkPrReadyPayload;
   'agent.work.completed': AgentWorkCompletedPayload;
   'agent.work.failed': AgentWorkFailedPayload;
+  'notification.send': NotificationSendPayload;
 }
 
 export type OuijaTopic = keyof OuijaEventMap;

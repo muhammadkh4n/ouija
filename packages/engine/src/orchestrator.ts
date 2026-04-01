@@ -320,16 +320,19 @@ export class Orchestrator {
       }
 
       case 'send_notification': {
-        // Publish on the event bus so any registered notification plugin can consume it.
-        // We reuse kanban.card.moved as the envelope topic — a dedicated notification
-        // topic will be added when the notification plugin is built (Phase 2).
+        // Publish on the dedicated notification.send topic so any registered
+        // notification plugin can consume it. The Telegram plugin subscribes here.
+        const notifTitle = String(effect.payload['title'] ?? 'Pipeline Update');
+        const notifBody = String(effect.payload['body'] ?? '');
+        const notifLevel = (effect.payload['level'] as import('@ouija/types').NotificationLevel | undefined) ?? 'info';
         await this.eventBus.publish(
-          'kanban.card.moved',
+          'notification.send',
           {
-            cardId: instance.cardId,
-            fromColumnId: makeColumnId('notification'),
-            toColumnId: makeColumnId('notification'),
-            movedBy: 'orchestrator',
+            title: notifTitle,
+            body: notifBody,
+            level: notifLevel,
+            idempotencyKey: effect.idempotencyKey,
+            instanceId: String(instance.id),
           },
           {
             correlationId: effect.idempotencyKey,

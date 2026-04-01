@@ -3,16 +3,38 @@
  *
  * Startup sequence:
  *   1. Validate env vars
- *   2. Create Database (PostgreSQL)
+ *   2. Create Database (PostgreSQL) and auto-run migrations
  *   3. Create EventBus + JobQueue (BullMQ)
- *   4. Create PluginLoader
- *   5. Create Orchestrator
- *   6. Build Fastify app
- *   7. Start StallMonitor
- *   8. app.listen({ port: 4000, host: '0.0.0.0' })
+ *   4. Create Redis client + set JWT denylist client
+ *   5. Create PluginLoader
+ *   6. Wire Plane plugin (if PLANE_API_TOKEN is set) or use kanban placeholder
+ *   7. Create Orchestrator + StallMonitor
+ *   8. Build Fastify app
+ *   9. Wire Telegram notification plugin (if TELEGRAM_BOT_TOKEN is set)
+ *  10. Start agent worker in-process (single-process mode)
+ *  11. Start StallMonitor + app.listen()
  *
  * Graceful shutdown:
- *   - SIGTERM / SIGINT: close Fastify, stop StallMonitor, drain workers, quit Redis, pool.end()
+ *   SIGTERM / SIGINT → close Fastify, stop StallMonitor, stop agent worker,
+ *   drain job queue, close event bus, quit Redis, pool.end()
+ *
+ * Environment variables:
+ *   Required:
+ *     OUIJA_SECRET_KEY          — Min 32 chars, shared with agent worker for JWT
+ *     OUIJA_DATABASE_URL        — PostgreSQL connection URL
+ *   Optional:
+ *     OUIJA_REDIS_URL           — Default: redis://localhost:6379
+ *     PORT                      — Default: 4000
+ *     LOG_LEVEL                 — Default: info
+ *     OUIJA_SERVER_URL          — Externally reachable URL (for agent callbacks)
+ *     PLANE_API_TOKEN           — Enables real Plane plugin
+ *     PLANE_BASE_URL            — Plane instance URL (default: https://app.plane.so)
+ *     PLANE_WORKSPACE_SLUG      — Plane workspace slug
+ *     PLANE_WEBHOOK_SECRET      — Plane webhook signature secret
+ *     TELEGRAM_BOT_TOKEN        — Enables Telegram notification plugin
+ *     TELEGRAM_CHAT_ID          — Telegram chat to send notifications to
+ *     ANTHROPIC_API_KEY         — Required when agent worker is enabled
+ *     GITHUB_WEBHOOK_SECRET     — GitHub webhook signature secret
  */
 
 import { buildApp } from './app.js';
@@ -36,14 +58,14 @@ async function main(): Promise<void> {
   const databaseUrl = requireEnv('OUIJA_DATABASE_URL');
   const redisUrl = process.env['OUIJA_REDIS_URL'] ?? 'redis://localhost:6379';
   const port = parseInt(process.env['PORT'] ?? '4000', 10);
+  // The server's own externally-reachable URL — used by agent worker for callbacks.
+  const serverUrl = process.env['OUIJA_SERVER_URL'] ?? `http://localhost:${port}`;
 
   if (secretKey.length < 32) {
     throw new Error('OUIJA_SECRET_KEY must be at least 32 characters');
   }
 
   // 2. Create database
-  // createDatabase returns { db: PostgresDatabase, pool: Pool }
-  // PostgresDatabase implements Database
   const { createDatabase } = await import('@ouija/engine');
   const { db, pool } = createDatabase(databaseUrl);
 
@@ -51,7 +73,9 @@ async function main(): Promise<void> {
   try {
     await db.ping();
   } catch (err) {
-    throw new Error(`Database connection failed: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `Database connection failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // Auto-run migrations
@@ -59,9 +83,14 @@ async function main(): Promise<void> {
   const { join, dirname } = await import('node:path');
   const { fileURLToPath } = await import('node:url');
   try {
-    // Resolve migration path relative to engine package
     const engineDir = dirname(fileURLToPath(import.meta.resolve('@ouija/engine')));
-    const migrationPath = join(engineDir, '..', 'src', 'migrations', '001-initial-schema.sql');
+    const migrationPath = join(
+      engineDir,
+      '..',
+      'src',
+      'migrations',
+      '001-initial-schema.sql',
+    );
     const migrationSql = readFileSync(migrationPath, 'utf-8');
     const client = await pool.connect();
     try {
@@ -71,13 +100,11 @@ async function main(): Promise<void> {
       client.release();
     }
   } catch (err) {
-    // Migrations are idempotent (CREATE TABLE IF NOT EXISTS would be needed)
-    // For now log and continue — tables may already exist
+    // Idempotent — tables may already exist from a previous run.
     console.warn(`Migration warning: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // 3. Create EventBus + JobQueue
-  // BullMQ takes ConnectionOptions (host/port object or URL object) — parse the URL
   const redisConnection = { url: redisUrl };
   const { BullMQEventBus, BullMQJobQueue } = await import('@ouija/bus');
   const eventBus = new BullMQEventBus(redisConnection);
@@ -97,44 +124,102 @@ async function main(): Promise<void> {
 
   // 5. Create PluginLoader
   const { PluginLoader } = await import('@ouija/plugin-sdk');
-
-  // Logger placeholder — will be properly wired once app is created
   const startupLogger = {
     debug: (msg: string) => console.debug(msg),
     info: (msg: string) => console.info(msg),
     warn: (msg: string) => console.warn(msg),
     error: (msg: string) => console.error(msg),
   };
-
   const pluginLoader = new PluginLoader(startupLogger);
 
-  // 6. Create Orchestrator with kanban placeholder
+  // ---- Shared PluginContext factory ----
+  // Plugins get access to the event bus and job queue but not the DB directly.
+  const makePluginContext = (
+    pluginName: string,
+    config: Record<string, unknown>,
+  ): import('@ouija/types').PluginContext<Record<string, unknown>> => ({
+    config,
+    logger: {
+      debug: (msg, meta) => console.debug(JSON.stringify({ level: 'debug', plugin: pluginName, msg, ...meta })),
+      info: (msg, meta) => console.info(JSON.stringify({ level: 'info', plugin: pluginName, msg, ...meta })),
+      warn: (msg, meta) => console.warn(JSON.stringify({ level: 'warn', plugin: pluginName, msg, ...meta })),
+      error: (msg, meta) => console.error(JSON.stringify({ level: 'error', plugin: pluginName, msg, ...meta })),
+    },
+    publishEvent: async (topic, payload) => {
+      await eventBus.publish(topic as import('@ouija/types').OuijaTopic, payload as never);
+    },
+    enqueueJob: async (queue, job, options) => {
+      const enqueueOpts: import('@ouija/bus').EnqueueOptions = {};
+      if (options?.attempts !== undefined) enqueueOpts.attempts = options.attempts;
+      if (options?.delay !== undefined) enqueueOpts.delayMs = options.delay;
+      await jobQueue.enqueue(
+        queue as import('@ouija/bus').QueueName,
+        job as never,
+        enqueueOpts,
+      );
+    },
+  });
+
+  // 6. Wire kanban plugin — real Plane if configured, placeholder otherwise
   const { Orchestrator, StallMonitor } = await import('@ouija/engine');
 
-  const kanbanPlaceholder: import('@ouija/types').KanbanPlugin = {
-    manifest: {
-      name: '@ouija/kanban-placeholder',
-      version: '0.1.0',
-      type: 'kanban' as const,
-      coreApiVersion: '>=1.0.0',
-      configSchema: {},
-    },
-    init: async (_ctx: import('@ouija/types').PluginContext) => undefined,
-    start: async () => undefined,
-    stop: async () => undefined,
-    healthCheck: async () => ({ healthy: true }),
-    getCard: async (cardId: import('@ouija/types').CardId) => {
-      throw new Error(`No kanban plugin loaded — cannot fetch card ${String(cardId)}`);
-    },
-    moveCard: async (_cardId: import('@ouija/types').CardId, _col: import('@ouija/types').ColumnId) => undefined,
-    addComment: async (_cardId: import('@ouija/types').CardId, _body: string) => undefined,
-    assignUser: async (_cardId: import('@ouija/types').CardId, _userId: string) => undefined,
-    getColumns: async (_boardId: import('@ouija/types').BoardId) => [],
-  };
+  let kanbanPlugin: import('@ouija/types').KanbanPlugin;
+  let planePluginInstance: import('@ouija/plugin-plane').PlanePlugin | undefined;
 
-  const orchestrator = new Orchestrator(db, eventBus, jobQueue, kanbanPlaceholder);
+  const planeApiToken = process.env['PLANE_API_TOKEN'];
+  const planeBaseUrl = process.env['PLANE_BASE_URL'] ?? 'https://app.plane.so';
+  const planeWorkspaceSlug = process.env['PLANE_WORKSPACE_SLUG'];
+  const planeWebhookSecret = process.env['PLANE_WEBHOOK_SECRET'];
 
-  // 7. Build app
+  if (planeApiToken && planeWorkspaceSlug && planeWebhookSecret) {
+    console.info('Wiring real Plane kanban plugin');
+    const { PlanePlugin } = await import('@ouija/plugin-plane');
+    const planePlugin = new PlanePlugin();
+    const planeConfig = {
+      baseUrl: planeBaseUrl,
+      apiToken: planeApiToken,
+      workspaceSlug: planeWorkspaceSlug,
+      webhookSecret: planeWebhookSecret,
+    };
+    // Double-cast: makePluginContext returns PluginContext<Record<string,unknown>> but init
+    // expects PluginContext<PlaneConfig>. The shapes are structurally compatible at runtime.
+    await planePlugin.init(
+      makePluginContext('@ouija/plugin-plane', planeConfig) as unknown as Parameters<typeof planePlugin.init>[0],
+    );
+    await planePlugin.start();
+    planePluginInstance = planePlugin;
+    kanbanPlugin = planePlugin;
+  } else {
+    console.info(
+      'Plane env vars not fully set — using kanban placeholder. ' +
+      'Set PLANE_API_TOKEN, PLANE_WORKSPACE_SLUG, and PLANE_WEBHOOK_SECRET to enable.',
+    );
+    kanbanPlugin = {
+      manifest: {
+        name: '@ouija/kanban-placeholder',
+        version: '0.1.0',
+        type: 'kanban' as const,
+        coreApiVersion: '>=1.0.0',
+        configSchema: {},
+      },
+      init: async () => undefined,
+      start: async () => undefined,
+      stop: async () => undefined,
+      healthCheck: async () => ({ healthy: true }),
+      getCard: async (cardId: import('@ouija/types').CardId) => {
+        throw new Error(`No kanban plugin loaded — cannot fetch card ${String(cardId)}`);
+      },
+      moveCard: async () => undefined,
+      addComment: async () => undefined,
+      assignUser: async () => undefined,
+      getColumns: async () => [],
+    };
+  }
+
+  // 7. Create Orchestrator
+  const orchestrator = new Orchestrator(db, eventBus, jobQueue, kanbanPlugin);
+
+  // 8. Build Fastify app
   const appOpts: Parameters<typeof buildApp>[0] = {
     db,
     orchestrator,
@@ -143,12 +228,113 @@ async function main(): Promise<void> {
       level: process.env['LOG_LEVEL'] ?? 'info',
     },
   };
-  if (process.env['PLANE_WEBHOOK_SECRET']) appOpts.planeWebhookSecret = process.env['PLANE_WEBHOOK_SECRET'];
-  if (process.env['GITHUB_WEBHOOK_SECRET']) appOpts.githubWebhookSecret = process.env['GITHUB_WEBHOOK_SECRET'];
+  if (process.env['PLANE_WEBHOOK_SECRET']) {
+    appOpts.planeWebhookSecret = process.env['PLANE_WEBHOOK_SECRET'];
+  }
+  if (process.env['GITHUB_WEBHOOK_SECRET']) {
+    appOpts.githubWebhookSecret = process.env['GITHUB_WEBHOOK_SECRET'];
+  }
 
   const app = await buildApp(appOpts);
 
-  // 8. Start StallMonitor
+  // Register Plane routes if the real plugin was loaded
+  if (planePluginInstance?.registerRoutes) {
+    await planePluginInstance.registerRoutes(app);
+  }
+
+  // 9. Wire Telegram notification plugin (optional)
+  let unsubscribeTelegram: (() => Promise<void>) | undefined;
+  const telegramBotToken = process.env['TELEGRAM_BOT_TOKEN'];
+  const telegramChatId = process.env['TELEGRAM_CHAT_ID'];
+
+  if (telegramBotToken && telegramChatId) {
+    console.info('Wiring Telegram notification plugin');
+    const { TelegramNotifyPlugin } = await import('@ouija/plugin-notify-telegram');
+    const telegramPlugin = new TelegramNotifyPlugin();
+    const telegramConfig = {
+      botToken: telegramBotToken,
+      chatId: telegramChatId,
+      dashboardBaseUrl: serverUrl,
+    };
+    // Double-cast: makePluginContext returns PluginContext<Record<string,unknown>>.
+    await telegramPlugin.init(
+      makePluginContext('@ouija/plugin-notify-telegram', telegramConfig) as unknown as Parameters<typeof telegramPlugin.init>[0],
+    );
+    await telegramPlugin.start();
+
+    // Subscribe to notification.send events and forward to Telegram.
+    unsubscribeTelegram = await eventBus.subscribe(
+      'notification.send',
+      async (event) => {
+        const payload = event.payload;
+        try {
+          const notificationMsg: import('@ouija/types').Notification = {
+            title: payload.title,
+            body: payload.body,
+            level: payload.level,
+            occurredAt: event.timestamp,
+            idempotencyKey: payload.idempotencyKey,
+          };
+          // Only set actions when actually present (exactOptionalPropertyTypes)
+          if (payload.actions !== undefined) {
+            notificationMsg.actions = payload.actions;
+          }
+          await telegramPlugin.send(notificationMsg);
+        } catch (err) {
+          app.log.error(
+            { err, instanceId: payload.instanceId },
+            'Telegram notification send failed',
+          );
+        }
+      },
+    );
+
+    app.log.info('Telegram notification plugin active');
+  } else {
+    console.info(
+      'Telegram env vars not set — notifications disabled. ' +
+      'Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to enable.',
+    );
+  }
+
+  // 10. Start agent worker in-process (single-process mode)
+  let workerHandle: { stop(): Promise<void> } | undefined;
+
+  const anthropicApiKey = process.env['ANTHROPIC_API_KEY'];
+  if (anthropicApiKey) {
+    app.log.info('Starting agent worker in-process (single-process mode)');
+    const { startAgentWorker } = await import('@ouija/agent-worker');
+
+    // Wire card detail lookups to the kanban plugin if it's the real Plane plugin.
+    const workerOpts: Parameters<typeof startAgentWorker>[0] = {
+      redisUrl,
+      serverUrl,
+      concurrency: parseInt(process.env['OUIJA_WORKER_CONCURRENCY'] ?? '1', 10),
+    };
+    if (planePluginInstance !== undefined) {
+      const _plane = planePluginInstance;
+      workerOpts.getCardDetails = async (cardId: string) => {
+        const card = await _plane.getCard(cardId as import('@ouija/types').CardId);
+        return {
+          title: card.title,
+          description: card.description,
+          acceptanceCriteria: [] as string[],
+          labels: card.labels,
+        };
+      };
+    }
+
+    workerHandle = await startAgentWorker(workerOpts);
+
+    app.log.info('Agent worker started in-process');
+  } else {
+    app.log.info(
+      'ANTHROPIC_API_KEY not set — agent worker not started. ' +
+      'Set ANTHROPIC_API_KEY to enable in-process agent execution, or run agent-worker as a separate process.',
+    );
+  }
+
+  // 11. Start StallMonitor
   const stallMonitor = new StallMonitor(db, orchestrator, 300_000, {
     info: (msg: string, ctx?: Record<string, unknown>) => app.log.info(ctx ?? {}, msg),
     warn: (msg: string, ctx?: Record<string, unknown>) => app.log.warn(ctx ?? {}, msg),
@@ -156,7 +342,7 @@ async function main(): Promise<void> {
   });
   stallMonitor.start(60_000);
 
-  // 9. Start listening
+  // 12. Start listening
   await app.listen({ port, host: '0.0.0.0' });
   app.log.info({ port }, 'Ouija server started');
 
@@ -168,6 +354,22 @@ async function main(): Promise<void> {
     try {
       stallMonitor.stop();
       await app.close();
+
+      // Stop agent worker before draining the queue
+      if (workerHandle) {
+        await workerHandle.stop();
+      }
+
+      // Unsubscribe Telegram listener
+      if (unsubscribeTelegram) {
+        await unsubscribeTelegram();
+      }
+
+      // Stop Plane plugin if real one was loaded
+      if (planePluginInstance) {
+        await planePluginInstance.stop();
+      }
+
       await jobQueue.close();
       await eventBus.close();
       await redis.quit();
@@ -195,7 +397,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error('Fatal startup error:', err);
   process.exit(1);
 });
