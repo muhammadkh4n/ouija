@@ -3,4 +3,4 @@ dist/
 .env
 *.tsbuildinfo
 .turbo/
-package-lock.json
+# package-lock.json is committed for reproducible Docker builds

@@ -113,14 +113,18 @@ async function main(): Promise<void> {
   const orchestrator = new Orchestrator(db, eventBus, jobQueue, kanbanPlaceholder);
 
   // 7. Build app
-  const app = await buildApp({
+  const appOpts: Parameters<typeof buildApp>[0] = {
     db,
     orchestrator,
     pluginLoader,
     logger: {
       level: process.env['LOG_LEVEL'] ?? 'info',
     },
-  });
+  };
+  if (process.env['PLANE_WEBHOOK_SECRET']) appOpts.planeWebhookSecret = process.env['PLANE_WEBHOOK_SECRET'];
+  if (process.env['GITHUB_WEBHOOK_SECRET']) appOpts.githubWebhookSecret = process.env['GITHUB_WEBHOOK_SECRET'];
+
+  const app = await buildApp(appOpts);
 
   // 8. Start StallMonitor
   const stallMonitor = new StallMonitor(db, orchestrator, 300_000, {

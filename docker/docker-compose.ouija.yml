@@ -17,10 +17,14 @@ services:
       dockerfile: docker/Dockerfile
     ports:
       - "4000:4000"
+    env_file:
+      - ../.env
     environment:
       OUIJA_SECRET_KEY: ${OUIJA_SECRET_KEY}
       OUIJA_DATABASE_URL: postgres://ouija:ouija@postgres:5432/ouija_db
       OUIJA_REDIS_URL: redis://ouija-redis:6379
+      PLANE_WEBHOOK_SECRET: ${PLANE_WEBHOOK_SECRET:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres:
