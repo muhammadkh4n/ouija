@@ -1,0 +1,49 @@
+{
+  "event": "issue_activity",
+  "identifier": "proj-ISSUE-002",
+  "activity_id": "a1b2c3d4-0002-0002-0002-000000000002",
+  "data": {
+    "id": "aaaaaaaa-1111-1111-1111-111111111112",
+    "name": "Refactor database layer",
+    "description_html": "<p>Move queries to repository pattern.</p>",
+    "state": "eeeeeeee-5555-5555-5555-555555555555",
+    "state_detail": {
+      "id": "eeeeeeee-5555-5555-5555-555555555555",
+      "name": "Todo",
+      "color": "#3b82f6",
+      "group": "unstarted",
+      "sequence": 10000.0
+    },
+    "project": "bbbbbbbb-2222-2222-2222-222222222222",
+    "workspace": "my-workspace",
+    "label_details": [],
+    "assignee_details": [
+      {
+        "id": "dddddddd-4444-4444-4444-444444444445",
+        "email": "carol@example.com",
+        "display_name": "Carol"
+      }
+    ],
+    "created_at": "2026-04-01T09:00:00.000Z",
+    "updated_at": "2026-04-01T11:00:00.000Z"
+  },
+  "activity": {
+    "id": "a1b2c3d4-0002-0002-0002-000000000002",
+    "verb": "updated",
+    "field": "assignees",
+    "old_value": null,
+    "new_value": "dddddddd-4444-4444-4444-444444444445",
+    "old_identifier": null,
+    "new_identifier": "dddddddd-4444-4444-4444-444444444445",
+    "actor_detail": {
+      "id": "ffffffff-6666-6666-6666-666666666667",
+      "email": "manager@example.com",
+      "display_name": "Manager"
+    },
+    "created_at": "2026-04-01T11:00:00.000Z"
+  },
+  "webhook_id": "w1w1w1w1-0000-0000-0000-000000000002",
+  "workspace_id": "wswswsws-0000-0000-0000-000000000001",
+  "project_id": "bbbbbbbb-2222-2222-2222-222222222222",
+  "timestamp": "2026-04-01T11:00:00.000Z"
+}

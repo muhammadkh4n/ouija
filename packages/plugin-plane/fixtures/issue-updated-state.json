@@ -1,0 +1,51 @@
+{
+  "event": "issue_activity",
+  "identifier": "proj-ISSUE-001",
+  "activity_id": "a1b2c3d4-0001-0001-0001-000000000001",
+  "data": {
+    "id": "aaaaaaaa-1111-1111-1111-111111111111",
+    "name": "Implement user authentication",
+    "description_html": "<p>Build OAuth2 login with GitHub provider.</p>",
+    "state": "cccccccc-3333-3333-3333-333333333333",
+    "state_detail": {
+      "id": "cccccccc-3333-3333-3333-333333333333",
+      "name": "In Progress",
+      "color": "#f97316",
+      "group": "started",
+      "sequence": 20000.0
+    },
+    "project": "bbbbbbbb-2222-2222-2222-222222222222",
+    "workspace": "my-workspace",
+    "label_details": [
+      { "id": "l1l1l1l1-0000-0000-0000-000000000001", "name": "backend" }
+    ],
+    "assignee_details": [
+      {
+        "id": "dddddddd-4444-4444-4444-444444444444",
+        "email": "alice@example.com",
+        "display_name": "Alice"
+      }
+    ],
+    "created_at": "2026-04-01T08:00:00.000Z",
+    "updated_at": "2026-04-01T10:30:00.000Z"
+  },
+  "activity": {
+    "id": "a1b2c3d4-0001-0001-0001-000000000001",
+    "verb": "updated",
+    "field": "state",
+    "old_value": "eeeeeeee-5555-5555-5555-555555555555",
+    "new_value": "cccccccc-3333-3333-3333-333333333333",
+    "old_identifier": null,
+    "new_identifier": null,
+    "actor_detail": {
+      "id": "ffffffff-6666-6666-6666-666666666666",
+      "email": "bob@example.com",
+      "display_name": "Bob"
+    },
+    "created_at": "2026-04-01T10:30:00.000Z"
+  },
+  "webhook_id": "w1w1w1w1-0000-0000-0000-000000000001",
+  "workspace_id": "wswswsws-0000-0000-0000-000000000001",
+  "project_id": "bbbbbbbb-2222-2222-2222-222222222222",
+  "timestamp": "2026-04-01T10:30:00.000Z"
+}
