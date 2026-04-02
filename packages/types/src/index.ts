@@ -8,3 +8,4 @@ export * from './git.js';
 export * from './agent.js';
 export * from './notification.js';
 export * from './repository.js';
+export * from './workspace.js';
