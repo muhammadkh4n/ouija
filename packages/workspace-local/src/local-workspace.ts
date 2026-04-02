@@ -90,7 +90,7 @@ async function defaultBranchFn(dir: string, branchName: string): Promise<void> {
   await execFileAsync(
     'git',
     ['checkout', '-b', branchName],
-    { cwd: dir },
+    { cwd: dir, env: buildGitEnv() as NodeJS.ProcessEnv },
   );
 }
 
