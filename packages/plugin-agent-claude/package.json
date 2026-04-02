@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ouija/types": "*"
+    "@ouija/types": "*",
+    "@ouija/workspace-local": "*"
   },
   "devDependencies": {
     "@ouija/plugin-sdk": "*",

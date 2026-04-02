@@ -1,14 +1,14 @@
 /**
  * ClaudeAgentPlugin — AgentPlugin implementation that dispatches work orders
- * to the Claude Code CLI as managed subprocesses.
+ * to the Claude Code CLI via composable WorkspaceProvider and AgentRunner
+ * abstractions.
  *
  * Lifecycle for each dispatch:
- *   1. Clone the target repo into a temp directory.
- *   2. Create the feature branch (ouija/<instanceId>).
- *   3. Build the prompt and spawn the Claude Code CLI.
- *   4. Run a 30-second heartbeat loop while the agent works.
- *   5. On exit: report completed/failed/timed-out back to the callback URL.
- *   6. Always clean up the temp directory regardless of outcome.
+ *   1. Provision workspace (clone repo + create feature branch).
+ *   2. Build the prompt and run the agent via AgentRunner.
+ *   3. Run a 30-second heartbeat loop while the agent works.
+ *   4. On exit: report completed/failed/timed-out back to the callback URL.
+ *   5. Always destroy the workspace regardless of outcome.
  *
  * Active dispatches are tracked in an in-memory Map. The Map is intentionally
  * not persisted — if the process restarts mid-run the engine's stall monitor
@@ -16,9 +16,6 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type {
   AgentPlugin,
   WorkOrder,
@@ -29,15 +26,15 @@ import type {
   PluginHealth,
   DispatchId,
   InstanceId,
+  WorkspaceProvider,
+  AgentRunner,
+  Workspace,
 } from '@ouija/types';
 import { dispatchId as makeDispatchId } from '@ouija/types';
 import type { ClaudeAgentConfig } from './config.js';
 import { claudeAgentConfigSchema } from './config.js';
-import { buildCliArgs } from './work-order-builder.js';
-import { spawnClaude } from './subprocess.js';
-import type { SpawnClaudeOptions, SubprocessResult } from './subprocess.js';
+import { buildPrompt } from './work-order-builder.js';
 import { HeartbeatReporter } from './heartbeat.js';
-import { cloneRepo, createBranch } from './repo-manager.js';
 
 // ---------------------------------------------------------------------------
 // Internal state shape per dispatch
@@ -50,6 +47,7 @@ interface ActiveDispatch {
   startedAt: string;
   message?: string;
   abortController: AbortController;
+  workspace?: Workspace;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,28 +81,31 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
    */
   private activeDispatches = new Map<string, ActiveDispatch>();
 
-  // ---- Overridable for testing ----
+  /** Workspace lifecycle provider. Injected at init or set externally for testing. */
+  workspaceProvider!: WorkspaceProvider;
 
-  /** Override to inject a mock subprocess runner. */
-  _spawnFn: (options: SpawnClaudeOptions) => Promise<SubprocessResult> = spawnClaude;
-
-  /** Override to inject a mock git clone. */
-  _cloneFn: (url: string, targetDir: string, baseBranch: string) => Promise<void> =
-    async (url, targetDir, baseBranch) => {
-      await cloneRepo({ repoUrl: url, branch: baseBranch, targetDir });
-    };
-
-  /** Override to inject a mock branch creation. */
-  _createBranchFn: (cwd: string, branch: string) => Promise<void> =
-    async (cwd, branch) => {
-      await createBranch(cwd, branch);
-    };
+  /** Agent execution runner. Injected at init or set externally for testing. */
+  agentRunner!: AgentRunner;
 
   // ---- BasePlugin lifecycle ----
 
   async init(context: PluginContext<ClaudeAgentConfig>): Promise<void> {
     this.config = context.config;
     this.logger = context.logger;
+
+    // Default: local execution (override externally for testing or remote)
+    if (!this.workspaceProvider) {
+      const { LocalWorkspaceProvider } = await import('@ouija/workspace-local');
+      this.workspaceProvider = new LocalWorkspaceProvider(
+        this.config.workDir !== undefined ? { baseDir: this.config.workDir } : {},
+      );
+    }
+    if (!this.agentRunner) {
+      const { LocalAgentRunner } = await import('@ouija/workspace-local');
+      this.agentRunner = new LocalAgentRunner(
+        this.config.claudeBinaryPath !== undefined ? { binaryPath: this.config.claudeBinaryPath } : {},
+      );
+    }
   }
 
   async start(): Promise<void> {
@@ -114,10 +115,12 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
   }
 
   async stop(): Promise<void> {
-    // Abort all in-flight agents. Each _runAgent will clean up its own temp
-    // directory in its finally block.
+    // Abort all in-flight agents and destroy their workspaces.
     for (const [, dispatch] of this.activeDispatches) {
       dispatch.abortController.abort();
+      if (dispatch.workspace) {
+        await this.workspaceProvider.destroy(dispatch.workspace.id).catch(() => {});
+      }
     }
     this.activeDispatches.clear();
     this.logger.info('Claude agent plugin stopped');
@@ -174,6 +177,9 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
     if (dispatch) {
       dispatch.abortController.abort();
       dispatch.state = 'cancelled';
+      if (dispatch.workspace) {
+        await this.workspaceProvider.destroy(dispatch.workspace.id).catch(() => {});
+      }
       this.logger.info('Dispatch cancelled', { dispatchId: String(id) });
     }
   }
@@ -205,7 +211,6 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
 
   private async _runAgent(dispatch: ActiveDispatch): Promise<void> {
     const { workOrder } = dispatch;
-    let cloneDir: string | undefined;
 
     const reporter = new HeartbeatReporter(
       workOrder.callbackUrl,
@@ -215,54 +220,46 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
     );
 
     try {
+      // 1. Provision workspace
+      dispatch.state = 'provisioning';
+      await reporter.reportProgress('Provisioning workspace...');
+
+      const workspace = await this.workspaceProvider.provision({
+        type: this.workspaceProvider.type,
+        repoUrl: workOrder.repoUrl,
+        baseBranch: workOrder.baseBranch,
+        featureBranch: workOrder.branch,
+      });
+      dispatch.workspace = workspace;
+
+      // 2. Run agent
       dispatch.state = 'running';
-      await reporter.reportProgress('Agent acknowledged work order');
-
-      // 1. Create temp directory for the repo clone.
-      const workDirBase = this.config.workDir ?? tmpdir();
-      cloneDir = await mkdtemp(join(workDirBase, 'ouija-agent-'));
-
-      // 2. Clone the repo (checking out baseBranch).
-      await reporter.reportProgress('Cloning repository...');
-      await this._cloneFn(workOrder.repoUrl, cloneDir, workOrder.baseBranch);
-
-      // 3. Create the feature branch.
-      await this._createBranchFn(cloneDir, workOrder.branch);
-      await reporter.reportProgress(`Created branch ${workOrder.branch}`);
-
-      // 4. Resolve API key.
-      // In production this would call a credential store using workOrder.secretRef.
-      // For now we read from the process environment as a fallback.
-      const apiKey = process.env['ANTHROPIC_API_KEY'] ?? '';
-      const cliArgs = buildCliArgs(workOrder, cloneDir, apiKey);
-
-      // 5. Start periodic heartbeat (every 30 s).
+      await reporter.reportProgress('Running Claude Code...');
       reporter.startInterval(30_000);
 
-      // 6. Spawn Claude Code CLI.
-      await reporter.reportProgress('Running Claude Code...');
-      const result = await this._spawnFn({
-        prompt: cliArgs.prompt,
-        cwd: cliArgs.cwd,
-        env: cliArgs.env,
-        timeoutMs: cliArgs.timeoutMs,
-        ...(this.config.claudeBinaryPath !== undefined
-          ? { binaryPath: this.config.claudeBinaryPath }
-          : {}),
-        signal: dispatch.abortController.signal,
-        onOutput: (chunk) => {
-          // Track the last output chunk for status reporting.
-          dispatch.message = chunk.slice(0, 200);
-        },
-      });
+      const apiKey = process.env['ANTHROPIC_API_KEY'] ?? '';
+      const prompt = buildPrompt(workOrder);
 
-      // 7. Stop heartbeat before reporting final state.
+      const result = await this.agentRunner.run(
+        workspace,
+        prompt,
+        { ANTHROPIC_API_KEY: apiKey },
+        workOrder.maxDurationMs,
+        {
+          signal: dispatch.abortController.signal,
+          onOutput: (chunk) => {
+            dispatch.message = chunk.slice(0, 200);
+          },
+        },
+      );
+
       reporter.stopInterval();
 
+      // 3. Report result
       if (result.timedOut) {
         await reporter.reportFailed(
           `Agent timed out after ${Math.round(result.durationMs / 1_000)}s`,
-          /* retryable */ true,
+          true,
         );
         dispatch.state = 'failed';
         return;
@@ -271,13 +268,12 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
       if (result.exitCode !== 0) {
         await reporter.reportFailed(
           `Claude CLI exited with code ${result.exitCode}: ${result.stderr.slice(0, 500)}`,
-          /* retryable */ true,
+          true,
         );
         dispatch.state = 'failed';
         return;
       }
 
-      // 8. Success.
       await reporter.reportCompleted();
       dispatch.state = 'completed';
     } catch (err: unknown) {
@@ -288,21 +284,21 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
         error: errorMsg,
       });
 
-      // Best-effort failure report — if the callback itself fails (network
-      // outage, expired JWT), the stall monitor will detect the silence.
       try {
-        await reporter.reportFailed(errorMsg, /* retryable */ true);
+        await reporter.reportFailed(errorMsg, true);
       } catch {
         // Swallow — stall monitor handles this case.
       }
       dispatch.state = 'failed';
     } finally {
-      // Always remove the temp directory regardless of outcome.
-      if (cloneDir) {
+      // 4. Always destroy workspace
+      if (dispatch.workspace) {
         try {
-          await rm(cloneDir, { recursive: true, force: true });
+          await this.workspaceProvider.destroy(dispatch.workspace.id);
         } catch {
-          this.logger.warn('Failed to remove clone directory', { cloneDir });
+          this.logger.warn('Failed to destroy workspace', {
+            workspaceId: dispatch.workspace.id,
+          });
         }
       }
     }

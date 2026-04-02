@@ -1,16 +1,15 @@
 /**
  * plugin.test.ts
  *
- * Integration-level tests for ClaudeAgentPlugin. All I/O (subprocess, git)
- * is replaced by vi.fn() mocks injected via the plugin's overridable fields.
+ * Integration-level tests for ClaudeAgentPlugin. All I/O (workspace provisioning,
+ * agent execution) is replaced by injected mock WorkspaceProvider and AgentRunner.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ClaudeAgentPlugin } from '../src/index.js';
 import { createMockContext } from '@ouija/plugin-sdk';
-import type { WorkOrder } from '@ouija/types';
+import type { WorkOrder, WorkspaceProvider, AgentRunner, WorkspaceSpec, Workspace, WorkspaceHealth, AgentRunResult } from '@ouija/types';
 import { dispatchId } from '@ouija/types';
-import type { SubprocessResult } from '../src/subprocess.js';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -34,7 +33,7 @@ const baseWorkOrder: WorkOrder = {
   metadata: {},
 };
 
-function makeSuccessResult(): SubprocessResult {
+function makeSuccessResult(): AgentRunResult {
   return {
     exitCode: 0,
     stdout: 'Done.',
@@ -44,7 +43,7 @@ function makeSuccessResult(): SubprocessResult {
   };
 }
 
-function makeFailedResult(exitCode = 1): SubprocessResult {
+function makeFailedResult(exitCode = 1): AgentRunResult {
   return {
     exitCode,
     stdout: '',
@@ -54,7 +53,7 @@ function makeFailedResult(exitCode = 1): SubprocessResult {
   };
 }
 
-function makeTimedOutResult(): SubprocessResult {
+function makeTimedOutResult(): AgentRunResult {
   return {
     exitCode: 1,
     stdout: '',
@@ -65,10 +64,41 @@ function makeTimedOutResult(): SubprocessResult {
 }
 
 // ---------------------------------------------------------------------------
+// Mock factory helpers
+// ---------------------------------------------------------------------------
+
+function makeMockWorkspaceProvider(): WorkspaceProvider & { provisionCalls: WorkspaceSpec[]; destroyCalls: string[] } {
+  const provisionCalls: WorkspaceSpec[] = [];
+  const destroyCalls: string[] = [];
+  return {
+    type: 'local',
+    provisionCalls,
+    destroyCalls,
+    async provision(spec: WorkspaceSpec): Promise<Workspace> {
+      provisionCalls.push(spec);
+      return { id: 'ws-mock-1', type: 'local', endpoint: '/tmp/mock-workspace' };
+    },
+    async destroy(id: string): Promise<void> { destroyCalls.push(id); },
+    async healthCheck(): Promise<WorkspaceHealth> { return { alive: true }; },
+  };
+}
+
+function makeMockAgentRunner(result: AgentRunResult): AgentRunner & { runCalls: unknown[] } {
+  const runCalls: unknown[] = [];
+  return {
+    runCalls,
+    async run(workspace, prompt, env, timeoutMs, options?): Promise<AgentRunResult> {
+      runCalls.push({ workspace, prompt, env, timeoutMs });
+      return result;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Plugin setup helper
 // ---------------------------------------------------------------------------
 
-async function makePlugin() {
+async function makePlugin(runnerResult: AgentRunResult = makeSuccessResult()) {
   const plugin = new ClaudeAgentPlugin();
   const ctx = createMockContext({
     secretRef: 'cred:test',
@@ -76,18 +106,19 @@ async function makePlugin() {
     maxDurationMs: 60_000,
     repoAccessTokens: {},
   });
+
+  // Inject mocks BEFORE init so init() does not install real providers
+  const wsProvider = makeMockWorkspaceProvider();
+  const agentRunner = makeMockAgentRunner(runnerResult);
+  plugin.workspaceProvider = wsProvider;
+  plugin.agentRunner = agentRunner;
+
   await plugin.init(ctx);
 
-  // Replace all I/O with no-op mocks by default
-  plugin._cloneFn = vi.fn().mockResolvedValue(undefined);
-  plugin._createBranchFn = vi.fn().mockResolvedValue(undefined);
-  plugin._spawnFn = vi.fn().mockResolvedValue(makeSuccessResult());
-
-  return { plugin, ctx };
+  return { plugin, ctx, wsProvider, agentRunner };
 }
 
 // We also need to mock the HeartbeatReporter so tests don't make real HTTP calls.
-// We do this by mocking the heartbeat module.
 vi.mock('../src/heartbeat.js', () => {
   const mockReporter = {
     reportProgress: vi.fn().mockResolvedValue(undefined),
@@ -103,12 +134,6 @@ vi.mock('../src/heartbeat.js', () => {
     HeartbeatReporter: vi.fn(() => mockReporter),
   };
 });
-
-// Also mock mkdtemp and rm so no real filesystem ops happen
-vi.mock('node:fs/promises', () => ({
-  mkdtemp: vi.fn().mockResolvedValue('/tmp/ouija-agent-mock'),
-  rm: vi.fn().mockResolvedValue(undefined),
-}));
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -140,7 +165,7 @@ describe('ClaudeAgentPlugin', () => {
       const { plugin } = await makePlugin();
       const id = await plugin.dispatch(baseWorkOrder);
       const status = await plugin.getStatus(id);
-      expect(['dispatching', 'running', 'completed']).toContain(status.state);
+      expect(['dispatching', 'provisioning', 'running', 'completed']).toContain(status.state);
     });
 
     it('each dispatch gets a unique ID', async () => {
@@ -150,44 +175,117 @@ describe('ClaudeAgentPlugin', () => {
       expect(String(id1)).not.toBe(String(id2));
     });
 
-    it('clones the repo as part of agent run', async () => {
-      const { plugin } = await makePlugin();
+    it('provisions a workspace as part of agent run', async () => {
+      const { plugin, wsProvider } = await makePlugin();
       await plugin.dispatch(baseWorkOrder);
       // Allow microtask queue to drain
       await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(plugin._cloneFn).toHaveBeenCalledWith(
-        baseWorkOrder.repoUrl,
-        expect.any(String),
-        baseWorkOrder.baseBranch,
-      );
+      expect(wsProvider.provisionCalls).toHaveLength(1);
+      expect(wsProvider.provisionCalls[0]).toMatchObject({
+        repoUrl: baseWorkOrder.repoUrl,
+        baseBranch: baseWorkOrder.baseBranch,
+        featureBranch: baseWorkOrder.branch,
+      });
     });
 
-    it('spawns the Claude CLI as part of agent run', async () => {
-      const { plugin } = await makePlugin();
+    it('runs the agent via AgentRunner as part of agent run', async () => {
+      const { plugin, agentRunner } = await makePlugin();
       await plugin.dispatch(baseWorkOrder);
       await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(plugin._spawnFn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          cwd: expect.any(String),
-          timeoutMs: baseWorkOrder.maxDurationMs,
-        }),
-      );
+      expect(agentRunner.runCalls).toHaveLength(1);
+      expect(agentRunner.runCalls[0]).toMatchObject({
+        workspace: { id: 'ws-mock-1', type: 'local' },
+        timeoutMs: baseWorkOrder.maxDurationMs,
+      });
+    });
+
+    it('destroys workspace after successful run', async () => {
+      const { plugin, wsProvider } = await makePlugin();
+      await plugin.dispatch(baseWorkOrder);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(wsProvider.destroyCalls).toContain('ws-mock-1');
+    });
+
+    it('destroys workspace after failed run', async () => {
+      const { plugin, wsProvider } = await makePlugin(makeFailedResult());
+      await plugin.dispatch(baseWorkOrder);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(wsProvider.destroyCalls).toContain('ws-mock-1');
+    });
+
+    it('destroys workspace after timed out run', async () => {
+      const { plugin, wsProvider } = await makePlugin(makeTimedOutResult());
+      await plugin.dispatch(baseWorkOrder);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(wsProvider.destroyCalls).toContain('ws-mock-1');
     });
   });
 
   describe('cancel()', () => {
     it('marks the dispatch as cancelled', async () => {
-      const { plugin } = await makePlugin();
-      // Make spawn take a while so we can cancel it
-      plugin._spawnFn = vi.fn().mockImplementation(
-        () => new Promise((resolve) => setTimeout(() => resolve(makeSuccessResult()), 5_000)),
-      );
+      const plugin = new ClaudeAgentPlugin();
+      const ctx = createMockContext({
+        secretRef: 'cred:test',
+        defaultModel: 'claude-sonnet-4-20250514',
+        maxDurationMs: 60_000,
+        repoAccessTokens: {},
+      });
+
+      // Make the runner hang so we can cancel mid-flight
+      const wsProvider = makeMockWorkspaceProvider();
+      let resolveRun!: (r: AgentRunResult) => void;
+      const hangingRunner: AgentRunner & { runCalls: unknown[] } = {
+        runCalls: [],
+        async run(workspace, prompt, env, timeoutMs): Promise<AgentRunResult> {
+          return new Promise((resolve) => { resolveRun = resolve; });
+        },
+      };
+      plugin.workspaceProvider = wsProvider;
+      plugin.agentRunner = hangingRunner;
+
+      await plugin.init(ctx);
 
       const id = await plugin.dispatch(baseWorkOrder);
+      // Wait for provisioning to complete so workspace is set
+      await new Promise((resolve) => setTimeout(resolve, 50));
       await plugin.cancel(id);
 
       const status = await plugin.getStatus(id);
       expect(status.state).toBe('cancelled');
+
+      // Unblock the hanging runner to avoid open handles
+      resolveRun(makeSuccessResult());
+    });
+
+    it('destroys workspace on cancel', async () => {
+      const plugin = new ClaudeAgentPlugin();
+      const ctx = createMockContext({
+        secretRef: 'cred:test',
+        defaultModel: 'claude-sonnet-4-20250514',
+        maxDurationMs: 60_000,
+        repoAccessTokens: {},
+      });
+
+      const wsProvider = makeMockWorkspaceProvider();
+      let resolveRun!: (r: AgentRunResult) => void;
+      const hangingRunner: AgentRunner & { runCalls: unknown[] } = {
+        runCalls: [],
+        async run(): Promise<AgentRunResult> {
+          return new Promise((resolve) => { resolveRun = resolve; });
+        },
+      };
+      plugin.workspaceProvider = wsProvider;
+      plugin.agentRunner = hangingRunner;
+
+      await plugin.init(ctx);
+
+      const id = await plugin.dispatch(baseWorkOrder);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await plugin.cancel(id);
+
+      expect(wsProvider.destroyCalls).toContain('ws-mock-1');
+
+      resolveRun(makeSuccessResult());
     });
 
     it('is a no-op for unknown dispatch IDs', async () => {
@@ -220,12 +318,26 @@ describe('ClaudeAgentPlugin', () => {
     });
 
     it('reports active dispatch count', async () => {
-      const { plugin } = await makePlugin();
-      // Make spawn hang so dispatch stays active
-      plugin._spawnFn = vi.fn().mockImplementation(
-        () => new Promise(() => { /* never resolves */ }),
-      );
+      const plugin = new ClaudeAgentPlugin();
+      const ctx = createMockContext({
+        secretRef: 'cred:test',
+        defaultModel: 'claude-sonnet-4-20250514',
+        maxDurationMs: 60_000,
+        repoAccessTokens: {},
+      });
 
+      const wsProvider = makeMockWorkspaceProvider();
+      // Never-resolving runner keeps dispatch active
+      const hangingRunner: AgentRunner & { runCalls: unknown[] } = {
+        runCalls: [],
+        async run(): Promise<AgentRunResult> {
+          return new Promise(() => { /* never resolves */ });
+        },
+      };
+      plugin.workspaceProvider = wsProvider;
+      plugin.agentRunner = hangingRunner;
+
+      await plugin.init(ctx);
       await plugin.dispatch(baseWorkOrder);
       await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -236,11 +348,25 @@ describe('ClaudeAgentPlugin', () => {
 
   describe('stop()', () => {
     it('cancels all active dispatches and clears the map', async () => {
-      const { plugin } = await makePlugin();
-      plugin._spawnFn = vi.fn().mockImplementation(
-        () => new Promise(() => { /* never resolves */ }),
-      );
+      const plugin = new ClaudeAgentPlugin();
+      const ctx = createMockContext({
+        secretRef: 'cred:test',
+        defaultModel: 'claude-sonnet-4-20250514',
+        maxDurationMs: 60_000,
+        repoAccessTokens: {},
+      });
 
+      const wsProvider = makeMockWorkspaceProvider();
+      const hangingRunner: AgentRunner & { runCalls: unknown[] } = {
+        runCalls: [],
+        async run(): Promise<AgentRunResult> {
+          return new Promise(() => { /* never resolves */ });
+        },
+      };
+      plugin.workspaceProvider = wsProvider;
+      plugin.agentRunner = hangingRunner;
+
+      await plugin.init(ctx);
       await plugin.dispatch(baseWorkOrder);
       await plugin.dispatch({ ...baseWorkOrder, instanceId: 'inst-2' as WorkOrder['instanceId'] });
       await new Promise((resolve) => setTimeout(resolve, 50));

@@ -45,6 +45,9 @@ export interface ClaudeAgentConfig {
    * Defaults to "claude" (assumes it is on PATH).
    */
   claudeBinaryPath?: string;
+
+  /** 'local' for subprocess, 'remote' for future SaaS providers. Defaults to 'local'. */
+  executionMode?: 'local' | 'remote';
 }
 
 /**
@@ -83,6 +86,11 @@ export const claudeAgentConfigSchema = {
     claudeBinaryPath: {
       type: 'string',
       description: 'Absolute path to the claude CLI binary',
+    },
+    executionMode: {
+      type: 'string',
+      enum: ['local', 'remote'],
+      description: 'Execution mode: local subprocess or remote sandbox',
     },
   },
   additionalProperties: false,
