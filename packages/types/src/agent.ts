@@ -46,6 +46,7 @@ export interface WorkOrder {
 
 export type AgentStatusState =
   | 'idle'
+  | 'provisioning'
   | 'dispatching'
   | 'running'
   | 'completed'

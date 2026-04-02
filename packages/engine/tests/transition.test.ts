@@ -273,6 +273,22 @@ describe('card_moved → rejected (pipeline already active)', () => {
     if (!result.rejected) return;
     expect(result.reason).toContain('running');
   });
+
+  it('rejects when pipeline is in provisioning state', () => {
+    const trigger: PipelineTrigger = {
+      type: 'card_moved',
+      cardId: cardId('card-1'),
+      toColumnId: columnId('col-inprogress'),
+      fromColumnId: columnId('col-backlog'),
+      guardContext: guardCtx,
+    };
+
+    const result = transition(provisioning, trigger, testConfig);
+
+    expect(result.rejected).toBe(true);
+    if (!result.rejected) return;
+    expect(result.reason).toContain('provisioning');
+  });
 });
 
 describe('card_moved → guard failure (notification, state unchanged)', () => {
@@ -1043,6 +1059,167 @@ describe('pr_merged → succeeded', () => {
 
     const result = transition(stalled, trigger, testConfig);
     expect(result.rejected).toBe(true);
+  });
+});
+
+// ---- workspace_provisioned ----
+
+const provisioning: PipelineState = {
+  status: 'provisioning',
+  dispatchId: dispatchId('d-1'),
+  agentId: agentId('agent-rex'),
+  dispatchedAt: '2026-04-01T10:00:00Z',
+};
+
+const provisioningWithWorkspace: PipelineState = {
+  status: 'provisioning',
+  dispatchId: dispatchId('d-1'),
+  agentId: agentId('agent-rex'),
+  dispatchedAt: '2026-04-01T10:00:00Z',
+  workspaceId: 'ws-abc123',
+};
+
+describe('workspace_provisioned trigger', () => {
+  it('transitions from provisioning to dispatching', () => {
+    const trigger: PipelineTrigger = {
+      type: 'workspace_provisioned',
+      dispatchId: dispatchId('d-1'),
+      workspaceId: 'ws-abc123',
+    };
+
+    const result = transition(provisioning, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('dispatching');
+    if (result.nextState.status === 'dispatching') {
+      expect(result.nextState.dispatchId).toBe(dispatchId('d-1'));
+      expect(result.nextState.agentId).toBe(agentId('agent-rex'));
+      expect(result.nextState.dispatchedAt).toBe(provisioning.dispatchedAt);
+    }
+    expect(result.sideEffects).toHaveLength(0);
+  });
+
+  it('rejects from non-provisioning state (idle)', () => {
+    const trigger: PipelineTrigger = {
+      type: 'workspace_provisioned',
+      dispatchId: dispatchId('d-1'),
+      workspaceId: 'ws-abc123',
+    };
+
+    const result = transition(idle, trigger, testConfig);
+
+    expect(result.rejected).toBe(true);
+    if (!result.rejected) return;
+    expect(result.reason).toContain('provisioning');
+  });
+
+  it('rejects with mismatched dispatchId', () => {
+    const trigger: PipelineTrigger = {
+      type: 'workspace_provisioned',
+      dispatchId: dispatchId('d-WRONG'),
+      workspaceId: 'ws-abc123',
+    };
+
+    const result = transition(provisioning, trigger, testConfig);
+
+    expect(result.rejected).toBe(true);
+    if (!result.rejected) return;
+    expect(result.reason.toLowerCase()).toContain('mismatch');
+  });
+});
+
+// ---- provisioning state in cancel ----
+
+describe('provisioning state in cancel', () => {
+  it('cancels pipeline in provisioning state with destroy_workspace side effect when workspaceId present', () => {
+    const trigger: PipelineTrigger = {
+      type: 'human_cancel',
+      cancelledBy: 'mk',
+    };
+
+    const result = transition(provisioningWithWorkspace, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('cancelled');
+    expect(result.sideEffects.some((e) => e.type === 'destroy_workspace')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_stall_check')).toBe(true);
+
+    const destroyEffect = result.sideEffects.find((e) => e.type === 'destroy_workspace');
+    expect(destroyEffect?.payload['workspaceId']).toBe('ws-abc123');
+  });
+
+  it('cancels pipeline in provisioning state without destroy_workspace when no workspaceId', () => {
+    const trigger: PipelineTrigger = {
+      type: 'human_cancel',
+      cancelledBy: 'mk',
+    };
+
+    const result = transition(provisioning, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('cancelled');
+    expect(result.sideEffects.some((e) => e.type === 'destroy_workspace')).toBe(false);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_stall_check')).toBe(true);
+  });
+});
+
+// ---- stall_detected from provisioning ----
+
+describe('stall_detected from provisioning', () => {
+  it('transitions from provisioning to stalled', () => {
+    const trigger: PipelineTrigger = {
+      type: 'stall_detected',
+      dispatchId: dispatchId('d-1'),
+      detectedAt: '2026-04-01T10:10:00Z',
+    };
+
+    const result = transition(provisioning, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('stalled');
+    if (result.nextState.status === 'stalled') {
+      expect(result.nextState.stalledAt).toBe('2026-04-01T10:10:00Z');
+      // No lastHeartbeatAt in provisioning — defaults to detectedAt
+      expect(result.nextState.lastHeartbeatAt).toBe('2026-04-01T10:10:00Z');
+    }
+    expect(result.sideEffects.some((e) => e.type === 'send_notification')).toBe(true);
+  });
+});
+
+// ---- agent_failed from provisioning ----
+
+describe('agent_failed from provisioning', () => {
+  it('transitions from provisioning to failed', () => {
+    const trigger: PipelineTrigger = {
+      type: 'agent_failed',
+      dispatchId: dispatchId('d-1'),
+      error: 'Workspace boot failed',
+      retryable: true,
+    };
+
+    const result = transition(provisioning, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('failed');
+    if (result.nextState.status === 'failed') {
+      expect(result.nextState.error).toBe('Workspace boot failed');
+      expect(result.nextState.retryable).toBe(true);
+    }
+    expect(result.sideEffects.some((e) => e.type === 'send_notification')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'move_card')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_stall_check')).toBe(true);
   });
 });
 

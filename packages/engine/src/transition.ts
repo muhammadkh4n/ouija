@@ -35,6 +35,8 @@ export function transition(
       return handleCardMoved(state, trigger, config);
     case 'card_assigned':
       return handleCardAssigned(state, trigger, config);
+    case 'workspace_provisioned':
+      return handleWorkspaceProvisioned(state, trigger);
     case 'agent_acknowledged':
       return handleAgentAcknowledged(state, trigger);
     case 'agent_progress':
@@ -71,7 +73,7 @@ function handleCardMoved(
   config: PipelineConfig,
 ): TransitionOutcome {
   // Reject if pipeline is already active — we do not dispatch a second agent
-  if (state.status === 'dispatching' || state.status === 'running') {
+  if (state.status === 'provisioning' || state.status === 'dispatching' || state.status === 'running') {
     return {
       rejected: true,
       reason: `Pipeline already active (status: ${state.status}), skipping dispatch`,
@@ -209,6 +211,39 @@ function handleCardAssigned(
   return {
     rejected: true,
     reason: 'card_assigned with auto-start enabled must be converted to card_moved by the Orchestrator before calling transition()',
+  };
+}
+
+function handleWorkspaceProvisioned(
+  state: PipelineState,
+  trigger: Extract<PipelineTrigger, { type: 'workspace_provisioned' }>,
+): TransitionOutcome {
+  if (state.status !== 'provisioning') {
+    return {
+      rejected: true,
+      reason: `Cannot mark workspace provisioned: pipeline is in state "${state.status}", expected "provisioning"`,
+    };
+  }
+
+  if (state.dispatchId !== trigger.dispatchId) {
+    return {
+      rejected: true,
+      reason: `Dispatch ID mismatch: expected "${state.dispatchId}", got "${trigger.dispatchId}"`,
+    };
+  }
+
+  const nextState: PipelineState = {
+    status: 'dispatching',
+    dispatchId: state.dispatchId,
+    agentId: state.agentId,
+    dispatchedAt: state.dispatchedAt,
+  };
+
+  return {
+    rejected: false,
+    nextState,
+    events: [],
+    sideEffects: [],
   };
 }
 
@@ -369,10 +404,10 @@ function handleAgentFailed(
   state: PipelineState,
   trigger: Extract<PipelineTrigger, { type: 'agent_failed' }>,
 ): TransitionOutcome {
-  if (state.status !== 'running' && state.status !== 'dispatching') {
+  if (state.status !== 'running' && state.status !== 'dispatching' && state.status !== 'provisioning') {
     return {
       rejected: true,
-      reason: `Cannot fail: pipeline is in state "${state.status}", expected "running" or "dispatching"`,
+      reason: `Cannot fail: pipeline is in state "${state.status}", expected "running", "dispatching", or "provisioning"`,
     };
   }
 
@@ -417,10 +452,10 @@ function handleStallDetected(
   state: PipelineState,
   trigger: Extract<PipelineTrigger, { type: 'stall_detected' }>,
 ): TransitionOutcome {
-  if (state.status !== 'running' && state.status !== 'dispatching') {
+  if (state.status !== 'running' && state.status !== 'dispatching' && state.status !== 'provisioning') {
     return {
       rejected: true,
-      reason: `Cannot mark stalled: pipeline is in state "${state.status}", expected "running" or "dispatching"`,
+      reason: `Cannot mark stalled: pipeline is in state "${state.status}", expected "running", "dispatching", or "provisioning"`,
     };
   }
 
@@ -521,7 +556,14 @@ function handleHumanCancel(
   ];
 
   // Only active states have an agent that needs cancelling
-  if (state.status === 'dispatching' || state.status === 'running') {
+  if (state.status === 'provisioning' || state.status === 'dispatching' || state.status === 'running') {
+    if (state.status === 'provisioning' && 'workspaceId' in state && state.workspaceId) {
+      sideEffects.push({
+        type: 'destroy_workspace',
+        payload: { workspaceId: state.workspaceId },
+        idempotencyKey: `destroy-ws-${state.dispatchId}`,
+      });
+    }
     sideEffects.push(
       {
         type: 'cancel_agent',

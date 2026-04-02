@@ -5,6 +5,7 @@ import type { OuijaTopic, OuijaEventMap } from './events.js';
 
 export type PipelineState =
   | { status: 'idle' }
+  | { status: 'provisioning'; dispatchId: DispatchId; agentId: AgentId; dispatchedAt: string; workspaceId?: string }
   | { status: 'dispatching'; dispatchId: DispatchId; agentId: AgentId; dispatchedAt: string }
   | { status: 'running'; dispatchId: DispatchId; agentId: AgentId; dispatchedAt: string; lastHeartbeatAt: string }
   | { status: 'succeeded'; dispatchId: DispatchId; agentId: AgentId; completedAt: string; prUrl?: string; cost?: number; tokensUsed?: number }
@@ -27,6 +28,7 @@ export interface GuardResult {
 export type PipelineTrigger =
   | { type: 'card_moved'; cardId: CardId; toColumnId: ColumnId; fromColumnId: ColumnId; guardContext: GuardContext }
   | { type: 'card_assigned'; cardId: CardId; assigneeId: string }
+  | { type: 'workspace_provisioned'; dispatchId: DispatchId; workspaceId: string }
   | { type: 'agent_acknowledged'; dispatchId: DispatchId }
   | { type: 'agent_progress'; dispatchId: DispatchId; heartbeatAt: string; message: string }
   | { type: 'agent_pr_ready'; dispatchId: DispatchId; prUrl: string; prId: PrId }
@@ -54,7 +56,8 @@ export type SideEffectType =
   | 'dispatch_agent'
   | 'cancel_agent'
   | 'enqueue_stall_check'
-  | 'cancel_stall_check';
+  | 'cancel_stall_check'
+  | 'destroy_workspace';
 
 export interface SideEffect {
   type: SideEffectType;
