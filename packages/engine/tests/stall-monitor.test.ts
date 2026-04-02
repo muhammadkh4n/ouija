@@ -78,11 +78,15 @@ function createMockOrchestrator(): MockOrchestrator {
 
 // ---- Test fixtures ----
 
-function makeStalledInstance(status: 'dispatching' | 'running' = 'running'): PipelineInstance {
+function makeStalledInstance(
+  status: 'dispatching' | 'running' | 'provisioning' = 'running',
+  dispatchedAtOffsetMs: number = 600_000,
+): PipelineInstance {
   const iid = instanceId('inst-stalled-001');
   const dId = dispatchId('disp-stalled-001');
   const aId = agentId('agent-rex');
   const now = new Date().toISOString();
+  const dispatchedAt = new Date(Date.now() - dispatchedAtOffsetMs).toISOString();
 
   const state =
     status === 'running'
@@ -90,15 +94,22 @@ function makeStalledInstance(status: 'dispatching' | 'running' = 'running'): Pip
           status: 'running' as const,
           dispatchId: dId,
           agentId: aId,
-          dispatchedAt: new Date(Date.now() - 600_000).toISOString(),
-          lastHeartbeatAt: new Date(Date.now() - 600_000).toISOString(),
+          dispatchedAt,
+          lastHeartbeatAt: dispatchedAt,
         }
-      : {
-          status: 'dispatching' as const,
-          dispatchId: dId,
-          agentId: aId,
-          dispatchedAt: new Date(Date.now() - 600_000).toISOString(),
-        };
+      : status === 'provisioning'
+        ? {
+            status: 'provisioning' as const,
+            dispatchId: dId,
+            agentId: aId,
+            dispatchedAt,
+          }
+        : {
+            status: 'dispatching' as const,
+            dispatchId: dId,
+            agentId: aId,
+            dispatchedAt,
+          };
 
   return {
     id: iid,
@@ -325,5 +336,44 @@ describe('StallMonitor', () => {
 
     await expect(monitor.scan()).resolves.not.toThrow();
     expect(orchestrator.processStallDetected).not.toHaveBeenCalled();
+  });
+
+  // ---- Test 11: provisioning instance within 2x grace period is skipped ----
+
+  it('scan: provisioning instance within 2x grace period is NOT triggered', async () => {
+    // dispatchedAt is 350_000 ms ago — past the 1x threshold (300_000) but inside 2x (600_000)
+    // findStalledCandidates would return it (past 1x cutoff), but scan must filter it out
+    const stalledInstance = makeStalledInstance('provisioning', 350_000);
+    const db = createMinimalDatabase([stalledInstance]);
+    const orchestrator = createMockOrchestrator();
+    const monitor = new StallMonitor(
+      db,
+      orchestrator as unknown as import('../src/orchestrator.js').Orchestrator,
+      300_000,
+    );
+
+    await monitor.scan();
+
+    expect(orchestrator.processStallDetected).not.toHaveBeenCalled();
+  });
+
+  // ---- Test 12: provisioning instance past 2x grace period IS triggered ----
+
+  it('scan: provisioning instance past 2x grace period IS triggered', async () => {
+    // dispatchedAt is 700_000 ms ago — past the 2x threshold (600_000)
+    const stalledInstance = makeStalledInstance('provisioning', 700_000);
+    const db = createMinimalDatabase([stalledInstance]);
+    const orchestrator = createMockOrchestrator();
+    const monitor = new StallMonitor(
+      db,
+      orchestrator as unknown as import('../src/orchestrator.js').Orchestrator,
+      300_000,
+    );
+
+    await monitor.scan();
+
+    expect(orchestrator.processStallDetected).toHaveBeenCalledTimes(1);
+    const [calledInstanceId] = orchestrator.processStallDetected.mock.calls[0]!;
+    expect(calledInstanceId).toBe(String(stalledInstance.id));
   });
 });

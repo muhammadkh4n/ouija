@@ -12,7 +12,9 @@
  * Operation:
  *  1. Compute cutoff = now - defaultStallThresholdMs
  *  2. Query findStalledCandidates(cutoff) → instances that haven't heartbeated
- *  3. For each candidate: call orchestrator.processStallDetected()
+ *  3. Filter out provisioning instances still within the 2x grace period
+ *     (remote workspace cold starts can legitimately take minutes)
+ *  4. For each candidate: call orchestrator.processStallDetected()
  *
  * The orchestrator (and pure transition function) handles idempotency:
  * if the pipeline is already in stalled state, the transition is rejected
@@ -97,7 +99,13 @@ export class StallMonitor {
    */
   async scan(): Promise<void> {
     const cutoff = new Date(Date.now() - this.defaultStallThresholdMs);
-    this.logger.info('StallMonitor.scan running', { cutoff: cutoff.toISOString() });
+    // Provisioning gets extra grace time (2x) for VM cold starts
+    const provisioningGraceCutoff = new Date(Date.now() - this.defaultStallThresholdMs * 2);
+
+    this.logger.info('StallMonitor.scan running', {
+      cutoff: cutoff.toISOString(),
+      provisioningGraceCutoff: provisioningGraceCutoff.toISOString(),
+    });
 
     let candidates: PipelineInstance[];
     try {
@@ -108,6 +116,18 @@ export class StallMonitor {
       });
       return;
     }
+
+    // Filter out provisioning instances still within the extended grace period.
+    // findStalledCandidates uses the regular cutoff so some provisioning instances
+    // that crossed the 1x threshold but not the 2x threshold can appear here.
+    candidates = candidates.filter((instance) => {
+      const state = instance.state as PipelineState;
+      if (state.status === 'provisioning') {
+        const dispatchedAt = new Date(state.dispatchedAt);
+        return dispatchedAt < provisioningGraceCutoff;
+      }
+      return true;
+    });
 
     if (candidates.length === 0) {
       this.logger.info('StallMonitor.scan: no stalled candidates found');
@@ -135,7 +155,7 @@ export class StallMonitor {
     const state = instance.state as PipelineState;
 
     // Safety check — findStalledCandidates should only return these states
-    if (state.status !== 'dispatching' && state.status !== 'running') {
+    if (state.status !== 'dispatching' && state.status !== 'running' && state.status !== 'provisioning') {
       this.logger.warn('StallMonitor._triggerStall: unexpected state, skipping', {
         instanceId: String(instance.id),
         status: state.status,
