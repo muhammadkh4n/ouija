@@ -60,6 +60,19 @@ const noopLogger: OrchestratorLogger = {
   error: () => undefined,
 };
 
+// ---- Agent member lookup (injected by server) ----
+
+/** Injected by the server — maps Plane member IDs to agent IDs. */
+export interface AgentMemberLookup {
+  getAgentIdByMemberId(memberId: string): string | undefined;
+  getTriggerMode(agentId: string): 'auto' | 'manual' | undefined;
+}
+
+export const nullAgentMemberLookup: AgentMemberLookup = {
+  getAgentIdByMemberId: () => undefined,
+  getTriggerMode: () => undefined,
+};
+
 // ---- Config cache entry ----
 
 interface ConfigCacheEntry {
@@ -81,6 +94,7 @@ export class Orchestrator {
     private readonly jobQueue: JobQueue,
     private readonly kanbanPlugin: KanbanPlugin,
     private readonly logger: OrchestratorLogger = noopLogger,
+    private readonly agentMemberLookup: AgentMemberLookup = nullAgentMemberLookup,
   ) {}
 
   /**
@@ -162,6 +176,36 @@ export class Orchestrator {
         topic,
       });
       return;
+    }
+
+    // ---- Auto-acknowledge: if pipeline is dispatching and we get a progress/completed event,
+    // implicitly acknowledge first (dispatching → running), then process the event.
+    // This avoids requiring the agent plugin to send a separate acknowledged callback. ----
+
+    if (
+      instance.state.status === 'dispatching' &&
+      (trigger.type === 'agent_progress' || trigger.type === 'agent_completed')
+    ) {
+      const ackTrigger = {
+        type: 'agent_acknowledged' as const,
+        dispatchId: instance.state.dispatchId,
+      };
+      const ackOutcome = transition(instance.state, ackTrigger, config);
+      if (!ackOutcome.rejected) {
+        this.logger.info('processTrigger: auto-acknowledged dispatching → running', {
+          instanceId: String(instance.id),
+        });
+        const now = new Date().toISOString();
+        await this.db.transaction(async (uow) => {
+          await uow.pipelines.save({
+            ...instance,
+            state: ackOutcome.nextState,
+            updatedAt: now,
+          });
+        });
+        // Update local instance for the subsequent transition
+        instance = { ...instance, state: ackOutcome.nextState, updatedAt: now };
+      }
     }
 
     // ---- Call pure transition ----
@@ -390,6 +434,41 @@ export class Orchestrator {
 
       case 'kanban.card.assigned': {
         const payload = event.payload as { cardId: CardId; assigneeId: string };
+        const agentId = this.agentMemberLookup.getAgentIdByMemberId(payload.assigneeId);
+
+        if (agentId === undefined) {
+          // Not an agent — ignore
+          this.logger.info('card_assigned: assignee is not an agent, skipping', {
+            assigneeId: payload.assigneeId,
+          });
+          return undefined;
+        }
+
+        const triggerMode = this.agentMemberLookup.getTriggerMode(agentId);
+
+        if (triggerMode === 'auto') {
+          // Convert to card_moved to dispatch immediately
+          const mapping = _config.columnMappings.find(
+            (m) => m.action === 'dispatch_agent' && String(m.agentId ?? '') === agentId,
+          );
+          if (mapping === undefined) {
+            this.logger.warn('card_assigned auto: no dispatch column mapping for agent', {
+              agentId,
+              boardId: instance.boardId,
+            });
+            return undefined;
+          }
+          const guardContext = await this._fetchGuardContext(payload.cardId);
+          return {
+            type: 'card_moved',
+            cardId: payload.cardId,
+            toColumnId: mapping.columnId,
+            fromColumnId: makeColumnId(''),
+            guardContext,
+          };
+        }
+
+        // Manual mode: return the assignment trigger
         return {
           type: 'card_assigned',
           cardId: payload.cardId,

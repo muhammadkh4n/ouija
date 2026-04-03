@@ -14,7 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Orchestrator, CONFIG_CACHE_TTL_MS } from '../src/orchestrator.js';
-import type { OrchestratorLogger } from '../src/orchestrator.js';
+import type { OrchestratorLogger, AgentMemberLookup } from '../src/orchestrator.js';
 import type {
   Database,
   PipelineInstance,
@@ -637,5 +637,126 @@ describe('Orchestrator', () => {
 
     // Notification should be published
     expect(eventBus.published.length).toBeGreaterThan(0);
+  });
+});
+
+// ---- card_assigned + AgentMemberLookup tests ----
+
+describe('Orchestrator — card_assigned with AgentMemberLookup', () => {
+  let db: ReturnType<typeof createMockDatabase>;
+  let eventBus: ReturnType<typeof createMockEventBus>;
+  let jobQueue: ReturnType<typeof createMockJobQueue>;
+  let kanban: ReturnType<typeof createMockKanbanPlugin>;
+  let logger: ReturnType<typeof createMockLogger>;
+
+  const AGENT_MEMBER_ID = 'plane-member-rex';
+  const AGENT_REX_ID = 'rex-coder';
+
+  const autoLookup: AgentMemberLookup = {
+    getAgentIdByMemberId(memberId: string) {
+      if (memberId === AGENT_MEMBER_ID) return AGENT_REX_ID;
+      return undefined;
+    },
+    getTriggerMode(aid: string) {
+      if (aid === AGENT_REX_ID) return 'auto';
+      return undefined;
+    },
+  };
+
+  // Config with a dispatch_agent mapping referencing rex-coder
+  const CONFIG_WITH_REX: PipelineConfig = {
+    boardId: BOARD_ID,
+    defaultStallThresholdMs: 300_000,
+    autoStartOnAssign: false,
+    columnMappings: [
+      {
+        columnId: COL_INPROGRESS,
+        columnName: 'In Progress',
+        action: 'dispatch_agent',
+        agentId: agentId(AGENT_REX_ID),
+        guards: [{ type: 'min_description_length', value: 10 }],
+        stallThresholdMs: 300_000,
+      },
+      {
+        columnId: COL_DONE,
+        columnName: 'Done',
+        action: 'close_and_notify',
+        guards: [],
+      },
+      {
+        columnId: COL_BACKLOG,
+        columnName: 'Backlog',
+        action: 'noop',
+        guards: [],
+      },
+    ],
+  };
+
+  function makeCardAssignedEvent(
+    cid = CARD_ID,
+    assigneeId = AGENT_MEMBER_ID,
+  ): OuijaEvent<'kanban.card.assigned'> {
+    return {
+      id: 'evt-assign-001',
+      topic: 'kanban.card.assigned',
+      payload: { cardId: cid, assigneeId },
+      timestamp: new Date().toISOString(),
+      sourcePlugin: 'plugin-plane',
+      correlationId: 'corr-assign-001',
+    };
+  }
+
+  beforeEach(() => {
+    const cards = new Map<string, KanbanCard>([[String(CARD_ID), TEST_CARD]]);
+    db = createMockDatabase();
+    eventBus = createMockEventBus();
+    jobQueue = createMockJobQueue();
+    kanban = createMockKanbanPlugin(cards);
+    logger = createMockLogger();
+
+    db._configs.set(String(BOARD_ID), CONFIG_WITH_REX);
+  });
+
+  it('dispatches agent when assigned to agent member with triggerMode auto', async () => {
+    const orchestrator = new Orchestrator(db, eventBus, jobQueue, kanban, logger, autoLookup);
+
+    await orchestrator.processTrigger(makeCardAssignedEvent());
+
+    // Instance should be created and transitioned to dispatching
+    const instances = [...db._instances.values()];
+    expect(instances).toHaveLength(1);
+    const instance = instances[0]!;
+    expect(instance.state.status).toBe('dispatching');
+
+    // Agent dispatch job should be enqueued
+    const dispatchJobs = jobQueue.enqueued.filter(
+      (j) => j.queue === QUEUE_NAMES.agentDispatch,
+    );
+    expect(dispatchJobs).toHaveLength(1);
+
+    // Stall check should be enqueued
+    const stallJobs = jobQueue.enqueued.filter(
+      (j) => j.queue === QUEUE_NAMES.stallCheck,
+    );
+    expect(stallJobs).toHaveLength(1);
+  });
+
+  it('ignores assignment to non-agent member (no dispatch job enqueued)', async () => {
+    const orchestrator = new Orchestrator(db, eventBus, jobQueue, kanban, logger, autoLookup);
+
+    // Assign to a human user (not in the lookup)
+    await orchestrator.processTrigger(makeCardAssignedEvent(CARD_ID, 'human-user-42'));
+
+    // Instance may be created (idle), but no dispatch should happen
+    const dispatchJobs = jobQueue.enqueued.filter(
+      (j) => j.queue === QUEUE_NAMES.agentDispatch,
+    );
+    expect(dispatchJobs).toHaveLength(0);
+
+    // Logger should have info about skipping
+    const skipLogs = logger.calls.filter(
+      (c) => c.level === 'info' && c.message.includes('not an agent'),
+    );
+    expect(skipLogs).toHaveLength(1);
   });
 });
