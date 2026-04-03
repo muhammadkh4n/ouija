@@ -1,0 +1,57 @@
+# ouija.config.yaml — Agent configuration for self-hosted ouija.
+#
+# Copy this file to ouija.config.yaml and edit to match your setup.
+# Set OUIJA_CONFIG_PATH env var to use a different location.
+
+# claudeHome controls what the agent subprocess sees as ~/.claude/
+#   null (default): inherit host HOME — agent sees your Claude Code config
+#   "/path/to/dir": use as HOME for agent subprocesses
+claudeHome: null
+
+agents:
+  - id: rex-coder
+    name: Rex Coder
+    email: rex@ouija.local
+
+    # Trigger mode:
+    #   auto:   dispatch immediately when card is assigned to this agent
+    #   manual: wait for card to be moved to the dispatch column
+    triggerMode: auto
+
+    model: claude-sonnet-4-20250514
+
+    # System prompt — used when configDir is not set.
+    # When configDir IS set, the .claude/CLAUDE.md in that dir takes precedence.
+    systemPrompt: |
+      You are an expert software engineer.
+      Write clean, well-tested code. Follow existing project patterns.
+      Create a pull request when your work is complete.
+
+    # Optional: path to a directory containing .claude/ config (settings.json, CLAUDE.md).
+    # Gives the agent MCP servers, custom tools, hooks, skills.
+    # Test manually: cd <configDir> && claude
+    # configDir: ./agents/rex-coder
+
+    # Authentication for the Claude API.
+    # Methods: api-key, bedrock, vertex, foundry, api-key-helper, proxy
+    auth:
+      method: api-key
+      secretRef: env:ANTHROPIC_API_KEY
+
+    # Repos this agent can work on.
+    # url: clone from remote (fresh each dispatch, destroyed after)
+    # path: use existing local checkout (git worktree for isolation, fast)
+    # Exactly one repo must have default: true.
+    repos:
+      - url: https://github.com/your-org/your-repo.git
+        baseBranch: main
+        default: true
+
+      # Example: local repo (no clone, uses git worktree)
+      # - path: /home/you/Projects/your-repo
+      #   baseBranch: main
+      #   default: true
+
+    limits:
+      maxDurationMs: 1800000     # 30 minutes
+      stallThresholdMs: 300000   # 5 minutes
