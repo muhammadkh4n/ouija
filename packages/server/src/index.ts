@@ -262,6 +262,57 @@ async function main(): Promise<void> {
     console.info('Agent Plane members provisioned');
   }
 
+  // 6c. Seed board configs from ouija config
+  if (ouijaConfig?.boards && ouijaConfig.boards.length > 0 && planePluginInstance && planeWorkspaceSlug) {
+    const { buildPipelineConfig } = await import('@ouija/config');
+    const { boardId: makeBoardId, columnId: makeColumnId, agentId: makeAgentId } = await import('@ouija/types');
+
+    for (const boardConf of ouijaConfig.boards) {
+      const bid = makeBoardId(boardConf.projectId);
+      const existing = await db.boardConfigs.findByBoardId(bid);
+      if (existing) {
+        console.info(`Board config already exists for project ${boardConf.projectId}, skipping seed`);
+        continue;
+      }
+
+      const planeColumnClient = {
+        getStates: async (_ws: string, projId: string) => {
+          const states = await planePluginInstance!.getColumns(makeBoardId(projId));
+          return states.map(s => ({ id: String(s.id), name: s.name, group: 'unknown' }));
+        },
+      };
+
+      const seedable = await buildPipelineConfig(
+        boardConf,
+        planeColumnClient,
+        planeWorkspaceSlug,
+        {
+          info: (msg: string, ctx?: Record<string, unknown>) =>
+            console.info(JSON.stringify({ level: 'info', component: 'board-seeder', msg, ...ctx })),
+          warn: (msg: string, ctx?: Record<string, unknown>) =>
+            console.warn(JSON.stringify({ level: 'warn', component: 'board-seeder', msg, ...ctx })),
+        },
+      );
+
+      const pipelineConfig = {
+        boardId: bid,
+        columnMappings: seedable.columnMappings.map(m => ({
+          columnId: makeColumnId(m.columnId),
+          columnName: m.columnName,
+          action: m.action,
+          ...(m.agentId ? { agentId: makeAgentId(m.agentId) } : {}),
+          guards: m.guards.map(g => ({ type: g.type as 'min_description_length' | 'has_label' | 'has_assignee', value: g.value })),
+          ...(m.stallThresholdMs !== undefined ? { stallThresholdMs: m.stallThresholdMs } : {}),
+        })),
+        defaultStallThresholdMs: seedable.defaultStallThresholdMs,
+        autoStartOnAssign: seedable.autoStartOnAssign,
+      };
+
+      await db.boardConfigs.save(pipelineConfig as import('@ouija/types').PipelineConfig);
+      console.info(`Seeded board config for project ${boardConf.projectId}`);
+    }
+  }
+
   // 7. Create Orchestrator (with real logger — default is noopLogger which swallows everything)
   const orchestratorLogger = {
     info: (msg: string, ctx?: Record<string, unknown>) => console.info(JSON.stringify({ level: 'info', component: 'orchestrator', msg, ...ctx })),
@@ -367,6 +418,13 @@ async function main(): Promise<void> {
         baseBranch: defaultRepo?.baseBranch ?? 'main',
         triggerMode: agent.triggerMode,
         authMethod: agent.auth.method,
+        repos: agent.repos.map((r) => ({
+          url: r.url,
+          path: r.path,
+          baseBranch: r.baseBranch,
+          projectId: r.projectId,
+          default: r.default,
+        })),
       };
       if (defaultRepo?.url) profile.repoUrl = defaultRepo.url;
       if (defaultRepo?.path) profile.repoPath = defaultRepo.path;

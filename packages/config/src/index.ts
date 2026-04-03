@@ -4,3 +4,7 @@ export type { ValidationResult } from './schema.js';
 export { loadConfig } from './loader.js';
 export { AgentMemberRegistry } from './agent-member-registry.js';
 export type { PlaneClient, RegistryLogger } from './agent-member-registry.js';
+export { resolveRepo } from './repo-resolver.js';
+export type { ResolvedRepo } from './repo-resolver.js';
+export { buildPipelineConfig } from './board-seeder.js';
+export type { PlaneColumnClient, SeederLogger, SeedablePipelineConfig } from './board-seeder.js';

@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type { ErrorObject } from 'ajv';
-import type { OuijaConfig, AgentProfileConfig } from './types.js';
+import type { OuijaConfig, AgentProfileConfig, BoardConfig } from './types.js';
 
 // ajv and ajv-formats are CJS. Under NodeNext ESM, createRequire gives
 // clean access to their default exports without type gymnastics.
@@ -25,6 +25,7 @@ export type ValidationResult =
 interface RawOuijaConfig {
   claudeHome?: string | null;
   agents: AgentProfileConfig[];
+  boards?: BoardConfig[];
 }
 
 const agentProfileSchema = {
@@ -59,6 +60,7 @@ const agentProfileSchema = {
           path: { type: 'string', nullable: true },
           baseBranch: { type: 'string', minLength: 1 },
           default: { type: 'boolean', nullable: true },
+          projectId: { type: 'string', nullable: true },
         },
         required: ['baseBranch'],
         additionalProperties: false,
@@ -81,6 +83,32 @@ const agentProfileSchema = {
   additionalProperties: false,
 } as const;
 
+const boardColumnSchema = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', minLength: 1 },
+    action: { type: 'string', enum: ['dispatch_agent', 'close_and_notify', 'noop'] },
+    agentId: { type: 'string', nullable: true },
+  },
+  required: ['name', 'action'],
+  additionalProperties: false,
+} as const;
+
+const boardSchema = {
+  type: 'object',
+  properties: {
+    projectId: { type: 'string', minLength: 1 },
+    columns: {
+      type: 'array',
+      items: boardColumnSchema,
+    },
+    defaultStallThresholdMs: { type: 'number', minimum: 30000, nullable: true },
+    autoStartOnAssign: { type: 'boolean', nullable: true },
+  },
+  required: ['projectId', 'columns'],
+  additionalProperties: false,
+} as const;
+
 const configSchema = {
   type: 'object' as const,
   properties: {
@@ -89,6 +117,11 @@ const configSchema = {
       type: 'array',
       items: agentProfileSchema,
       minItems: 1,
+    },
+    boards: {
+      type: 'array',
+      items: boardSchema,
+      nullable: true,
     },
   },
   required: ['agents'],
@@ -137,6 +170,27 @@ function semanticChecks(data: RawOuijaConfig): string[] {
     }
   }
 
+  // Board semantic checks
+  if (data.boards) {
+    const projectIds = new Set<string>();
+    for (let b = 0; b < data.boards.length; b++) {
+      const board = data.boards[b]!;
+      if (projectIds.has(board.projectId)) {
+        errors.push(`Duplicate board projectId: "${board.projectId}"`);
+      }
+      projectIds.add(board.projectId);
+
+      for (let c = 0; c < board.columns.length; c++) {
+        const col = board.columns[c]!;
+        if (col.action === 'dispatch_agent' && !col.agentId) {
+          errors.push(
+            `Board "${board.projectId}" column "${col.name}": agentId is required when action is dispatch_agent`,
+          );
+        }
+      }
+    }
+  }
+
   return errors;
 }
 
@@ -157,6 +211,7 @@ export function validateConfig(data: unknown): ValidationResult {
   const config: OuijaConfig = {
     claudeHome: raw.claudeHome ?? null,
     agents: raw.agents,
+    ...(raw.boards ? { boards: raw.boards } : {}),
   };
 
   return { valid: true, config };

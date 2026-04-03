@@ -55,3 +55,17 @@ agents:
     limits:
       maxDurationMs: 1800000     # 30 minutes
       stallThresholdMs: 300000   # 5 minutes
+
+# Board configuration (optional).
+# Maps Plane project columns to actions.
+# If not set, you must create board configs via the REST API.
+# boards:
+#   - projectId: "<plane-project-uuid>"
+#     autoStartOnAssign: true
+#     columns:
+#       - name: In Progress
+#         action: dispatch_agent
+#         agentId: rex-coder
+#       - name: Done
+#         action: close_and_notify
+#       # Columns not listed default to noop
