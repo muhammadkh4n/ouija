@@ -45,6 +45,8 @@ export interface AssemblerDeps {
   serverBaseUrl: string;
   /** Issue a short-lived JWT for agent callbacks. */
   issueJwt(instanceId: string, boardId: string, workspaceId: string): Promise<string>;
+  /** Global claudeHome setting from ouija.config.yaml — injected into metadata. */
+  claudeHome?: string | null | undefined;
 }
 
 // ---- assembleWorkOrder ----
@@ -78,6 +80,7 @@ export async function assembleWorkOrder(
   if (profile.repoPath) metadata['repoPath'] = profile.repoPath;
   if (profile.configDir) metadata['configDir'] = profile.configDir;
   if (profile.authMethod) metadata['authMethod'] = profile.authMethod;
+  if (deps.claudeHome) metadata['claudeHome'] = deps.claudeHome;
 
   // 5. Construct the WorkOrder
   const workOrder: WorkOrder = {

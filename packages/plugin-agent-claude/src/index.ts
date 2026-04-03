@@ -212,11 +212,15 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
   private async _runAgent(dispatch: ActiveDispatch): Promise<void> {
     const { workOrder } = dispatch;
 
+    // Use the pipeline's dispatch ID (from transition function) for callbacks,
+    // NOT the plugin's internal dispatch ID. The orchestrator matches on this.
+    const pipelineDispatchId = workOrder.metadata['pipelineDispatchId'] ?? String(dispatch.dispatchId);
+
     const reporter = new HeartbeatReporter(
       workOrder.callbackUrl,
       workOrder.callbackToken,
       String(workOrder.instanceId),
-      String(dispatch.dispatchId),
+      pipelineDispatchId,
     );
 
     try {
@@ -232,18 +236,45 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
       });
       dispatch.workspace = workspace;
 
-      // 2. Run agent
+      // 2. Assemble workspace config (agent .claude/ + task context)
+      const { assembleWorkspaceConfig } = await import('./workspace-config.js');
+      await assembleWorkspaceConfig({
+        workspaceDir: workspace.endpoint,
+        systemPrompt: workOrder.systemPrompt || undefined,
+        configDir: workOrder.metadata['configDir'] || undefined,
+        title: workOrder.title,
+        description: workOrder.description,
+        acceptanceCriteria: workOrder.acceptanceCriteria,
+        branch: workOrder.branch,
+        baseBranch: workOrder.baseBranch,
+      });
+
+      // 3. Acknowledge — transitions pipeline dispatching → running
+      await reporter.reportAcknowledged();
+
+      // 4. Run agent
       dispatch.state = 'running';
       await reporter.reportProgress('Running Claude Code...');
       reporter.startInterval(30_000);
 
-      const apiKey = process.env['ANTHROPIC_API_KEY'] ?? '';
       const prompt = buildPrompt(workOrder);
+
+      // Pass ANTHROPIC_API_KEY if set (headless/CI), but Claude Code CLI
+      // also works without it (uses its own session auth from ~/.claude).
+      const agentEnv: Record<string, string> = {};
+      const apiKey = process.env['ANTHROPIC_API_KEY'];
+      if (apiKey) agentEnv['ANTHROPIC_API_KEY'] = apiKey;
+
+      // Override HOME if claudeHome is configured (controls where ~/.claude/ resolves)
+      const claudeHome = workOrder.metadata['claudeHome'];
+      if (claudeHome) {
+        agentEnv['HOME'] = claudeHome;
+      }
 
       const result = await this.agentRunner.run(
         workspace,
         prompt,
-        { ANTHROPIC_API_KEY: apiKey },
+        agentEnv,
         workOrder.maxDurationMs,
         {
           signal: dispatch.abortController.signal,
@@ -255,7 +286,7 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
 
       reporter.stopInterval();
 
-      // 3. Report result
+      // 5. Report result
       if (result.timedOut) {
         await reporter.reportFailed(
           `Agent timed out after ${Math.round(result.durationMs / 1_000)}s`,
@@ -291,7 +322,7 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
       }
       dispatch.state = 'failed';
     } finally {
-      // 4. Always destroy workspace
+      // 6. Always destroy workspace
       if (dispatch.workspace) {
         try {
           await this.workspaceProvider.destroy(dispatch.workspace.id);

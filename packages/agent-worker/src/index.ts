@@ -67,6 +67,8 @@ export interface StartWorkerOptions {
   }>;
   /** Agent profiles from ouija.config.yaml — replaces hardcoded profile. */
   agentProfiles?: Map<string, import('./work-order-assembler.js').AgentProfile>;
+  /** Global claudeHome setting from ouija.config.yaml */
+  claudeHome?: string | null;
 }
 
 export interface WorkerHandle {
@@ -131,6 +133,7 @@ export async function startAgentWorker(options: StartWorkerOptions): Promise<Wor
     })),
     serverBaseUrl: options.serverUrl,
     issueJwt: issueAgentJWT,
+    claudeHome: options.claudeHome ?? undefined,
   };
 
   // 4. Worker

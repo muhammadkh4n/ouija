@@ -392,6 +392,9 @@ async function main(): Promise<void> {
     if (agentProfiles) {
       workerOpts.agentProfiles = agentProfiles;
     }
+    if (ouijaConfig?.claudeHome) {
+      workerOpts.claudeHome = ouijaConfig.claudeHome;
+    }
     if (planePluginInstance !== undefined) {
       const _plane = planePluginInstance;
       workerOpts.getCardDetails = async (cardId: string) => {
