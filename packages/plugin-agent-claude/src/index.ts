@@ -35,6 +35,7 @@ import type { ClaudeAgentConfig } from './config.js';
 import { claudeAgentConfigSchema } from './config.js';
 import { buildPrompt } from './work-order-builder.js';
 import { HeartbeatReporter } from './heartbeat.js';
+import { buildAuthEnv } from './auth-env.js';
 
 // ---------------------------------------------------------------------------
 // Internal state shape per dispatch
@@ -259,11 +260,13 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
 
       const prompt = buildPrompt(workOrder);
 
-      // Pass ANTHROPIC_API_KEY if set (headless/CI), but Claude Code CLI
-      // also works without it (uses its own session auth from ~/.claude).
-      const agentEnv: Record<string, string> = {};
-      const apiKey = process.env['ANTHROPIC_API_KEY'];
-      if (apiKey) agentEnv['ANTHROPIC_API_KEY'] = apiKey;
+      // Translate auth method + secretRef into the correct env vars
+      // (api-key, bedrock, vertex, foundry, proxy, api-key-helper).
+      const authEnv = buildAuthEnv(
+        workOrder.metadata['authMethod'],
+        workOrder.secretRef,
+      );
+      const agentEnv: Record<string, string> = { ...authEnv };
 
       // Override HOME if claudeHome is configured (controls where ~/.claude/ resolves)
       const claudeHome = workOrder.metadata['claudeHome'];
