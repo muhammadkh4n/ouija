@@ -1,0 +1,15 @@
+agents:
+  - id: bad-agent
+    name: Bad Agent
+    email: bad@example.com
+    model: claude-sonnet-4-20250514
+    triggerMode: auto
+    auth:
+      method: magic-beans
+      secretRef: NOPE
+    repos:
+      - url: https://github.com/example/repo.git
+        baseBranch: main
+        default: true
+    limits:
+      maxDurationMs: 120000

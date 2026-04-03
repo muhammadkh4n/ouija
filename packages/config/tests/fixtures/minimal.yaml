@@ -1,0 +1,15 @@
+agents:
+  - id: bot1
+    name: Bot One
+    email: bot1@example.com
+    model: claude-sonnet-4-20250514
+    triggerMode: manual
+    auth:
+      method: api-key
+      secretRef: MY_KEY
+    repos:
+      - url: https://github.com/example/repo.git
+        baseBranch: main
+        default: true
+    limits:
+      maxDurationMs: 60000

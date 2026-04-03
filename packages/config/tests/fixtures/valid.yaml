@@ -1,0 +1,21 @@
+claudeHome: /home/ouija/.claude
+
+agents:
+  - id: rex
+    name: Rex
+    email: rex@example.com
+    avatar: https://example.com/rex.png
+    systemPrompt: "You are Rex, a helpful coding agent."
+    configDir: /home/ouija/.claude/rex
+    model: claude-sonnet-4-20250514
+    triggerMode: auto
+    auth:
+      method: api-key
+      secretRef: ANTHROPIC_API_KEY
+    repos:
+      - url: https://github.com/example/repo.git
+        baseBranch: main
+        default: true
+    limits:
+      maxDurationMs: 300000
+      stallThresholdMs: 60000
