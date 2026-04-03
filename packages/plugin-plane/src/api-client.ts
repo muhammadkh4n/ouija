@@ -198,6 +198,20 @@ export class PlaneApiClient {
   }
 
   /**
+   * List all members of a workspace.
+   * GET /api/v1/workspaces/:workspaceSlug/members/
+   */
+  async getMembers(workspaceSlug: string): Promise<PlaneMember[]> {
+    const response = await this.get<{ results: PlaneMember[] } | PlaneMember[]>(
+      `/workspaces/${workspaceSlug}/members/`,
+    );
+    if (Array.isArray(response)) {
+      return response;
+    }
+    return response.results;
+  }
+
+  /**
    * Invite a member (e.g. agent bot user) to the workspace.
    * POST /api/v1/workspaces/:workspaceSlug/invitations/
    *
@@ -244,7 +258,9 @@ export class PlaneApiClient {
    * Lightweight connectivity check: fetch workspace details.
    * GET /api/v1/workspaces/:workspaceSlug/
    */
-  async ping(workspaceSlug: string): Promise<void> {
-    await this.get<unknown>(`/workspaces/${workspaceSlug}/`);
+  async ping(_workspaceSlug: string): Promise<void> {
+    // /users/me/ is the lightest authenticated endpoint.
+    // /workspaces/:slug/ requires session auth on some Plane versions.
+    await this.get<unknown>(`/users/me/`);
   }
 }

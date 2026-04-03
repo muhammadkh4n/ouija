@@ -192,10 +192,10 @@ export class PlanePlugin implements KanbanPlugin<PlaneConfig> {
       id: cardId(`${issue.project}/${issue.id}`),
       title: issue.name,
       description: issue.description_html,
-      columnId: columnId(issue.state),
+      columnId: columnId(typeof issue.state === 'string' ? issue.state : (issue.state as Record<string, string>)?.id ?? issue.state),
       boardId: boardId(issue.project),
-      labels: issue.label_details.map((l) => l.name),
-      assignees: issue.assignee_details.map((a) => a.id),
+      labels: (issue.label_details ?? (issue as unknown as Record<string, unknown>)['labels'] as typeof issue.label_details ?? []).map((l) => l.name),
+      assignees: (issue.assignee_details ?? (issue as unknown as Record<string, unknown>)['assignees'] as typeof issue.assignee_details ?? []).map((a) => a.id),
       url: issueUrl(this.config.baseUrl, workspaceSlug, issue.project, issue.id),
       createdAt: issue.created_at,
       updatedAt: issue.updated_at,
@@ -232,6 +232,22 @@ export class PlanePlugin implements KanbanPlugin<PlaneConfig> {
     const { projectId, issueId } = splitCardId(id);
 
     await this.client.assignMember(workspaceSlug, projectId, issueId, userId);
+  }
+
+  /** Expose getMembers for agent registry provisioning. */
+  async getMembers(workspaceSlug?: string): Promise<import('./api-client.js').PlaneMember[]> {
+    const slug = workspaceSlug ?? this.config.workspaceSlug;
+    return this.client.getMembers(slug);
+  }
+
+  /** Expose inviteMember for agent registry provisioning. */
+  async inviteMember(
+    workspaceSlug: string | undefined,
+    email: string,
+    role: 5 | 10 | 15 | 20 = 10,
+  ): Promise<{ id: string; email: string; role: number }> {
+    const slug = workspaceSlug ?? this.config.workspaceSlug;
+    return this.client.createMember(slug, email, role);
   }
 
   /**
