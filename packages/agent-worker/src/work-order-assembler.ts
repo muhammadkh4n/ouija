@@ -27,6 +27,8 @@ export interface AgentProfile {
   triggerMode: 'auto' | 'manual';
   configDir?: string;
   authMethod?: string;
+  /** All repos for this agent — resolved at assembly time using projectId. */
+  repos?: Array<{ url?: string | undefined; path?: string | undefined; baseBranch: string; projectId?: string | undefined; default?: boolean | undefined }>;
 }
 
 // ---- Assembler dependencies (injectable for testing) ----
@@ -67,31 +69,46 @@ export async function assembleWorkOrder(
     throw new Error(`Agent profile not found: ${jobData.agentId}`);
   }
 
-  // 2. Fetch card details from kanban plugin
+  // 2. Resolve repo based on project ID (multi-repo support)
+  let repoUrl = profile.repoUrl ?? '';
+  let repoPath = profile.repoPath;
+  let baseBranch = profile.baseBranch;
+
+  if (profile.repos && profile.repos.length > 0) {
+    const { resolveRepo } = await import('@ouija/config');
+    const resolved = resolveRepo(profile.repos as import('@ouija/config').RepoConfig[], jobData.projectId);
+    if (resolved) {
+      repoUrl = resolved.url ?? '';
+      repoPath = resolved.path;
+      baseBranch = resolved.baseBranch;
+    }
+  }
+
+  // 3. Fetch card details from kanban plugin
   const card = await deps.getCardDetails(jobData.cardId);
 
-  // 3. Issue a JWT for callback authentication
+  // 4. Issue a JWT for callback authentication
   const jwt = await deps.issueJwt(jobData.instanceId, '', '');
 
-  // 4. Build metadata (include optional profile fields when present)
+  // 5. Build metadata (include optional profile fields when present)
   const metadata: Record<string, string> = {
     pipelineDispatchId: jobData.dispatchId,
   };
-  if (profile.repoPath) metadata['repoPath'] = profile.repoPath;
+  if (repoPath) metadata['repoPath'] = repoPath;
   if (profile.configDir) metadata['configDir'] = profile.configDir;
   if (profile.authMethod) metadata['authMethod'] = profile.authMethod;
   if (deps.claudeHome) metadata['claudeHome'] = deps.claudeHome;
 
-  // 5. Construct the WorkOrder
+  // 6. Construct the WorkOrder
   const workOrder: WorkOrder = {
     instanceId: makeInstanceId(jobData.instanceId),
     cardId: jobData.cardId,
     title: card.title,
     description: card.description,
     acceptanceCriteria: card.acceptanceCriteria,
-    repoUrl: profile.repoUrl ?? '',
+    repoUrl,
     branch: `ouija/${jobData.instanceId}`,
-    baseBranch: profile.baseBranch,
+    baseBranch,
     agentProfileId: jobData.agentId,
     systemPrompt: profile.systemPrompt,
     secretRef: profile.secretRef,
