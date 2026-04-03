@@ -24,6 +24,7 @@ const baseProfile: AgentProfile = {
   maxDurationMs: 1_800_000,
   repoUrl: 'https://github.com/org/repo.git',
   baseBranch: 'main',
+  triggerMode: 'auto',
 };
 
 function makeDeps(overrides: Partial<AssemblerDeps> = {}): AssemblerDeps {
@@ -62,7 +63,7 @@ describe('assembleWorkOrder', () => {
     expect(wo.callbackUrl).toBe('http://localhost:4000/hooks/agent/callback');
     expect(wo.callbackToken).toBe('jwt-token-test');
     expect(wo.maxDurationMs).toBe(1_800_000);
-    expect(wo.metadata).toEqual({});
+    expect(wo.metadata).toEqual({ pipelineDispatchId: 'disp-456' });
   });
 
   it('throws when agent profile not found', async () => {
@@ -118,6 +119,19 @@ describe('assembleWorkOrder', () => {
     };
     const wo = await assembleWorkOrder(jobData, deps);
     expect(wo.branch).toBe('ouija/abc-def-ghi');
+  });
+
+  it('includes repoPath in metadata when profile has repoPath', async () => {
+    const deps = makeDeps({
+      getAgentProfile: vi.fn().mockResolvedValue({
+        ...baseProfile,
+        repoUrl: undefined,
+        repoPath: '/home/mk/Projects/my-app',
+      }),
+    });
+    const wo = await assembleWorkOrder(baseJobData, deps);
+    expect(wo.metadata['repoPath']).toBe('/home/mk/Projects/my-app');
+    expect(wo.repoUrl).toBe('');
   });
 
   it('appends /hooks/agent/callback to serverBaseUrl', async () => {

@@ -21,8 +21,12 @@ export interface AgentProfile {
   secretRef: string;
   model: string;
   maxDurationMs: number;
-  repoUrl: string;
+  repoUrl?: string;
+  repoPath?: string;
   baseBranch: string;
+  triggerMode: 'auto' | 'manual';
+  configDir?: string;
+  authMethod?: string;
 }
 
 // ---- Assembler dependencies (injectable for testing) ----
@@ -67,14 +71,22 @@ export async function assembleWorkOrder(
   // 3. Issue a JWT for callback authentication
   const jwt = await deps.issueJwt(jobData.instanceId, '', '');
 
-  // 4. Construct the WorkOrder
+  // 4. Build metadata (include optional profile fields when present)
+  const metadata: Record<string, string> = {
+    pipelineDispatchId: jobData.dispatchId,
+  };
+  if (profile.repoPath) metadata['repoPath'] = profile.repoPath;
+  if (profile.configDir) metadata['configDir'] = profile.configDir;
+  if (profile.authMethod) metadata['authMethod'] = profile.authMethod;
+
+  // 5. Construct the WorkOrder
   const workOrder: WorkOrder = {
     instanceId: makeInstanceId(jobData.instanceId),
     cardId: jobData.cardId,
     title: card.title,
     description: card.description,
     acceptanceCriteria: card.acceptanceCriteria,
-    repoUrl: profile.repoUrl,
+    repoUrl: profile.repoUrl ?? '',
     branch: `ouija/${jobData.instanceId}`,
     baseBranch: profile.baseBranch,
     agentProfileId: jobData.agentId,
@@ -83,7 +95,7 @@ export async function assembleWorkOrder(
     callbackUrl: `${deps.serverBaseUrl}/hooks/agent/callback`,
     callbackToken: jwt,
     maxDurationMs: profile.maxDurationMs,
-    metadata: {},
+    metadata,
   };
 
   return workOrder;
