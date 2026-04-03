@@ -63,6 +63,8 @@ export interface StartWorkerOptions {
     acceptanceCriteria: string[];
     labels: string[];
   }>;
+  /** Agent profiles from ouija.config.yaml — replaces hardcoded profile. */
+  agentProfiles?: Map<string, import('./work-order-assembler.js').AgentProfile>;
 }
 
 export interface WorkerHandle {
@@ -102,8 +104,11 @@ export async function startAgentWorker(options: StartWorkerOptions): Promise<Wor
 
   // 3. Assembler deps
   const assemblerDeps: AssemblerDeps = options.assemblerDeps ?? {
-    getAgentProfile: async (_agentId: string) => {
-      // v1: single hardcoded profile drawn from env. Task 4+ wires this to the DB.
+    getAgentProfile: async (agentId: string) => {
+      if (options.agentProfiles) {
+        return options.agentProfiles.get(agentId);
+      }
+      // Fallback: single hardcoded profile for backwards compatibility
       return {
         id: 'rex-coder',
         name: 'Rex Coder',
@@ -113,6 +118,7 @@ export async function startAgentWorker(options: StartWorkerOptions): Promise<Wor
         maxDurationMs: 1_800_000,
         repoUrl: process.env['DEFAULT_REPO_URL'] ?? '',
         baseBranch: process.env['DEFAULT_BASE_BRANCH'] ?? 'main',
+        triggerMode: 'auto' as const,
       };
     },
     getCardDetails: options.getCardDetails ?? (async (cardId: string) => ({
