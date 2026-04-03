@@ -37,6 +37,12 @@ export type CloneFn = (repoUrl: string, targetDir: string, baseBranch: string) =
 /** Injectable branch creation function — allows tests to avoid real git operations. */
 export type BranchFn = (dir: string, branchName: string) => Promise<void>;
 
+/** Injectable worktree creation function — allows tests to avoid real git operations. */
+export type WorktreeFn = (repoPath: string, worktreeDir: string, branchName: string) => Promise<void>;
+
+/** Injectable worktree removal function — allows tests to avoid real git operations. */
+export type WorktreeRemoveFn = (repoPath: string, worktreeDir: string) => Promise<void>;
+
 export interface LocalWorkspaceOptions {
   /** Base directory for temp workspace dirs. Defaults to os.tmpdir(). */
   baseDir?: string;
@@ -50,6 +56,16 @@ export interface LocalWorkspaceOptions {
    * Defaults to `git checkout -b`.
    */
   branchFn?: BranchFn;
+  /**
+   * Custom worktree creation implementation — useful for testing.
+   * Defaults to `git worktree add`.
+   */
+  worktreeFn?: WorktreeFn;
+  /**
+   * Custom worktree removal implementation — useful for testing.
+   * Defaults to `git worktree remove --force`.
+   */
+  worktreeRemoveFn?: WorktreeRemoveFn;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +110,22 @@ async function defaultBranchFn(dir: string, branchName: string): Promise<void> {
   );
 }
 
+async function defaultWorktreeFn(repoPath: string, worktreeDir: string, branchName: string): Promise<void> {
+  await execFileAsync(
+    'git',
+    ['worktree', 'add', worktreeDir, '-b', branchName],
+    { cwd: repoPath, env: buildGitEnv() as NodeJS.ProcessEnv },
+  );
+}
+
+async function defaultWorktreeRemoveFn(repoPath: string, worktreeDir: string): Promise<void> {
+  await execFileAsync(
+    'git',
+    ['worktree', 'remove', worktreeDir, '--force'],
+    { cwd: repoPath, env: buildGitEnv() as NodeJS.ProcessEnv },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // LocalWorkspaceProvider
 // ---------------------------------------------------------------------------
@@ -104,14 +136,21 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
   private readonly baseDir: string;
   private readonly cloneFn: CloneFn;
   private readonly branchFn: BranchFn;
+  private readonly worktreeFn: WorktreeFn;
+  private readonly worktreeRemoveFn: WorktreeRemoveFn;
 
   /** Maps workspace id → absolute path of the temp dir. */
   private readonly workspacePaths = new Map<string, string>();
+
+  /** Maps workspace id → source repo path for worktree-based workspaces. */
+  private readonly worktreeSources = new Map<string, string>();
 
   constructor(options: LocalWorkspaceOptions = {}) {
     this.baseDir = options.baseDir ?? os.tmpdir();
     this.cloneFn = options.cloneFn ?? defaultCloneFn;
     this.branchFn = options.branchFn ?? defaultBranchFn;
+    this.worktreeFn = options.worktreeFn ?? defaultWorktreeFn;
+    this.worktreeRemoveFn = options.worktreeRemoveFn ?? defaultWorktreeRemoveFn;
   }
 
   /**
@@ -119,13 +158,24 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
    * creating the feature branch. Cleans up the temp dir on any failure.
    */
   async provision(spec: WorkspaceSpec): Promise<Workspace> {
+    if (!spec.repoUrl && !spec.repoPath) {
+      throw new Error('WorkspaceSpec must include either repoUrl or repoPath');
+    }
+
     const prefix = path.join(this.baseDir, 'ouija-ws-');
     const tempDir = await mkdtemp(prefix);
     const id = path.basename(tempDir);
 
     try {
-      await this.cloneFn(spec.repoUrl, tempDir, spec.baseBranch);
-      await this.branchFn(tempDir, spec.featureBranch);
+      if (spec.repoPath) {
+        // Worktree mode — create an isolated worktree from an existing local repo.
+        await this.worktreeFn(spec.repoPath, tempDir, spec.featureBranch);
+        this.worktreeSources.set(id, spec.repoPath);
+      } else {
+        // Clone mode — shallow clone from a remote URL.
+        await this.cloneFn(spec.repoUrl!, tempDir, spec.baseBranch);
+        await this.branchFn(tempDir, spec.featureBranch);
+      }
     } catch (err) {
       // Cleanup on failure — leave no dangling directories.
       await rm(tempDir, { recursive: true, force: true });
@@ -151,7 +201,17 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
       // Unknown id — idempotent no-op.
       return;
     }
-    await rm(dir, { recursive: true, force: true });
+
+    const sourceRepo = this.worktreeSources.get(workspaceId);
+    if (sourceRepo) {
+      // Worktree-based workspace — detach worktree before removing.
+      await this.worktreeRemoveFn(sourceRepo, dir);
+      this.worktreeSources.delete(workspaceId);
+    } else {
+      // Clone-based workspace — rm -rf the directory.
+      await rm(dir, { recursive: true, force: true });
+    }
+
     this.workspacePaths.delete(workspaceId);
   }
 

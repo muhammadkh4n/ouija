@@ -13,8 +13,10 @@ export type WorkspaceType = 'local' | 'e2b' | 'codespace' | 'actions';
 /** Declarative spec passed to a provider at provision time. */
 export interface WorkspaceSpec {
   type: WorkspaceType;
-  /** Git remote URL — the repo to clone into the workspace. */
-  repoUrl: string;
+  /** Git remote URL — the repo to clone into the workspace. Mutually exclusive with repoPath. */
+  repoUrl?: string;
+  /** Local filesystem path to an existing repo — uses git worktree for isolation. Mutually exclusive with repoUrl. */
+  repoPath?: string;
   /** Branch to clone from (e.g. "main"). */
   baseBranch: string;
   /** Pre-created feature branch the agent will commit to. */

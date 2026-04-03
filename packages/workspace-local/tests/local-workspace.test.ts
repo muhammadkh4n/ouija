@@ -11,7 +11,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { LocalWorkspaceProvider } from '../src/local-workspace.js';
+import { LocalWorkspaceProvider, type WorktreeFn, type WorktreeRemoveFn } from '../src/local-workspace.js';
 import type { WorkspaceSpec } from '@ouija/types';
 
 // ---------------------------------------------------------------------------
@@ -200,5 +200,88 @@ describe('LocalWorkspaceProvider', () => {
       (name) => name.startsWith('ouija-ws-') && !before.has(name),
     );
     expect(leaked).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Worktree mode tests
+// ---------------------------------------------------------------------------
+
+describe('LocalWorkspaceProvider (worktree mode)', () => {
+  it('provisions via git worktree when repoPath is set', async () => {
+    const worktreeFn: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue(undefined);
+    const mockCloneFn: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue(undefined);
+    const mockBranchFn: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue(undefined);
+
+    const wtProvider = new LocalWorkspaceProvider({
+      baseDir: os.tmpdir(),
+      cloneFn: mockCloneFn,
+      branchFn: mockBranchFn,
+      worktreeFn,
+    });
+
+    const spec = makeSpec({
+      repoUrl: undefined,
+      repoPath: '/home/user/projects/my-repo',
+    });
+    const workspace = await wtProvider.provision(spec);
+    createdDirs.push(workspace.endpoint);
+
+    // Worktree function was called with correct args.
+    expect(worktreeFn).toHaveBeenCalledOnce();
+    expect(worktreeFn).toHaveBeenCalledWith(
+      '/home/user/projects/my-repo',
+      workspace.endpoint,
+      'ouija/inst-abc',
+    );
+
+    // Clone and branch were NOT called.
+    expect(mockCloneFn).not.toHaveBeenCalled();
+    expect(mockBranchFn).not.toHaveBeenCalled();
+
+    // Workspace endpoint starts with the ouija-ws- prefix.
+    expect(path.basename(workspace.endpoint)).toMatch(/^ouija-ws-/);
+  });
+
+  it('destroys worktree workspace via git worktree remove', async () => {
+    const worktreeFn: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue(undefined);
+    const worktreeRemoveFn: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue(undefined);
+
+    const wtProvider = new LocalWorkspaceProvider({
+      baseDir: os.tmpdir(),
+      cloneFn: vi.fn().mockResolvedValue(undefined),
+      branchFn: vi.fn().mockResolvedValue(undefined),
+      worktreeFn,
+      worktreeRemoveFn,
+    });
+
+    const spec = makeSpec({
+      repoUrl: undefined,
+      repoPath: '/home/user/projects/my-repo',
+    });
+    const workspace = await wtProvider.provision(spec);
+
+    await wtProvider.destroy(workspace.id);
+
+    // worktreeRemoveFn called with source repo path and workspace dir.
+    expect(worktreeRemoveFn).toHaveBeenCalledOnce();
+    expect(worktreeRemoveFn).toHaveBeenCalledWith(
+      '/home/user/projects/my-repo',
+      workspace.endpoint,
+    );
+  });
+
+  it('throws when neither repoUrl nor repoPath is set', async () => {
+    const wtProvider = new LocalWorkspaceProvider({
+      baseDir: os.tmpdir(),
+      cloneFn: vi.fn().mockResolvedValue(undefined),
+      branchFn: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const spec = makeSpec({ repoUrl: undefined, repoPath: undefined });
+
+    await expect(wtProvider.provision(spec)).rejects.toThrow(
+      'WorkspaceSpec must include either repoUrl or repoPath',
+    );
   });
 });
