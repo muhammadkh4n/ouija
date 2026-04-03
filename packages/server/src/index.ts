@@ -61,6 +61,22 @@ async function main(): Promise<void> {
   // The server's own externally-reachable URL — used by agent worker for callbacks.
   const serverUrl = process.env['OUIJA_SERVER_URL'] ?? `http://localhost:${port}`;
 
+  // ---- Load ouija config (optional — falls back to env-var-driven defaults) ----
+  const configPath = process.env['OUIJA_CONFIG_PATH'] ?? 'ouija.config.yaml';
+  let ouijaConfig: import('@ouija/config').OuijaConfig | undefined;
+
+  try {
+    const { loadConfig } = await import('@ouija/config');
+    ouijaConfig = await loadConfig(configPath);
+    console.info(`Loaded ouija config from ${configPath} — ${ouijaConfig.agents.length} agent(s) defined`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      console.info(`No ouija config found at ${configPath} — using env-var defaults`);
+    } else {
+      throw err; // Config exists but is invalid — fail fast
+    }
+  }
+
   if (secretKey.length < 32) {
     throw new Error('OUIJA_SECRET_KEY must be at least 32 characters');
   }
@@ -216,8 +232,43 @@ async function main(): Promise<void> {
     };
   }
 
-  // 7. Create Orchestrator
-  const orchestrator = new Orchestrator(db, eventBus, jobQueue, kanbanPlugin);
+  // 6b. Provision agent Plane members if config is loaded
+  let agentRegistry: import('@ouija/config').AgentMemberRegistry | undefined;
+
+  if (ouijaConfig && planePluginInstance && planeWorkspaceSlug) {
+    const { AgentMemberRegistry } = await import('@ouija/config');
+    const registryPlaneClient: import('@ouija/config').PlaneClient = {
+      getMembers: async (ws: string) => {
+        return planePluginInstance!.getMembers(ws);
+      },
+      inviteMember: async (ws: string, email: string, role: number) => {
+        return planePluginInstance!.inviteMember(ws, email, role as 5 | 10 | 15 | 20);
+      },
+    };
+    agentRegistry = new AgentMemberRegistry(
+      ouijaConfig.agents,
+      registryPlaneClient,
+      planeWorkspaceSlug,
+      {
+        info: (msg: string, ctx?: Record<string, unknown>) =>
+          console.info(JSON.stringify({ level: 'info', component: 'agent-registry', msg, ...ctx })),
+        warn: (msg: string, ctx?: Record<string, unknown>) =>
+          console.warn(JSON.stringify({ level: 'warn', component: 'agent-registry', msg, ...ctx })),
+        error: (msg: string, ctx?: Record<string, unknown>) =>
+          console.error(JSON.stringify({ level: 'error', component: 'agent-registry', msg, ...ctx })),
+      },
+    );
+    await agentRegistry.provision();
+    console.info('Agent Plane members provisioned');
+  }
+
+  // 7. Create Orchestrator (with real logger — default is noopLogger which swallows everything)
+  const orchestratorLogger = {
+    info: (msg: string, ctx?: Record<string, unknown>) => console.info(JSON.stringify({ level: 'info', component: 'orchestrator', msg, ...ctx })),
+    warn: (msg: string, ctx?: Record<string, unknown>) => console.warn(JSON.stringify({ level: 'warn', component: 'orchestrator', msg, ...ctx })),
+    error: (msg: string, ctx?: Record<string, unknown>) => console.error(JSON.stringify({ level: 'error', component: 'orchestrator', msg, ...ctx })),
+  };
+  const orchestrator = new Orchestrator(db, eventBus, jobQueue, kanbanPlugin, orchestratorLogger, agentRegistry ?? undefined);
 
   // 8. Build Fastify app
   const appOpts: Parameters<typeof buildApp>[0] = {
@@ -237,10 +288,8 @@ async function main(): Promise<void> {
 
   const app = await buildApp(appOpts);
 
-  // Register Plane routes if the real plugin was loaded
-  if (planePluginInstance?.registerRoutes) {
-    await planePluginInstance.registerRoutes(app);
-  }
+  // NOTE: Plane webhook route is already registered by buildApp → routes/webhooks.ts.
+  // Do NOT call planePluginInstance.registerRoutes() — it would duplicate the route.
 
   // 9. Wire Telegram notification plugin (optional)
   let unsubscribeTelegram: (() => Promise<void>) | undefined;
@@ -300,17 +349,49 @@ async function main(): Promise<void> {
   // 10. Start agent worker in-process (single-process mode)
   let workerHandle: { stop(): Promise<void> } | undefined;
 
-  const anthropicApiKey = process.env['ANTHROPIC_API_KEY'];
-  if (anthropicApiKey) {
+  // Build agent profile map from config
+  type AgentProfile = import('@ouija/agent-worker').AgentProfile;
+  let agentProfiles: Map<string, AgentProfile> | undefined;
+
+  if (ouijaConfig) {
+    agentProfiles = new Map();
+    for (const agent of ouijaConfig.agents) {
+      const defaultRepo = agent.repos.find((r) => r.default);
+      const profile: AgentProfile = {
+        id: agent.id,
+        name: agent.name,
+        systemPrompt: agent.systemPrompt ?? '',
+        secretRef: agent.auth.secretRef,
+        model: agent.model,
+        maxDurationMs: agent.limits.maxDurationMs,
+        baseBranch: defaultRepo?.baseBranch ?? 'main',
+        triggerMode: agent.triggerMode,
+        authMethod: agent.auth.method,
+      };
+      if (defaultRepo?.url) profile.repoUrl = defaultRepo.url;
+      if (defaultRepo?.path) profile.repoPath = defaultRepo.path;
+      if (agent.configDir) profile.configDir = agent.configDir;
+      agentProfiles.set(agent.id, profile);
+    }
+  }
+
+  // Agent worker: always start. Claude Code CLI authenticates via its own
+  // session (~/.claude), not via ANTHROPIC_API_KEY env var. The env var is
+  // still passed to the subprocess if set (for headless/CI use), but is not
+  // required for local dogfooding.
+  const agentWorkerDisabled = process.env['OUIJA_DISABLE_AGENT_WORKER'] === '1';
+  if (!agentWorkerDisabled) {
     app.log.info('Starting agent worker in-process (single-process mode)');
     const { startAgentWorker } = await import('@ouija/agent-worker');
 
-    // Wire card detail lookups to the kanban plugin if it's the real Plane plugin.
     const workerOpts: Parameters<typeof startAgentWorker>[0] = {
       redisUrl,
       serverUrl,
       concurrency: parseInt(process.env['OUIJA_WORKER_CONCURRENCY'] ?? '1', 10),
     };
+    if (agentProfiles) {
+      workerOpts.agentProfiles = agentProfiles;
+    }
     if (planePluginInstance !== undefined) {
       const _plane = planePluginInstance;
       workerOpts.getCardDetails = async (cardId: string) => {
@@ -328,10 +409,7 @@ async function main(): Promise<void> {
 
     app.log.info('Agent worker started in-process');
   } else {
-    app.log.info(
-      'ANTHROPIC_API_KEY not set — agent worker not started. ' +
-      'Set ANTHROPIC_API_KEY to enable in-process agent execution, or run agent-worker as a separate process.',
-    );
+    app.log.info('Agent worker disabled via OUIJA_DISABLE_AGENT_WORKER=1');
   }
 
   // 11. Start StallMonitor

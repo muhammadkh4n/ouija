@@ -24,7 +24,9 @@
 import { BullMQJobQueue } from '@ouija/bus';
 import { ClaudeAgentPlugin } from '@ouija/plugin-agent-claude';
 import { AgentDispatchWorker } from './worker.js';
-import type { AssemblerDeps } from './work-order-assembler.js';
+import type { AssemblerDeps, AgentProfile } from './work-order-assembler.js';
+
+export type { AgentProfile } from './work-order-assembler.js';
 import { issueAgentJWT } from './jwt-helper.js';
 
 // ---- Logger (structured JSON to stdout) ----
