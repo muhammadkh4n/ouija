@@ -1,1 +1,4 @@
-// @ouija/config — exports will be added as modules are implemented
+export * from './types.js';
+export { validateConfig } from './schema.js';
+export type { ValidationResult } from './schema.js';
+export { loadConfig } from './loader.js';
