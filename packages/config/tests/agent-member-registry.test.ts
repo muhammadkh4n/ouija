@@ -47,7 +47,7 @@ describe('AgentMemberRegistry', () => {
 
     await registry.provision();
 
-    expect(client.inviteMember).toHaveBeenCalledWith('ws-slug', 'rex@ouija.local', 10);
+    expect(client.inviteMember).toHaveBeenCalledWith('ws-slug', 'rex@ouija.local', 15);
     expect(registry.getAgentIdByMemberId('plane-m1')).toBe('rex-coder');
   });
 
