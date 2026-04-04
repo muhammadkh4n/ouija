@@ -61,6 +61,7 @@ interface PipelineInstanceRow {
   project_id: string;
   state: PipelineState;
   attempt: number;
+  assigned_agent_id: string | null;
   pr_url: string | null;
   cost: string | null;
   tokens_used: number | null;
@@ -80,6 +81,7 @@ function rowToInstance(row: PipelineInstanceRow): PipelineInstance {
     updatedAt: row.updated_at.toISOString(),
   };
   // exactOptionalPropertyTypes: omit keys instead of assigning undefined
+  if (row.assigned_agent_id !== null) base.assignedAgentId = row.assigned_agent_id;
   if (row.pr_url !== null) base.prUrl = row.pr_url;
   if (row.cost !== null) base.cost = parseFloat(row.cost);
   if (row.tokens_used !== null) base.tokensUsed = row.tokens_used;
@@ -115,7 +117,7 @@ export class PostgresPipelineRepository implements PipelineRepository {
   async findById(id: InstanceId): Promise<PipelineInstance | undefined> {
     const result = await this.client.query<PipelineInstanceRow>(
       `SELECT id, card_id, board_id, project_id, state, attempt,
-              pr_url, cost, tokens_used, created_at, updated_at
+              assigned_agent_id, pr_url, cost, tokens_used, created_at, updated_at
          FROM pipeline_instances
         WHERE id = $1`,
       [id],
@@ -127,7 +129,7 @@ export class PostgresPipelineRepository implements PipelineRepository {
   async findByCardId(cardId: CardId): Promise<PipelineInstance | undefined> {
     const result = await this.client.query<PipelineInstanceRow>(
       `SELECT pi.id, pi.card_id, pi.board_id, pi.project_id, pi.state, pi.attempt,
-              pi.pr_url, pi.cost, pi.tokens_used, pi.created_at, pi.updated_at
+              pi.assigned_agent_id, pi.pr_url, pi.cost, pi.tokens_used, pi.created_at, pi.updated_at
          FROM pipeline_instances pi
          JOIN card_instance_index cii ON cii.instance_id = pi.id
         WHERE cii.card_id = $1`,
@@ -191,17 +193,18 @@ export class PostgresPipelineRepository implements PipelineRepository {
     await this.client.query(
       `INSERT INTO pipeline_instances
              (id, card_id, board_id, project_id, state, status, attempt,
-              pr_url, cost, tokens_used, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10,
-               $11::timestamptz, $12::timestamptz)
+              assigned_agent_id, pr_url, cost, tokens_used, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11,
+               $12::timestamptz, $13::timestamptz)
        ON CONFLICT (id) DO UPDATE SET
-         state        = EXCLUDED.state,
-         status       = EXCLUDED.status,
-         attempt      = EXCLUDED.attempt,
-         pr_url       = EXCLUDED.pr_url,
-         cost         = EXCLUDED.cost,
-         tokens_used  = EXCLUDED.tokens_used,
-         updated_at   = EXCLUDED.updated_at`,
+         state             = EXCLUDED.state,
+         status            = EXCLUDED.status,
+         attempt           = EXCLUDED.attempt,
+         assigned_agent_id = EXCLUDED.assigned_agent_id,
+         pr_url            = EXCLUDED.pr_url,
+         cost              = EXCLUDED.cost,
+         tokens_used       = EXCLUDED.tokens_used,
+         updated_at        = EXCLUDED.updated_at`,
       [
         instance.id,
         instance.cardId,
@@ -210,6 +213,7 @@ export class PostgresPipelineRepository implements PipelineRepository {
         JSON.stringify(instance.state),
         status,
         instance.attempt,
+        instance.assignedAgentId ?? null,
         instance.prUrl ?? null,
         instance.cost ?? null,
         instance.tokensUsed ?? null,
@@ -243,7 +247,7 @@ export class PostgresPipelineRepository implements PipelineRepository {
   async findStalledCandidates(cutoff: Date): Promise<PipelineInstance[]> {
     const result = await this.client.query<PipelineInstanceRow>(
       `SELECT id, card_id, board_id, project_id, state, attempt,
-              pr_url, cost, tokens_used, created_at, updated_at
+              assigned_agent_id, pr_url, cost, tokens_used, created_at, updated_at
          FROM pipeline_instances
         WHERE status IN ('dispatching', 'running')
           AND (

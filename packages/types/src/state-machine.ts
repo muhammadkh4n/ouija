@@ -113,6 +113,8 @@ export interface PipelineInstance {
   projectId: string;
   state: PipelineState;
   attempt: number;
+  /** Agent assigned via card assignment (manual trigger mode). Used to override column mapping agentId on dispatch. */
+  assignedAgentId?: string;
   prUrl?: string;
   cost?: number;
   tokensUsed?: number;

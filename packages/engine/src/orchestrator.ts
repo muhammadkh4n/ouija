@@ -39,6 +39,7 @@ import {
   columnId as makeColumnId,
   dispatchId as makeDispatchId,
   prId as makePrId,
+  agentId as makeAgentId,
 } from '@ouija/types';
 import type { EventBus } from '@ouija/bus';
 import type { JobQueue, AgentDispatchJobData, StallCheckJobData } from '@ouija/bus';
@@ -160,7 +161,7 @@ export class Orchestrator {
 
     // ---- Load config (with 30s TTL cache) ----
 
-    const config = await this._getConfig(instance.boardId);
+    let config = await this._getConfig(instance.boardId);
     if (config === undefined) {
       this.logger.warn('processTrigger: no pipeline config for board', {
         boardId: instance.boardId,
@@ -176,6 +177,43 @@ export class Orchestrator {
         topic,
       });
       return;
+    }
+
+    // ---- Handle manual assignment (store agent claim, don't transition) ----
+    if (trigger.type === 'card_assigned') {
+      const agentId = this.agentMemberLookup.getAgentIdByMemberId(trigger.assigneeId);
+      if (agentId) {
+        const now = new Date().toISOString();
+        const updated: PipelineInstance = {
+          ...instance,
+          assignedAgentId: agentId,
+          updatedAt: now,
+        };
+        await this.db.pipelines.save(updated);
+        this.logger.info('Manual assignment: agent claimed card', {
+          instanceId: String(instance.id),
+          agentId,
+          assigneeId: trigger.assigneeId,
+        });
+      }
+      return; // Don't call transition — assignment is stored, dispatch waits for column move
+    }
+
+    // ---- Override column mapping agentId with assigned agent (manual mode) ----
+    if (trigger.type === 'card_moved' && instance.assignedAgentId) {
+      const targetMapping = config.columnMappings.find(
+        (m) => m.columnId === trigger.toColumnId && m.action === 'dispatch_agent',
+      );
+      if (targetMapping) {
+        config = {
+          ...config,
+          columnMappings: config.columnMappings.map((m) =>
+            m.columnId === trigger.toColumnId && m.action === 'dispatch_agent'
+              ? { ...m, agentId: makeAgentId(instance.assignedAgentId!) }
+              : m,
+          ),
+        };
+      }
     }
 
     // ---- Auto-acknowledge: if pipeline is dispatching and we get a progress/completed event,

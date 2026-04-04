@@ -760,3 +760,139 @@ describe('Orchestrator — card_assigned with AgentMemberLookup', () => {
     expect(skipLogs).toHaveLength(1);
   });
 });
+
+// ---- Manual trigger mode tests ----
+
+describe('Orchestrator — manual trigger mode', () => {
+  let db: ReturnType<typeof createMockDatabase>;
+  let eventBus: ReturnType<typeof createMockEventBus>;
+  let jobQueue: ReturnType<typeof createMockJobQueue>;
+  let kanban: ReturnType<typeof createMockKanbanPlugin>;
+  let logger: ReturnType<typeof createMockLogger>;
+
+  const AGENT_MEMBER_ID = 'plane-member-ghost';
+  const MANUAL_AGENT_ID = 'ghost-writer';
+  const DEFAULT_AGENT_ID = 'default-agent';
+
+  const manualLookup: AgentMemberLookup = {
+    getAgentIdByMemberId(memberId: string) {
+      if (memberId === AGENT_MEMBER_ID) return MANUAL_AGENT_ID;
+      return undefined;
+    },
+    getTriggerMode(aid: string) {
+      if (aid === MANUAL_AGENT_ID) return 'manual';
+      return undefined;
+    },
+  };
+
+  // Config where the dispatch column's default agent is different from the manually-assigned agent
+  const CONFIG_WITH_DEFAULT_AGENT: PipelineConfig = {
+    boardId: BOARD_ID,
+    defaultStallThresholdMs: 300_000,
+    autoStartOnAssign: false,
+    columnMappings: [
+      {
+        columnId: COL_INPROGRESS,
+        columnName: 'In Progress',
+        action: 'dispatch_agent',
+        agentId: agentId(DEFAULT_AGENT_ID),
+        guards: [{ type: 'min_description_length', value: 10 }],
+        stallThresholdMs: 300_000,
+      },
+      {
+        columnId: COL_DONE,
+        columnName: 'Done',
+        action: 'close_and_notify',
+        guards: [],
+      },
+      {
+        columnId: COL_BACKLOG,
+        columnName: 'Backlog',
+        action: 'noop',
+        guards: [],
+      },
+    ],
+  };
+
+  function makeCardAssignedEvent(
+    cid = CARD_ID,
+    assigneeId = AGENT_MEMBER_ID,
+  ): OuijaEvent<'kanban.card.assigned'> {
+    return {
+      id: 'evt-manual-assign-001',
+      topic: 'kanban.card.assigned',
+      payload: { cardId: cid, assigneeId },
+      timestamp: new Date().toISOString(),
+      sourcePlugin: 'plugin-plane',
+      correlationId: 'corr-manual-001',
+    };
+  }
+
+  beforeEach(() => {
+    const cards = new Map<string, KanbanCard>([[String(CARD_ID), TEST_CARD]]);
+    db = createMockDatabase();
+    eventBus = createMockEventBus();
+    jobQueue = createMockJobQueue();
+    kanban = createMockKanbanPlugin(cards);
+    logger = createMockLogger();
+
+    db._configs.set(String(BOARD_ID), CONFIG_WITH_DEFAULT_AGENT);
+  });
+
+  it('manual assignment stores assignedAgentId on instance without dispatching', async () => {
+    const orchestrator = new Orchestrator(db, eventBus, jobQueue, kanban, logger, manualLookup);
+
+    await orchestrator.processTrigger(makeCardAssignedEvent());
+
+    // Instance should exist
+    const instances = [...db._instances.values()];
+    expect(instances).toHaveLength(1);
+    const instance = instances[0]!;
+
+    // State should remain idle (no transition happened)
+    expect(instance.state.status).toBe('idle');
+
+    // assignedAgentId should be stored
+    expect(instance.assignedAgentId).toBe(MANUAL_AGENT_ID);
+
+    // No dispatch jobs should be enqueued
+    const dispatchJobs = jobQueue.enqueued.filter(
+      (j) => j.queue === QUEUE_NAMES.agentDispatch,
+    );
+    expect(dispatchJobs).toHaveLength(0);
+
+    // Logger should confirm the claim
+    const claimLogs = logger.calls.filter(
+      (c) => c.level === 'info' && c.message.includes('Manual assignment'),
+    );
+    expect(claimLogs).toHaveLength(1);
+  });
+
+  it('card_moved uses assigned agent instead of column default', async () => {
+    const orchestrator = new Orchestrator(db, eventBus, jobQueue, kanban, logger, manualLookup);
+
+    // Step 1: Assign agent (manual mode — stores claim)
+    await orchestrator.processTrigger(makeCardAssignedEvent());
+
+    const instance = [...db._instances.values()][0]!;
+    expect(instance.assignedAgentId).toBe(MANUAL_AGENT_ID);
+
+    // Step 2: Move card to dispatch column
+    const moveEvent = makeCardMovedEvent(CARD_ID, COL_INPROGRESS, COL_BACKLOG);
+    await orchestrator.processTrigger(moveEvent);
+
+    // Instance should now be dispatching
+    const updated = [...db._instances.values()][0]!;
+    expect(updated.state.status).toBe('dispatching');
+
+    // The dispatch job should use the manually-assigned agent, NOT the column default
+    const dispatchJobs = jobQueue.enqueued.filter(
+      (j) => j.queue === QUEUE_NAMES.agentDispatch,
+    );
+    expect(dispatchJobs).toHaveLength(1);
+    const jobData = dispatchJobs[0]!.data as { agentId: string };
+    expect(jobData.agentId).toBe(MANUAL_AGENT_ID);
+    // Confirm it's NOT the default agent
+    expect(jobData.agentId).not.toBe(DEFAULT_AGENT_ID);
+  });
+});
