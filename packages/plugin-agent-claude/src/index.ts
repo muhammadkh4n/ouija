@@ -229,9 +229,10 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
       dispatch.state = 'provisioning';
       await reporter.reportProgress('Provisioning workspace...');
 
+      const repoPath = workOrder.metadata['repoPath'] as string | undefined;
       const workspace = await this.workspaceProvider.provision({
         type: this.workspaceProvider.type,
-        repoUrl: workOrder.repoUrl,
+        ...(repoPath ? { repoPath } : { repoUrl: workOrder.repoUrl }),
         baseBranch: workOrder.baseBranch,
         featureBranch: workOrder.branch,
       });
