@@ -118,10 +118,16 @@ async function makePlugin(runnerResult: AgentRunResult = makeSuccessResult()) {
   return { plugin, ctx, wsProvider, agentRunner };
 }
 
+// Mock workspace-config so _runAgent doesn't hit the filesystem
+vi.mock('../src/workspace-config.js', () => ({
+  assembleWorkspaceConfig: vi.fn().mockResolvedValue(undefined),
+}));
+
 // We also need to mock the HeartbeatReporter so tests don't make real HTTP calls.
 vi.mock('../src/heartbeat.js', () => {
   const mockReporter = {
     reportProgress: vi.fn().mockResolvedValue(undefined),
+    reportAcknowledged: vi.fn().mockResolvedValue(undefined),
     reportPrReady: vi.fn().mockResolvedValue(undefined),
     reportCompleted: vi.fn().mockResolvedValue(undefined),
     reportFailed: vi.fn().mockResolvedValue(undefined),

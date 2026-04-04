@@ -113,20 +113,20 @@ describe('LocalAgentRunner — mock spawn', () => {
     expect(spawnOptions.cwd).toBe('/workspace/my-repo');
   });
 
-  it('spawns with --print --output-format text args', async () => {
+  it('spawns with -p <prompt> --dangerously-skip-permissions --output-format text args', async () => {
     const fake = makeFakeChild();
     const spawnFn = vi.fn().mockReturnValue(fake);
 
     const runner = new LocalAgentRunner({ spawnFn });
-    const runPromise = runner.run(makeWorkspace(), '', {}, 5_000);
+    const runPromise = runner.run(makeWorkspace(), 'test prompt', {}, 5_000);
     fake._exit(0);
     await runPromise;
 
     const args = spawnFn.mock.calls[0]?.[1] as string[];
-    expect(args).toEqual(['--print', '--output-format', 'text']);
+    expect(args).toEqual(['-p', 'test prompt', '--dangerously-skip-permissions', '--output-format', 'text']);
   });
 
-  it('pipes prompt via stdin', async () => {
+  it('passes prompt via -p flag, not stdin', async () => {
     const fake = makeFakeChild();
     const spawnFn = vi.fn().mockReturnValue(fake);
 
@@ -135,8 +135,14 @@ describe('LocalAgentRunner — mock spawn', () => {
     fake._exit(0);
     await runPromise;
 
+    // Prompt should be in the args, not piped via stdin
+    const args = spawnFn.mock.calls[0]?.[1] as string[];
+    expect(args[0]).toBe('-p');
+    expect(args[1]).toBe('my prompt text');
+
+    // stdin should NOT have received the prompt (it's closed immediately)
     const written = (fake.stdin as unknown as { _written: string[] })._written;
-    expect(written.join('')).toBe('my prompt text');
+    expect(written.join('')).toBe('');
   });
 
   it('passes env vars with allowlist — caller env merged in', async () => {

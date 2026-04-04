@@ -152,9 +152,28 @@ describe('POST /hooks/plane/:secret', () => {
     });
 
     const body = JSON.stringify({
-      event: 'issue_activity',
+      event: 'issue',
+      action: 'updated',
       event_id: 'evt-dedup-test',
-      data: { id: 'card-dedup', from: 'backlog', to: 'in-progress' },
+      webhook_id: 'wh-dedup-1',
+      workspace_id: 'ws-dedup-1',
+      data: {
+        id: 'card-dedup',
+        name: 'Dedup test card',
+        description_html: '',
+        state: { id: 'state-2', name: 'In Progress', group: 'started' },
+        project: 'proj-dedup',
+        workspace: 'ws-slug',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      activity: {
+        field: 'state_id',
+        old_value: 'Backlog',
+        new_value: 'In Progress',
+        old_identifier: 'state-1',
+        new_identifier: 'state-2',
+      },
     });
     const sig = signBody(body, PLANE_SECRET);
 
