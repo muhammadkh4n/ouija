@@ -100,6 +100,10 @@ export interface AgentRunResult {
   timedOut: boolean;
   /** Wall-clock duration of the run in milliseconds. */
   durationMs: number;
+  /** USD cost reported by the SDK. Only set when using SdkAgentRunner. */
+  costUsd?: number;
+  /** Number of agentic turns. Only set when using SdkAgentRunner. */
+  numTurns?: number;
 }
 
 // ---- AgentRunner interface ----

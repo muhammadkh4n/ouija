@@ -102,10 +102,20 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
       );
     }
     if (!this.agentRunner) {
-      const { LocalAgentRunner } = await import('@ouija/workspace-local');
-      this.agentRunner = new LocalAgentRunner(
-        this.config.claudeBinaryPath !== undefined ? { binaryPath: this.config.claudeBinaryPath } : {},
-      );
+      try {
+        const { SdkAgentRunner } = await import('@ouija/workspace-local');
+        this.agentRunner = new SdkAgentRunner({
+          model: this.config.defaultModel,
+        });
+        this.logger.info('Using Claude Agent SDK runner');
+      } catch {
+        // SDK not available -- fall back to raw subprocess
+        const { LocalAgentRunner } = await import('@ouija/workspace-local');
+        this.agentRunner = new LocalAgentRunner(
+          this.config.claudeBinaryPath !== undefined ? { binaryPath: this.config.claudeBinaryPath } : {},
+        );
+        this.logger.info('Using local subprocess runner (SDK not available)');
+      }
     }
   }
 
