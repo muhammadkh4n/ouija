@@ -104,10 +104,15 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
     if (!this.agentRunner) {
       try {
         const { SdkAgentRunner } = await import('@ouija/workspace-local');
+        // Resolve the SDK's bundled CLI path from the monorepo root
+        const { createRequire } = await import('node:module');
+        const require = createRequire(process.cwd() + '/package.json');
+        const cliPath = require.resolve('@anthropic-ai/claude-agent-sdk/cli.js');
         this.agentRunner = new SdkAgentRunner({
           model: this.config.defaultModel,
+          executablePath: cliPath,
         });
-        this.logger.info('Using Claude Agent SDK runner');
+        this.logger.info('Using Claude Agent SDK runner', { cliPath });
       } catch {
         // SDK not available -- fall back to raw subprocess
         const { LocalAgentRunner } = await import('@ouija/workspace-local');

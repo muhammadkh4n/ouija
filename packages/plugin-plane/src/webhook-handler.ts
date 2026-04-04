@@ -1,15 +1,17 @@
 // ---- Plane webhook normalization ----
 // Converts raw Plane webhook payloads into typed OuijaEvents.
 //
-// Plane's webhook schema (as of Plane ~0.23):
-//   event:      "issue_activity"
-//   data:       full issue snapshot at time of event
-//   activity:   the specific change that triggered this webhook
-//     .field:   "state" | "assignees" | "name" | "comment" | ...
+// Plane Community Edition webhook format:
+//   event:      "issue" (not "issue_activity")
+//   action:     "created" | "updated" | "deleted"
+//   data:       full issue snapshot (state is an object {id, name, group}, not a string)
+//   activity:   the specific change
+//     .field:   "state_id" | "assignees" | ... (note: "state_id", not "state")
+//     .actor:   {id, first_name, last_name, email, display_name}
 //
 // We only care about:
-//   field === "state"     → kanban.card.moved
-//   field === "assignees" → kanban.card.assigned
+//   field === "state_id" or field === "state" → kanban.card.moved
+//   field === "assignees"                     → kanban.card.assigned
 // Everything else returns null.
 
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
@@ -24,54 +26,60 @@ import { boardId as mkBoardId } from '@ouija/types';
 
 // ---- Raw Plane webhook shape ----
 
-interface PlaneWebhookActivityDetail {
+interface PlaneWebhookActivityActor {
   id: string;
+  first_name?: string;
+  last_name?: string;
   email?: string;
   display_name?: string;
 }
 
 interface PlaneWebhookActivity {
-  id: string;
-  verb: string;
   field: string;
   old_value: string | null;
   new_value: string | null;
   old_identifier: string | null;
   new_identifier: string | null;
-  actor_detail: PlaneWebhookActivityDetail;
-  created_at: string;
+  // Community edition uses "actor", older versions use "actor_detail"
+  actor?: PlaneWebhookActivityActor;
+  actor_detail?: PlaneWebhookActivityActor;
+  // Older format fields
+  id?: string;
+  verb?: string;
+  created_at?: string;
 }
 
 interface PlaneWebhookIssueData {
   id: string;
   name: string;
   description_html: string;
-  state: string;
-  state_detail?: {
-    id: string;
-    name: string;
-    color: string;
-    group: string;
-    sequence: number;
-  };
+  // Community edition: state is an object { id, name, color, group }
+  // Older versions: state is a string (UUID)
+  state: string | { id: string; name: string; color?: string; group?: string };
   project: string;
   workspace: string;
-  label_details: Array<{ id: string; name: string }>;
-  assignee_details: Array<{ id: string; email: string; display_name: string }>;
+  // Community edition uses "labels" and "assignees"
+  labels?: Array<{ id: string; name: string }>;
+  assignees?: Array<{ id: string; email?: string; display_name?: string }>;
+  // Older versions use "label_details" and "assignee_details"
+  label_details?: Array<{ id: string; name: string }>;
+  assignee_details?: Array<{ id: string; email: string; display_name: string }>;
   created_at: string;
   updated_at: string;
 }
 
 interface PlaneWebhookPayload {
   event: string;
-  identifier: string;
-  activity_id: string;
+  action?: string;
   data: PlaneWebhookIssueData;
   activity: PlaneWebhookActivity;
   webhook_id: string;
   workspace_id: string;
-  project_id: string;
-  timestamp: string;
+  // Older format has these at top level; community edition does not
+  project_id?: string;
+  identifier?: string;
+  activity_id?: string;
+  timestamp?: string;
 }
 
 // ---- Type guard ----
@@ -80,46 +88,46 @@ function isPlaneWebhookPayload(raw: unknown): raw is PlaneWebhookPayload {
   if (typeof raw !== 'object' || raw === null) return false;
   const p = raw as Record<string, unknown>;
 
-  if (
-    typeof p['event'] !== 'string' ||
-    typeof p['data'] !== 'object' ||
-    p['data'] === null ||
-    typeof p['activity'] !== 'object' ||
-    p['activity'] === null ||
-    typeof p['project_id'] !== 'string' ||
-    typeof p['workspace_id'] !== 'string'
-  ) {
-    return false;
-  }
+  // Must have event, data, activity, workspace_id
+  if (typeof p['event'] !== 'string') return false;
+  if (typeof p['data'] !== 'object' || p['data'] === null) return false;
+  if (typeof p['activity'] !== 'object' || p['activity'] === null) return false;
+  if (typeof p['workspace_id'] !== 'string') return false;
 
   const data = p['data'] as Record<string, unknown>;
-  if (typeof data['id'] !== 'string' || typeof data['state'] !== 'string') {
-    return false;
-  }
+  if (typeof data['id'] !== 'string') return false;
+  // state can be a string (UUID) or an object { id, name, ... }
+  if (typeof data['state'] !== 'string' && (typeof data['state'] !== 'object' || data['state'] === null)) return false;
 
   const activity = p['activity'] as Record<string, unknown>;
-  if (typeof activity['field'] !== 'string') {
-    return false;
-  }
+  if (typeof activity['field'] !== 'string') return false;
 
   return true;
 }
 
 // ---- Normalize issue data → KanbanCard ----
 
+/** Extract state ID from either string or object form. */
+function extractStateId(state: PlaneWebhookIssueData['state']): string {
+  return typeof state === 'string' ? state : state.id;
+}
+
 function toKanbanCard(
   data: PlaneWebhookIssueData,
   workspaceSlug: string,
   baseUrl: string,
 ): KanbanCard {
+  const labels = data.labels ?? data.label_details ?? [];
+  const assignees = data.assignees ?? data.assignee_details ?? [];
+
   return {
     id: cardId(data.id),
     title: data.name,
     description: data.description_html,
-    columnId: columnId(data.state),
+    columnId: columnId(extractStateId(data.state)),
     boardId: mkBoardId(data.project),
-    labels: data.label_details.map((l) => l.name),
-    assignees: data.assignee_details.map((a) => a.id),
+    labels: labels.map((l) => l.name),
+    assignees: assignees.map((a) => a.id),
     url: `${baseUrl.replace(/\/$/, '')}/${workspaceSlug}/projects/${data.project}/issues/${data.id}`,
     createdAt: data.created_at,
     updatedAt: data.updated_at,
@@ -159,26 +167,29 @@ export function normalizeWebhook(
     const payload = raw;
     const { data, activity } = payload;
 
-    // Only handle issue_activity events.
-    if (payload.event !== 'issue_activity') {
+    // Accept both "issue" (community edition) and "issue_activity" (older versions).
+    if (payload.event !== 'issue' && payload.event !== 'issue_activity') {
       return null;
     }
 
     const workspaceSlug = data.workspace ?? '';
-    const eventId = activity.id;
+    const eventId = activity.id ?? payload.webhook_id ?? crypto.randomUUID();
     const timestamp = activity.created_at ?? payload.timestamp ?? new Date().toISOString();
+    const correlationId = payload.activity_id ?? payload.webhook_id ?? eventId;
 
-    if (activity.field === 'state') {
-      // State change → card moved.
-      const fromColumnId = activity.old_value ?? activity.old_identifier;
-      const toColumnId = activity.new_value ?? activity.new_identifier ?? data.state;
+    // Actor can be in "actor" (community) or "actor_detail" (older)
+    const actor = activity.actor ?? activity.actor_detail;
+
+    // "state_id" (community edition) or "state" (older) → card moved
+    if (activity.field === 'state_id' || activity.field === 'state') {
+      const fromColumnId = activity.old_identifier ?? activity.old_value;
+      const toColumnId = activity.new_identifier ?? activity.new_value ?? extractStateId(data.state);
 
       if (!fromColumnId || !toColumnId) {
         return null;
       }
 
-      const movedByDetail = activity.actor_detail;
-      const movedBy = movedByDetail.email ?? movedByDetail.id ?? 'unknown';
+      const movedBy = actor?.email ?? actor?.display_name ?? actor?.id ?? 'unknown';
 
       const cardMovedPayload: KanbanCardMovedPayload = {
         cardId: cardId(data.id),
@@ -193,24 +204,20 @@ export function normalizeWebhook(
         payload: cardMovedPayload,
         timestamp,
         sourcePlugin,
-        correlationId: payload.activity_id,
+        correlationId,
       };
 
       return event;
     }
 
     if (activity.field === 'assignees') {
-      // Assignee change → card assigned.
-      // new_identifier holds the newly-added assignee member ID.
       const assigneeId = activity.new_identifier ?? activity.new_value;
 
       if (!assigneeId) {
-        // Unassignment — we don't emit an event for that.
         return null;
       }
 
-      const actorDetail = activity.actor_detail;
-      const assignedBy = actorDetail.email ?? actorDetail.id ?? 'unknown';
+      const assignedBy = actor?.email ?? actor?.display_name ?? actor?.id ?? 'unknown';
 
       const cardAssignedPayload: KanbanCardAssignedPayload = {
         cardId: cardId(data.id),
@@ -224,7 +231,7 @@ export function normalizeWebhook(
         payload: cardAssignedPayload,
         timestamp,
         sourcePlugin,
-        correlationId: payload.activity_id,
+        correlationId,
       };
 
       return event;

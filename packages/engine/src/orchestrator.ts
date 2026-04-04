@@ -485,17 +485,28 @@ export class Orchestrator {
         const triggerMode = this.agentMemberLookup.getTriggerMode(agentId);
 
         if (triggerMode === 'auto') {
-          // Convert to card_moved to dispatch immediately
-          const mapping = _config.columnMappings.find(
+          // Convert to card_moved to dispatch immediately.
+          // First try agent-specific column, then fall back to any dispatch column.
+          let mapping = _config.columnMappings.find(
             (m) => m.action === 'dispatch_agent' && String(m.agentId ?? '') === agentId,
           );
           if (mapping === undefined) {
-            this.logger.warn('card_assigned auto: no dispatch column mapping for agent', {
+            mapping = _config.columnMappings.find(
+              (m) => m.action === 'dispatch_agent',
+            );
+          }
+          if (mapping === undefined) {
+            this.logger.warn('card_assigned auto: no dispatch column mapping found', {
               agentId,
               boardId: instance.boardId,
             });
             return undefined;
           }
+          // Store the assignment so the card_moved override uses this agent
+          const now = new Date().toISOString();
+          instance.assignedAgentId = agentId;
+          await this.db.pipelines.save({ ...instance, assignedAgentId: agentId, updatedAt: now });
+
           const guardContext = await this._fetchGuardContext(payload.cardId);
           return {
             type: 'card_moved',

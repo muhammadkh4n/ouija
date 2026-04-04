@@ -40,7 +40,7 @@ export class AgentMemberRegistry {
         this.memberToAgent.set(found.id, agent.id);
         this.logger.info('Reused existing Plane member', { agentId: agent.id, memberId: found.id });
       } else {
-        const created = await this.planeClient.inviteMember(this.workspaceSlug, agent.email, 10);
+        const created = await this.planeClient.inviteMember(this.workspaceSlug, agent.email, 15);
         this.memberToAgent.set(created.id, agent.id);
         this.logger.info('Provisioned new Plane member', { agentId: agent.id, memberId: created.id });
       }

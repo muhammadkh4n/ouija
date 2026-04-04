@@ -98,7 +98,9 @@ async function handlePlaneWebhook(
     return sendOk();
   }
 
-  if (!verifyHmacSha256(rawBody, signature, expectedSecret, 'sha256=')) {
+  // Plane Community sends raw hex; older versions send "sha256=<hex>"
+  const sigToVerify = signature.startsWith('sha256=') ? signature : `sha256=${signature}`;
+  if (!verifyHmacSha256(rawBody, sigToVerify, expectedSecret, 'sha256=')) {
     request.log.warn('Plane webhook: HMAC verification failed');
     return sendOk();
   }
@@ -211,29 +213,80 @@ async function handleGitHubWebhook(
 function normalizePlaneEvent(body: Record<string, unknown>): OuijaEvent | null {
   const eventType = body['event'] as string | undefined;
 
-  if (eventType === 'issue_activity' || eventType === 'issue') {
-    const issue = (body['data'] as Record<string, unknown> | undefined) ?? body;
-    const cardIdVal = (issue['id'] as string | undefined) ?? (issue['issue_id'] as string | undefined);
-    const fromCol = (issue['from'] as string | undefined) ?? '';
-    const toCol = (issue['to'] as string | undefined) ?? (issue['state'] as string | undefined) ?? '';
+  // Accept both "issue" (community edition) and "issue_activity" (older)
+  if (eventType !== 'issue' && eventType !== 'issue_activity') {
+    return null;
+  }
 
-    if (!cardIdVal) return null;
+  const data = body['data'] as Record<string, unknown> | undefined;
+  const activity = body['activity'] as Record<string, unknown> | undefined;
+  if (!data || !activity) return null;
+
+  const cardIdVal = data['id'] as string | undefined;
+  if (!cardIdVal) return null;
+
+  const field = activity['field'] as string | undefined;
+
+  // Build composite cardId: <projectId>/<issueId> (PlanePlugin.getCard expects this format)
+  const projectId = (data['project'] as string | undefined) ?? '';
+  const compositeCardId = projectId ? `${projectId}/${cardIdVal}` : cardIdVal;
+
+  // "state_id" (community) or "state" (older) → card moved
+  if (field === 'state_id' || field === 'state') {
+    const fromCol = (activity['old_identifier'] as string | undefined)
+      ?? (activity['old_value'] as string | undefined) ?? '';
+    const toCol = (activity['new_identifier'] as string | undefined)
+      ?? (activity['new_value'] as string | undefined)
+      ?? (typeof data['state'] === 'string'
+        ? data['state']
+        : (data['state'] as Record<string, unknown> | undefined)?.['id'] as string | undefined)
+      ?? '';
+
+    if (!toCol) return null;
+
+    const actor = (activity['actor'] ?? activity['actor_detail']) as Record<string, unknown> | undefined;
+    const movedBy = (actor?.['email'] as string | undefined)
+      ?? (actor?.['display_name'] as string | undefined)
+      ?? 'plane-webhook';
 
     return {
       id: randomUUID(),
       topic: 'kanban.card.moved',
       payload: {
-        cardId: makeCardId(cardIdVal),
+        cardId: makeCardId(compositeCardId),
         fromColumnId: makeColumnId(fromCol),
         toColumnId: makeColumnId(toCol),
-        movedBy: (body['actor_id'] as string | undefined) ?? 'plane-webhook',
+        movedBy,
       },
       timestamp: new Date().toISOString(),
       sourcePlugin: '@ouija/plugin-plane',
-      correlationId: (body['event_id'] as string | undefined) ?? randomUUID(),
+      correlationId: (body['webhook_id'] as string | undefined) ?? randomUUID(),
     };
   }
 
+  if (field === 'assignees') {
+    const assigneeId = (activity['new_identifier'] as string | undefined)
+      ?? (activity['new_value'] as string | undefined);
+    if (!assigneeId) return null;
+
+    const actor = (activity['actor'] ?? activity['actor_detail']) as Record<string, unknown> | undefined;
+    const assignedBy = (actor?.['email'] as string | undefined) ?? 'plane-webhook';
+
+    return {
+      id: randomUUID(),
+      topic: 'kanban.card.assigned',
+      payload: {
+        cardId: makeCardId(compositeCardId),
+        assigneeId,
+        assignedBy,
+      },
+      timestamp: new Date().toISOString(),
+      sourcePlugin: '@ouija/plugin-plane',
+      correlationId: (body['webhook_id'] as string | undefined) ?? randomUUID(),
+    };
+  }
+
+  // Other activity types (comment, name change, etc.) — ignore
   return null;
 }
 

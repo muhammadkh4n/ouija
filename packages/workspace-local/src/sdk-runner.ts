@@ -18,13 +18,17 @@ import type {
 export interface SdkAgentRunnerOptions {
   /** Claude model to use. Defaults to "claude-sonnet-4-20250514". */
   model?: string;
+  /** Path to the Claude Code executable. Resolved automatically if omitted. */
+  executablePath?: string;
 }
 
 export class SdkAgentRunner implements AgentRunner {
   private readonly model: string;
+  private readonly executablePath: string | undefined;
 
   constructor(options: SdkAgentRunnerOptions = {}) {
     this.model = options.model ?? 'claude-sonnet-4-20250514';
+    this.executablePath = options.executablePath;
   }
 
   async run(
@@ -61,18 +65,34 @@ export class SdkAgentRunner implements AgentRunner {
     }, timeoutMs);
 
     try {
-      const q = query({
-        prompt,
-        options: {
-          cwd: workspace.endpoint,
-          model: this.model,
-          abortController: controller,
-          permissionMode: 'bypassPermissions',
-          allowDangerouslySkipPermissions: true,
-          settingSources: ['project'],
-          env: { ...env, CI: '1' },
-        },
-      });
+      // Resolve executable path: explicit > SDK bundled cli.js > system 'claude'
+      let cliPath = this.executablePath;
+      if (!cliPath) {
+        try {
+          const { createRequire } = await import('node:module');
+          const require = createRequire(import.meta.url);
+          const sdkDir = require.resolve('@anthropic-ai/claude-agent-sdk/cli.js');
+          cliPath = sdkDir;
+        } catch {
+          // Fallback: let the SDK try its own resolution
+        }
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const queryOptions: any = {
+        cwd: workspace.endpoint,
+        model: this.model,
+        abortController: controller,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        settingSources: ['project'],
+        env: { ...env, CI: '1' },
+      };
+      if (cliPath) {
+        queryOptions.pathToClaudeCodeExecutable = cliPath;
+      }
+
+      const q = query({ prompt, options: queryOptions });
 
       for await (const msg of q) {
         // Collect assistant text output
