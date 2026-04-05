@@ -34,6 +34,7 @@ const agentProfileSchema = {
     id: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]*$' },
     name: { type: 'string', minLength: 1 },
     email: { type: 'string', format: 'email' },
+    kanbanUserId: { type: 'string', nullable: true },
     avatar: { type: 'string', nullable: true },
     systemPrompt: { type: 'string', nullable: true },
     configDir: { type: 'string', nullable: true },
@@ -97,7 +98,8 @@ const boardColumnSchema = {
 const boardSchema = {
   type: 'object',
   properties: {
-    projectId: { type: 'string', minLength: 1 },
+    boardId: { type: 'string', nullable: true },
+    projectId: { type: 'string', nullable: true },
     columns: {
       type: 'array',
       items: boardColumnSchema,
@@ -105,7 +107,7 @@ const boardSchema = {
     defaultStallThresholdMs: { type: 'number', minimum: 30000, nullable: true },
     autoStartOnAssign: { type: 'boolean', nullable: true },
   },
-  required: ['projectId', 'columns'],
+  required: ['columns'],
   additionalProperties: false,
 } as const;
 
@@ -172,19 +174,26 @@ function semanticChecks(data: RawOuijaConfig): string[] {
 
   // Board semantic checks
   if (data.boards) {
-    const projectIds = new Set<string>();
+    const boardIds = new Set<string>();
     for (let b = 0; b < data.boards.length; b++) {
       const board = data.boards[b]!;
-      if (projectIds.has(board.projectId)) {
-        errors.push(`Duplicate board projectId: "${board.projectId}"`);
+      const resolvedId = board.boardId ?? board.projectId;
+
+      if (resolvedId === undefined) {
+        errors.push(`Board[${b}]: must have boardId or projectId`);
+        continue;
       }
-      projectIds.add(board.projectId);
+
+      if (boardIds.has(resolvedId)) {
+        errors.push(`Duplicate board ID: "${resolvedId}"`);
+      }
+      boardIds.add(resolvedId);
 
       for (let c = 0; c < board.columns.length; c++) {
         const col = board.columns[c]!;
         if (col.action === 'dispatch_agent' && !col.agentId) {
           errors.push(
-            `Board "${board.projectId}" column "${col.name}": agentId is required when action is dispatch_agent`,
+            `Board "${resolvedId}" column "${col.name}": agentId is required when action is dispatch_agent`,
           );
         }
       }

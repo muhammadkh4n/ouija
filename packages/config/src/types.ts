@@ -20,6 +20,7 @@ export interface AgentProfileConfig {
   id: string;
   name: string;
   email: string;
+  kanbanUserId?: string;
   avatar?: string;
   systemPrompt?: string;
   configDir?: string;
@@ -43,8 +44,9 @@ export interface BoardColumnConfig {
 }
 
 export interface BoardConfig {
+  boardId?: string;
   /** Plane project UUID or slug. */
-  projectId: string;
+  projectId?: string;
   /** Column → action mappings. Columns not listed default to 'noop'. */
   columns: BoardColumnConfig[];
   defaultStallThresholdMs?: number;

@@ -35,6 +35,9 @@
  *     TELEGRAM_CHAT_ID          — Telegram chat to send notifications to
  *     ANTHROPIC_API_KEY         — Required when agent worker is enabled
  *     GITHUB_WEBHOOK_SECRET     — GitHub webhook signature secret
+ *     FIZZY_ACCESS_TOKEN        — Enables Fizzy kanban plugin (mutually exclusive with PLANE_*)
+ *     FIZZY_BASE_URL            — Fizzy instance URL (required with FIZZY_ACCESS_TOKEN)
+ *     FIZZY_WEBHOOK_SECRET      — Fizzy webhook HMAC signing secret
  */
 
 import { buildApp } from './app.js';
@@ -176,39 +179,70 @@ async function main(): Promise<void> {
     },
   });
 
-  // 6. Wire kanban plugin — real Plane if configured, placeholder otherwise
+  // 6. Wire kanban plugin — Plane, Fizzy, or placeholder
   const { Orchestrator, StallMonitor } = await import('@ouija/engine');
 
   let kanbanPlugin: import('@ouija/types').KanbanPlugin;
   let planePluginInstance: import('@ouija/plugin-plane').PlanePlugin | undefined;
+  let fizzyPluginInstance: import('@ouija/plugin-fizzy').FizzyPlugin | undefined;
+  let kanbanBackend: 'plane' | 'fizzy' | 'none' = 'none';
 
   const planeApiToken = process.env['PLANE_API_TOKEN'];
   const planeBaseUrl = process.env['PLANE_BASE_URL'] ?? 'https://app.plane.so';
   const planeWorkspaceSlug = process.env['PLANE_WORKSPACE_SLUG'];
   const planeWebhookSecret = process.env['PLANE_WEBHOOK_SECRET'];
 
-  if (planeApiToken && planeWorkspaceSlug && planeWebhookSecret) {
-    console.info('Wiring real Plane kanban plugin');
+  const fizzyAccessToken = process.env['FIZZY_ACCESS_TOKEN'];
+  const fizzyBaseUrl = process.env['FIZZY_BASE_URL'];
+  const fizzyWebhookSecret = process.env['FIZZY_WEBHOOK_SECRET'];
+
+  const planeConfigured = !!(planeApiToken && planeWorkspaceSlug && planeWebhookSecret);
+  const fizzyConfigured = !!(fizzyAccessToken && fizzyBaseUrl && fizzyWebhookSecret);
+
+  if (planeConfigured && fizzyConfigured) {
+    throw new Error(
+      'Cannot configure both Plane and Fizzy as kanban backends. ' +
+      'Set either PLANE_* or FIZZY_* env vars, not both.',
+    );
+  }
+
+  if (planeConfigured) {
+    console.info('Wiring Plane kanban plugin');
     const { PlanePlugin } = await import('@ouija/plugin-plane');
     const planePlugin = new PlanePlugin();
     const planeConfig = {
       baseUrl: planeBaseUrl,
-      apiToken: planeApiToken,
-      workspaceSlug: planeWorkspaceSlug,
-      webhookSecret: planeWebhookSecret,
+      apiToken: planeApiToken!,
+      workspaceSlug: planeWorkspaceSlug!,
+      webhookSecret: planeWebhookSecret!,
     };
-    // Double-cast: makePluginContext returns PluginContext<Record<string,unknown>> but init
-    // expects PluginContext<PlaneConfig>. The shapes are structurally compatible at runtime.
     await planePlugin.init(
       makePluginContext('@ouija/plugin-plane', planeConfig) as unknown as Parameters<typeof planePlugin.init>[0],
     );
     await planePlugin.start();
     planePluginInstance = planePlugin;
     kanbanPlugin = planePlugin;
+    kanbanBackend = 'plane';
+  } else if (fizzyConfigured) {
+    console.info('Wiring Fizzy kanban plugin');
+    const { FizzyPlugin } = await import('@ouija/plugin-fizzy');
+    const fizzyPlugin = new FizzyPlugin();
+    const fizzyConfig = {
+      baseUrl: fizzyBaseUrl!,
+      accessToken: fizzyAccessToken!,
+      webhookSecret: fizzyWebhookSecret!,
+    };
+    await fizzyPlugin.init(
+      makePluginContext('@ouija/plugin-fizzy', fizzyConfig) as unknown as Parameters<typeof fizzyPlugin.init>[0],
+    );
+    await fizzyPlugin.start();
+    fizzyPluginInstance = fizzyPlugin;
+    kanbanPlugin = fizzyPlugin;
+    kanbanBackend = 'fizzy';
   } else {
     console.info(
-      'Plane env vars not fully set — using kanban placeholder. ' +
-      'Set PLANE_API_TOKEN, PLANE_WORKSPACE_SLUG, and PLANE_WEBHOOK_SECRET to enable.',
+      'No kanban backend configured — using placeholder. ' +
+      'Set PLANE_* or FIZZY_* env vars to enable.',
     );
     kanbanPlugin = {
       manifest: {
@@ -232,60 +266,68 @@ async function main(): Promise<void> {
     };
   }
 
-  // 6b. Provision agent Plane members if config is loaded
+  // 6b. Provision agent kanban members if config is loaded
   let agentRegistry: import('@ouija/config').AgentMemberRegistry | undefined;
 
-  if (ouijaConfig && planePluginInstance && planeWorkspaceSlug) {
+  const registryLogger = {
+    info: (msg: string, ctx?: Record<string, unknown>) =>
+      console.info(JSON.stringify({ level: 'info', component: 'agent-registry', msg, ...ctx })),
+    warn: (msg: string, ctx?: Record<string, unknown>) =>
+      console.warn(JSON.stringify({ level: 'warn', component: 'agent-registry', msg, ...ctx })),
+    error: (msg: string, ctx?: Record<string, unknown>) =>
+      console.error(JSON.stringify({ level: 'error', component: 'agent-registry', msg, ...ctx })),
+  };
+
+  if (ouijaConfig && kanbanBackend === 'plane' && planePluginInstance && planeWorkspaceSlug) {
     const { AgentMemberRegistry } = await import('@ouija/config');
-    const registryPlaneClient: import('@ouija/config').PlaneClient = {
-      getMembers: async (ws: string) => {
-        return planePluginInstance!.getMembers(ws);
-      },
-      inviteMember: async (ws: string, email: string, role: number) => {
-        return planePluginInstance!.inviteMember(ws, email, role as 5 | 10 | 15 | 20);
-      },
+    const registryClient: import('@ouija/config').KanbanMemberClient = {
+      getMembers: async (ws: string) => planePluginInstance!.getMembers(ws),
+      inviteMember: async (ws: string, email: string, role: number) =>
+        planePluginInstance!.inviteMember(ws, email, role as 5 | 10 | 15 | 20),
     };
-    agentRegistry = new AgentMemberRegistry(
-      ouijaConfig.agents,
-      registryPlaneClient,
-      planeWorkspaceSlug,
-      {
-        info: (msg: string, ctx?: Record<string, unknown>) =>
-          console.info(JSON.stringify({ level: 'info', component: 'agent-registry', msg, ...ctx })),
-        warn: (msg: string, ctx?: Record<string, unknown>) =>
-          console.warn(JSON.stringify({ level: 'warn', component: 'agent-registry', msg, ...ctx })),
-        error: (msg: string, ctx?: Record<string, unknown>) =>
-          console.error(JSON.stringify({ level: 'error', component: 'agent-registry', msg, ...ctx })),
-      },
-    );
+    agentRegistry = new AgentMemberRegistry(ouijaConfig.agents, registryClient, planeWorkspaceSlug, registryLogger);
     await agentRegistry.provision();
-    console.info('Agent Plane members provisioned');
+    console.info('Agent kanban members provisioned (Plane)');
+  } else if (ouijaConfig && kanbanBackend === 'fizzy') {
+    // Fizzy: no inviteMember API. Agents must use kanbanUserId in config or be pre-created.
+    const { AgentMemberRegistry } = await import('@ouija/config');
+    const noopClient: import('@ouija/config').KanbanMemberClient = {
+      getMembers: async () => [],
+      inviteMember: async () => { throw new Error('Fizzy does not support programmatic member creation — set kanbanUserId in agent config'); },
+    };
+    agentRegistry = new AgentMemberRegistry(ouijaConfig.agents, noopClient, '', registryLogger);
+    await agentRegistry.provision();
+    console.info('Agent kanban members provisioned (Fizzy — using kanbanUserId mappings)');
   }
 
-  // 6c. Seed board configs from ouija config
-  if (ouijaConfig?.boards && ouijaConfig.boards.length > 0 && planePluginInstance && planeWorkspaceSlug) {
+  // 6c. Seed board configs from ouija config (works with any kanban plugin)
+  if (ouijaConfig?.boards && ouijaConfig.boards.length > 0) {
     const { buildPipelineConfig } = await import('@ouija/config');
     const { boardId: makeBoardId, columnId: makeColumnId, agentId: makeAgentId } = await import('@ouija/types');
 
     for (const boardConf of ouijaConfig.boards) {
-      const bid = makeBoardId(boardConf.projectId);
+      const resolvedId = boardConf.boardId ?? boardConf.projectId;
+      if (!resolvedId) {
+        console.warn('Board config missing boardId/projectId, skipping');
+        continue;
+      }
+      const bid = makeBoardId(resolvedId);
       const existing = await db.boardConfigs.findByBoardId(bid);
       if (existing) {
-        console.info(`Board config already exists for project ${boardConf.projectId}, skipping seed`);
+        console.info(`Board config already exists for ${resolvedId}, skipping seed`);
         continue;
       }
 
-      const planeColumnClient = {
-        getStates: async (_ws: string, projId: string) => {
-          const states = await planePluginInstance!.getColumns(makeBoardId(projId));
-          return states.map(s => ({ id: String(s.id), name: s.name, group: 'unknown' }));
+      const kanbanColumnClient = {
+        getColumns: async (boardId: string) => {
+          const cols = await kanbanPlugin.getColumns(makeBoardId(boardId));
+          return cols.map(c => ({ id: String(c.id), name: c.name }));
         },
       };
 
       const seedable = await buildPipelineConfig(
         boardConf,
-        planeColumnClient,
-        planeWorkspaceSlug,
+        kanbanColumnClient,
         {
           info: (msg: string, ctx?: Record<string, unknown>) =>
             console.info(JSON.stringify({ level: 'info', component: 'board-seeder', msg, ...ctx })),
@@ -309,7 +351,7 @@ async function main(): Promise<void> {
       };
 
       await db.boardConfigs.save(pipelineConfig as import('@ouija/types').PipelineConfig);
-      console.info(`Seeded board config for project ${boardConf.projectId}`);
+      console.info(`Seeded board config for ${resolvedId}`);
     }
   }
 
@@ -341,6 +383,12 @@ async function main(): Promise<void> {
 
   // NOTE: Plane webhook route is already registered by buildApp → routes/webhooks.ts.
   // Do NOT call planePluginInstance.registerRoutes() — it would duplicate the route.
+
+  // Fizzy webhook route is registered by the plugin itself (no duplicate in routes/webhooks.ts).
+  if (fizzyPluginInstance) {
+    await fizzyPluginInstance.registerRoutes(app);
+    console.info('Fizzy webhook route registered at POST /hooks/fizzy/:secret');
+  }
 
   // 9. Wire Telegram notification plugin (optional)
   let unsubscribeTelegram: (() => Promise<void>) | undefined;
@@ -453,10 +501,10 @@ async function main(): Promise<void> {
     if (ouijaConfig?.claudeHome) {
       workerOpts.claudeHome = ouijaConfig.claudeHome;
     }
-    if (planePluginInstance !== undefined) {
-      const _plane = planePluginInstance;
+    if (kanbanBackend !== 'none') {
+      const _kanban = kanbanPlugin;
       workerOpts.getCardDetails = async (cardId: string) => {
-        const card = await _plane.getCard(cardId as import('@ouija/types').CardId);
+        const card = await _kanban.getCard(cardId as import('@ouija/types').CardId);
         return {
           title: card.title,
           description: card.description,
@@ -504,9 +552,12 @@ async function main(): Promise<void> {
         await unsubscribeTelegram();
       }
 
-      // Stop Plane plugin if real one was loaded
+      // Stop kanban plugin if real one was loaded
       if (planePluginInstance) {
         await planePluginInstance.stop();
+      }
+      if (fizzyPluginInstance) {
+        await fizzyPluginInstance.stop();
       }
 
       await jobQueue.close();

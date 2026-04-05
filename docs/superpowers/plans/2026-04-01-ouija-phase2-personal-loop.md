@@ -2922,20 +2922,85 @@ webhook pattern). Falls back to body.event_id, then to randomUUID."
 
 ---
 
-## Execution Summary
+## Execution Summary — Original Plan
 
-| Task | Package | Estimated Days | Dependencies | Parallelizable |
-|------|---------|---------------|-------------|----------------|
-| 1 | plugin-notify-telegram | 2 | -- | Yes (with Task 2) |
-| 2 | plugin-agent-claude | 4 | -- | Yes (with Task 1) |
-| 3 | agent-worker | 2 | Task 2 (interface only) | Mostly (start early) |
-| 4 | server (wiring) | 2 | Tasks 1, 2, 3 | No |
-| 5 | smoke test | 1 | Task 4 | No |
-| 6 | server (bug fixes) | 1 | -- | Yes (independent) |
+| Task | Package | Status |
+|------|---------|--------|
+| 1 | plugin-notify-telegram | **DONE** |
+| 2 | plugin-agent-claude | **DONE** |
+| 3 | agent-worker | **DONE** |
+| 4 | server (wiring) | **DONE** |
+| 5 | smoke test (full loop) | **DONE** (3 real PRs created during e2e proof) |
+| 6 | Phase 1 bug fixes | **DONE** (webhook normalizer, dedup key, Plane CE role codes) |
 
-**Critical path:** (1 || 2) -> 3 -> 4 -> 5
+---
 
-**Total: ~10 days** for one engineer, ~7 days with two engineers running Tasks 1+2 in parallel worktrees.
+## Work Completed Beyond Original Plan
+
+The following features were implemented during Phase 2 but were not in the original plan. They emerged from real-world e2e testing and the self-hoster story.
+
+### Workspace Abstraction (separate plan: 2026-04-02)
+- **DONE**: `WorkspaceProvider` + `AgentRunner` interfaces in `@ouija/types`
+- **DONE**: `provisioning` state added to pipeline state machine
+- **DONE**: `@ouija/workspace-local` — `LocalWorkspaceProvider` (clone + git worktree modes)
+- **DONE**: `@ouija/workspace-local` — `LocalAgentRunner` (CLI subprocess) + `SdkAgentRunner` (Claude Agent SDK)
+- **DONE**: `ClaudeAgentPlugin` refactored to use WorkspaceProvider + AgentRunner
+- **DONE**: Stall monitor updated for provisioning-aware thresholds (2x grace period)
+
+### Agent Profiles + Plane Member Provisioning (separate plan: 2026-04-03)
+- **DONE**: `@ouija/config` — YAML config loader, Ajv schema validator, types
+- **DONE**: `AgentMemberRegistry` — maps kanban member IDs to ouija agent IDs
+- **DONE**: `repoPath` support (git worktree) alongside `repoUrl` (clone)
+- **DONE**: Multi-repo resolution by Plane project ID
+- **DONE**: Auto-trigger (dispatch on assign) and manual trigger (assign then column move) modes
+- **DONE**: `configDir` — per-agent Claude Code capabilities (MCP servers, tools, hooks)
+- **DONE**: `claudeHome` — inherit dev's Claude setup for machine-authed CLI
+- **DONE**: Auth method env var wiring (api-key, bedrock, vertex, foundry, proxy)
+- **DONE**: Board config seeding from `ouija.config.yaml`
+- **DONE**: Workspace config assembly — layered `.claude/` config (repo → agent → task)
+
+### Fizzy Kanban Integration (2026-04-04)
+- **DONE**: `@ouija/plugin-fizzy` — full KanbanPlugin implementation against Fizzy REST API
+- **DONE**: `FizzyApiClient` — 10 API methods, error handling, rate limit support
+- **DONE**: Fizzy webhook handler — HMAC-SHA256 verification, 4 event mappings
+- **DONE**: Server wiring — `FIZZY_*` env vars, mutual exclusion with Plane
+- **DONE**: `docker-compose.fizzy.yml` — Fizzy + Postgres + Redis stack
+
+### Config Generalization (2026-04-04)
+- **DONE**: `PlaneClient` → `KanbanMemberClient` (backward-compatible alias)
+- **DONE**: `PlaneColumnClient` → `KanbanColumnClient` (backward-compatible alias)
+- **DONE**: `kanbanUserId` field — pre-mapped agent IDs for backends without auto-provisioning
+- **DONE**: `boardId` field — generic alternative to Plane-specific `projectId`
+- **DONE**: Duplicate Plane webhook normalizer eliminated — server now imports from `@ouija/plugin-plane`
+
+### Bug Fixes Found During E2E (2026-04-03)
+- **DONE**: Webhook column ID resolution — `new_identifier` (UUID) over `new_value` (name)
+- **DONE**: Auto-trigger fallback — dispatch to any available column when agent-specific column missing
+- **DONE**: Plane CE role code 15 (not 10) for member invitations
+- **DONE**: SDK runner `cli.js` path resolution via `createRequire` (falls back to LocalAgentRunner)
+
+---
+
+## Current State (2026-04-04)
+
+- **14 packages** in monorepo (types, bus, engine, plugin-sdk, plugin-plane, plugin-fizzy, plugin-github, plugin-agent-claude, plugin-notify-telegram, agent-worker, workspace-local, config, server)
+- **604 tests passing**, 0 failures
+- **3 real PRs** created during e2e proof on `muhammadkh4n/mcp-server-template`
+- **Private repo** pushed to `github.com/muhammadkh4n/ouija`
+- **Two kanban backends**: Plane CE and Fizzy (mutually exclusive via env vars)
+
+---
+
+## Pending / Known Gaps
+
+| Item | Priority | Notes |
+|------|----------|-------|
+| Plane CE webhooks don't fire on API changes | **High** (Plane-only) | Polling fallback needed for Plane users. Not an issue for Fizzy. |
+| No "Failed" column mapping | **Medium** | Transition emits `move_card` to "Failed" but no column config supports it. Cards stay put on failure. |
+| Plane member invitation ≠ real member | **Low** | `inviteMember()` creates pending invites. Use `kanbanUserId` pre-mapping instead. |
+| SDK runner cli.js path fragile in monorepo | **Low** | Falls back to LocalAgentRunner. Both produce identical results. |
+| Fizzy e2e proof not yet run | **Medium** | Plugin built + tested (52 tests) but no real Fizzy instance tested yet. |
+| Engram memory integration for agents | **Backlog** | Wire engram MCP server via agent configDir for cross-session agent memory. |
 
 ---
 
@@ -2949,3 +3014,4 @@ webhook pattern). Falls back to body.event_id, then to randomUUID."
 - Agent cost tracking and budget enforcement
 - SOC 2 / GDPR compliance
 - `ouija demo` command
+- Remote execution (E2B, Codespaces) — researched, not implemented

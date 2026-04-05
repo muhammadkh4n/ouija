@@ -1,9 +1,11 @@
 import type { AgentProfileConfig, TriggerMode } from './types.js';
 
-export interface PlaneClient {
+export interface KanbanMemberClient {
   getMembers(workspaceSlug: string): Promise<Array<{ id: string; email: string; display_name: string; role: number }>>;
   inviteMember(workspaceSlug: string, email: string, role: number): Promise<{ id: string; email: string; role: number }>;
 }
+
+export type PlaneClient = KanbanMemberClient;
 
 export interface RegistryLogger {
   info(msg: string, ctx?: Record<string, unknown>): void;
@@ -14,13 +16,13 @@ export interface RegistryLogger {
 export class AgentMemberRegistry {
   private readonly agents: Map<string, AgentProfileConfig>;
   private readonly memberToAgent = new Map<string, string>();
-  private readonly planeClient: PlaneClient;
+  private readonly planeClient: KanbanMemberClient;
   private readonly workspaceSlug: string;
   private readonly logger: RegistryLogger;
 
   constructor(
     agents: AgentProfileConfig[],
-    planeClient: PlaneClient,
+    planeClient: KanbanMemberClient,
     workspaceSlug: string,
     logger: RegistryLogger,
   ) {
@@ -31,10 +33,25 @@ export class AgentMemberRegistry {
   }
 
   async provision(): Promise<void> {
+    const agentsNeedingLookup: AgentProfileConfig[] = [];
+
+    for (const agent of this.agents.values()) {
+      if (agent.kanbanUserId !== undefined) {
+        this.memberToAgent.set(agent.kanbanUserId, agent.id);
+        this.logger.info('Registered agent via kanbanUserId', { agentId: agent.id, memberId: agent.kanbanUserId });
+      } else {
+        agentsNeedingLookup.push(agent);
+      }
+    }
+
+    if (agentsNeedingLookup.length === 0) {
+      return;
+    }
+
     const existing = await this.planeClient.getMembers(this.workspaceSlug);
     const membersByEmail = new Map(existing.map((m) => [m.email, m]));
 
-    for (const agent of this.agents.values()) {
+    for (const agent of agentsNeedingLookup) {
       const found = membersByEmail.get(agent.email);
       if (found) {
         this.memberToAgent.set(found.id, agent.id);

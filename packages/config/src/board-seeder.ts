@@ -1,9 +1,10 @@
 import type { BoardConfig } from './types.js';
 
-/** Minimal Plane API interface for column discovery. */
-export interface PlaneColumnClient {
-  getStates(workspaceSlug: string, projectId: string): Promise<Array<{ id: string; name: string; group: string }>>;
+export interface KanbanColumnClient {
+  getColumns(boardId: string): Promise<Array<{ id: string; name: string }>>;
 }
+
+export type PlaneColumnClient = KanbanColumnClient;
 
 export interface SeederLogger {
   info(msg: string, ctx?: Record<string, unknown>): void;
@@ -25,29 +26,26 @@ export interface SeedablePipelineConfig {
   autoStartOnAssign: boolean;
 }
 
-/**
- * Build a PipelineConfig from a BoardConfig + Plane API state discovery.
- *
- * For each Plane state:
- * - If a column config matches by name (case-insensitive), use its action/agentId
- * - Otherwise: default to 'noop'
- */
 export async function buildPipelineConfig(
   boardConfig: BoardConfig,
-  planeClient: PlaneColumnClient,
-  workspaceSlug: string,
+  client: KanbanColumnClient,
   logger: SeederLogger,
 ): Promise<SeedablePipelineConfig> {
-  const states = await planeClient.getStates(workspaceSlug, boardConfig.projectId);
+  const resolvedBoardId = boardConfig.boardId ?? boardConfig.projectId;
+  if (resolvedBoardId === undefined) {
+    throw new Error('BoardConfig must have boardId or projectId');
+  }
 
-  const columnMappings = states.map((state) => {
+  const columns = await client.getColumns(resolvedBoardId);
+
+  const columnMappings = columns.map((col) => {
     const match = boardConfig.columns.find(
-      (c) => c.name.toLowerCase() === state.name.toLowerCase(),
+      (c) => c.name.toLowerCase() === col.name.toLowerCase(),
     );
 
     return {
-      columnId: state.id,
-      columnName: state.name,
+      columnId: col.id,
+      columnName: col.name,
       action: match?.action ?? ('noop' as const),
       ...(match?.agentId ? { agentId: match.agentId } : {}),
       guards: [] as Array<{ type: string; value: string | number }>,
@@ -55,13 +53,13 @@ export async function buildPipelineConfig(
   });
 
   logger.info('Built pipeline config', {
-    projectId: boardConfig.projectId,
+    boardId: resolvedBoardId,
     mappedColumns: columnMappings.filter((m) => m.action !== 'noop').length,
     totalColumns: columnMappings.length,
   });
 
   return {
-    boardId: boardConfig.projectId,
+    boardId: resolvedBoardId,
     columnMappings,
     defaultStallThresholdMs: boardConfig.defaultStallThresholdMs ?? 300_000,
     autoStartOnAssign: boardConfig.autoStartOnAssign ?? true,

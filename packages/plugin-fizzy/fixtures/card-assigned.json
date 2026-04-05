@@ -1,0 +1,22 @@
+{
+  "id": "evt_def456",
+  "action": "card_assigned",
+  "created_at": "2026-04-04T12:01:00Z",
+  "eventable": {
+    "id": 42,
+    "number": 7,
+    "title": "Add CONTRIBUTING.md",
+    "status": "published",
+    "description": "Add a contributing guide",
+    "description_html": "<p>Add a contributing guide</p>",
+    "tags": ["docs"],
+    "column": null,
+    "board": { "id": 3, "name": "Dev Board" },
+    "creator": { "id": 1, "name": "Admin", "email_address": "admin@example.com" },
+    "assignees": [
+      { "id": 10, "name": "Rex Coder", "email_address": "rex@agents.ouija.dev" }
+    ]
+  },
+  "board": { "id": 3, "name": "Dev Board" },
+  "creator": { "id": 1, "name": "Admin", "email_address": "admin@example.com" }
+}

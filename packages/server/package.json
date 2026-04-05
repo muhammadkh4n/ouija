@@ -19,6 +19,7 @@
     "@ouija/engine": "*",
     "@ouija/plugin-agent-claude": "*",
     "@ouija/plugin-notify-telegram": "*",
+    "@ouija/plugin-fizzy": "*",
     "@ouija/plugin-plane": "*",
     "@ouija/plugin-sdk": "*",
     "@ouija/types": "*",
