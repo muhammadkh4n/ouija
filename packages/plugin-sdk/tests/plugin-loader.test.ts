@@ -107,7 +107,7 @@ describe('PluginLoader — config validation', () => {
 
     await expect(
       loader.loadAll(simpleContextFactory, buildImportFn({ '@ouija-dev/plugin-plane': factory })),
-    ).rejects.toThrow(/Plugin @ouija\/plugin-plane config error.*apiToken/);
+    ).rejects.toThrow(/Plugin @ouija-dev\/plugin-plane config error.*apiToken/);
   });
 });
 
@@ -269,7 +269,7 @@ describe('PluginLoader — coreApiVersion compatibility', () => {
         simpleContextFactory,
         buildImportFn({ '@ouija-dev/v99-plugin': factory }),
       ),
-    ).rejects.toThrow(/@ouija\/v99-plugin/);
+    ).rejects.toThrow(/@ouija-dev\/v99-plugin/);
   });
 
   it('accepts a plugin with a compatible version range', async () => {

@@ -106,7 +106,7 @@ describe('validateConfigOrThrow', () => {
         baseUrl: 'https://api.example.com',
         // apiToken missing
       }),
-    ).toThrow(/Plugin @ouija\/plugin-plane config error/);
+    ).toThrow(/Plugin @ouija-dev\/plugin-plane config error/);
   });
 
   it('includes the missing field name in the thrown message', () => {
