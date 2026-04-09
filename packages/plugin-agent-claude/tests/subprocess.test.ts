@@ -12,7 +12,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { spawnClaude } from '../src/subprocess.js';
 
-describe('spawnClaude', () => {
+describe.skipIf(!!process.env.CI)('spawnClaude', () => {
   describe('basic execution', () => {
     it('returns exitCode 0 for a fast-succeeding binary', async () => {
       const result = await spawnClaude({

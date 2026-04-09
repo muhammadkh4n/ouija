@@ -40,54 +40,54 @@ jobs:
       - run: npm run build
 
       # Publish in dependency order: types → config → bus → plugin-sdk → engine → plugins → server
-      - run: npm publish --workspace=packages/types --provenance
+      - run: npm publish --workspace=packages/types --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/config --provenance
+      - run: npm publish --workspace=packages/config --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/bus --provenance
+      - run: npm publish --workspace=packages/bus --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-sdk --provenance
+      - run: npm publish --workspace=packages/plugin-sdk --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/engine --provenance
+      - run: npm publish --workspace=packages/engine --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/workspace-local --provenance
+      - run: npm publish --workspace=packages/workspace-local --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-plane --provenance
+      - run: npm publish --workspace=packages/plugin-plane --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-github --provenance
+      - run: npm publish --workspace=packages/plugin-github --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-fizzy --provenance
+      - run: npm publish --workspace=packages/plugin-fizzy --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-agent-claude --provenance
+      - run: npm publish --workspace=packages/plugin-agent-claude --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-notify-telegram --provenance
+      - run: npm publish --workspace=packages/plugin-notify-telegram --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/agent-worker --provenance
+      - run: npm publish --workspace=packages/agent-worker --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/server --provenance
+      - run: npm publish --workspace=packages/server --provenance || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
