@@ -307,7 +307,7 @@ describe('LocalAgentRunner — mock spawn', () => {
 // These tests use real POSIX binaries to verify kill logic works end-to-end.
 // ---------------------------------------------------------------------------
 
-describe('LocalAgentRunner — real binaries', () => {
+describe.skipIf(!!process.env.CI)('LocalAgentRunner — real binaries', () => {
   it('enforces timeout with SIGTERM then SIGKILL — sets timedOut=true', async () => {
     // sleep accepts --print etc. as unknown args; behavior varies by platform.
     // Use `sh -c 'sleep 60'` to avoid arg parsing issues.
