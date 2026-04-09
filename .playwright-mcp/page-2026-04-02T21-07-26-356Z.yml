@@ -1,4 +1,0 @@
-- generic [active] [ref=e1]:
-  - img "logo" [ref=e4]
-  - generic:
-    - region "Notifications"

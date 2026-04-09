@@ -1,5 +1,0 @@
-[     565ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ http://localhost:3333/assets/use-editor-flagging-BmVhhsRh.js:227
-[    1172ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3333/api/workspaces/ouija-dev/projects/5d55f7e1-6f4d-4809-adbf-9dafeedab0c9/intake-state/:0
-[   11218ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3333/api/workspaces/ouija-dev/projects/5d55f7e1-6f4d-4809-adbf-9dafeedab0c9/intake-state/:0
-[   21263ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3333/api/workspaces/ouija-dev/projects/5d55f7e1-6f4d-4809-adbf-9dafeedab0c9/intake-state/:0
-[   51304ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3333/api/workspaces/ouija-dev/projects/5d55f7e1-6f4d-4809-adbf-9dafeedab0c9/intake-state/:0

@@ -4,3 +4,9 @@ dist/
 *.tsbuildinfo
 .turbo/
 # package-lock.json is committed for reproducible Docker builds
+
+# Debug/sensitive artifacts
+.playwright-mcp/
+plane-issue-list.png
+ouija.config.yaml
+*.csv
