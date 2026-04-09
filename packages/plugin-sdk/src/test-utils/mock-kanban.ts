@@ -5,9 +5,9 @@ import type {
   PluginManifest,
   PluginContext,
   PluginHealth,
-} from '@ouija/types';
-import type { CardId, ColumnId, BoardId } from '@ouija/types';
-import { cardId, columnId, boardId } from '@ouija/types';
+} from '@ouija-dev/types';
+import type { CardId, ColumnId, BoardId } from '@ouija-dev/types';
+import { cardId, columnId, boardId } from '@ouija-dev/types';
 
 // ---- Mock Kanban Plugin ----
 
@@ -20,7 +20,7 @@ import { cardId, columnId, boardId } from '@ouija/types';
  */
 export class MockKanbanPlugin implements KanbanPlugin<Record<string, never>> {
   readonly manifest: PluginManifest = {
-    name: '@ouija/mock-kanban',
+    name: '@ouija-dev/mock-kanban',
     version: '0.1.0',
     type: 'kanban',
     coreApiVersion: '>=1.0.0 <2.0.0',

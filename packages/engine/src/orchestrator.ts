@@ -33,17 +33,17 @@ import type {
   BoardId,
   ColumnId,
   DispatchId,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 import {
   instanceId as makeInstanceId,
   columnId as makeColumnId,
   dispatchId as makeDispatchId,
   prId as makePrId,
   agentId as makeAgentId,
-} from '@ouija/types';
-import type { EventBus } from '@ouija/bus';
-import type { JobQueue, AgentDispatchJobData, StallCheckJobData } from '@ouija/bus';
-import { QUEUE_NAMES } from '@ouija/bus';
+} from '@ouija-dev/types';
+import type { EventBus } from '@ouija-dev/bus';
+import type { JobQueue, AgentDispatchJobData, StallCheckJobData } from '@ouija-dev/bus';
+import { QUEUE_NAMES } from '@ouija-dev/bus';
 import { transition } from './transition.js';
 import { sanitize } from './sanitizer.js';
 
@@ -406,7 +406,7 @@ export class Orchestrator {
         // notification plugin can consume it. The Telegram plugin subscribes here.
         const notifTitle = String(effect.payload['title'] ?? 'Pipeline Update');
         const notifBody = String(effect.payload['body'] ?? '');
-        const notifLevel = (effect.payload['level'] as import('@ouija/types').NotificationLevel | undefined) ?? 'info';
+        const notifLevel = (effect.payload['level'] as import('@ouija-dev/types').NotificationLevel | undefined) ?? 'info';
         await this.eventBus.publish(
           'notification.send',
           {

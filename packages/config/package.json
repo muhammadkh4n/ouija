@@ -1,5 +1,5 @@
 {
-  "name": "@ouija/config",
+  "name": "@ouija-dev/config",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -8,6 +8,8 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",

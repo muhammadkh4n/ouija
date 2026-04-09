@@ -1,4 +1,4 @@
-import type { PluginContext, PluginLogger } from '@ouija/types';
+import type { PluginContext, PluginLogger } from '@ouija-dev/types';
 
 // ---- Mock logger ----
 

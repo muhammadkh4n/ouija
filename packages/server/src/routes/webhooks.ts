@@ -18,10 +18,10 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { Orchestrator } from '@ouija/engine';
-import type { Database, OuijaEvent } from '@ouija/types';
+import type { Orchestrator } from '@ouija-dev/engine';
+import type { Database, OuijaEvent } from '@ouija-dev/types';
 import { randomUUID } from 'node:crypto';
-import { normalizeWebhook as normalizePlaneWebhook } from '@ouija/plugin-plane/webhook-handler';
+import { normalizeWebhook as normalizePlaneWebhook } from '@ouija-dev/plugin-plane/webhook-handler';
 
 const WEBHOOK_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
 const DEDUP_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -233,12 +233,12 @@ function normalizeGitHubEvent(
         id: randomUUID(),
         topic: 'git.pr.merged',
         payload: {
-          prId: prIdVal as import('@ouija/types').PrId,
-          instanceId: instanceId as import('@ouija/types').InstanceId,
+          prId: prIdVal as import('@ouija-dev/types').PrId,
+          instanceId: instanceId as import('@ouija-dev/types').InstanceId,
           mergedAt,
         },
         timestamp: new Date().toISOString(),
-        sourcePlugin: '@ouija/plugin-github',
+        sourcePlugin: '@ouija-dev/plugin-github',
         correlationId: randomUUID(),
       };
     }

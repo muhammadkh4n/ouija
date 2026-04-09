@@ -13,6 +13,10 @@ COPY packages/engine/package.json      packages/engine/
 COPY packages/plugin-sdk/package.json  packages/plugin-sdk/
 COPY packages/plugin-plane/package.json packages/plugin-plane/
 COPY packages/plugin-github/package.json packages/plugin-github/
+COPY packages/agent-worker/package.json packages/agent-worker/
+COPY packages/workspace-local/package.json packages/workspace-local/
+COPY packages/plugin-agent-claude/package.json packages/plugin-agent-claude/
+COPY packages/plugin-notify-telegram/package.json packages/plugin-notify-telegram/
 COPY packages/server/package.json      packages/server/
 
 # Install all dependencies (including devDependencies needed for the build).
@@ -51,6 +55,14 @@ COPY --from=build --chown=node:node /app/packages/plugin-plane/dist ./packages/p
 COPY --from=build --chown=node:node /app/packages/plugin-plane/package.json ./packages/plugin-plane/package.json
 COPY --from=build --chown=node:node /app/packages/plugin-github/dist ./packages/plugin-github/dist/
 COPY --from=build --chown=node:node /app/packages/plugin-github/package.json ./packages/plugin-github/package.json
+COPY --from=build --chown=node:node /app/packages/agent-worker/dist ./packages/agent-worker/dist/
+COPY --from=build --chown=node:node /app/packages/agent-worker/package.json ./packages/agent-worker/package.json
+COPY --from=build --chown=node:node /app/packages/workspace-local/dist ./packages/workspace-local/dist/
+COPY --from=build --chown=node:node /app/packages/workspace-local/package.json ./packages/workspace-local/package.json
+COPY --from=build --chown=node:node /app/packages/plugin-agent-claude/dist ./packages/plugin-agent-claude/dist/
+COPY --from=build --chown=node:node /app/packages/plugin-agent-claude/package.json ./packages/plugin-agent-claude/package.json
+COPY --from=build --chown=node:node /app/packages/plugin-notify-telegram/dist ./packages/plugin-notify-telegram/dist/
+COPY --from=build --chown=node:node /app/packages/plugin-notify-telegram/package.json ./packages/plugin-notify-telegram/package.json
 COPY --from=build --chown=node:node /app/packages/server/dist  ./packages/server/dist/
 COPY --from=build --chown=node:node /app/packages/server/package.json ./packages/server/package.json
 

@@ -1,0 +1,7 @@
+[     628ms] [WARNING] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently @ http://localhost:3333/assets/use-editor-flagging-BmVhhsRh.js:227
+[    1556ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3333/api/workspaces/ouija-dev/projects/5d55f7e1-6f4d-4809-adbf-9dafeedab0c9/intake-state/:0
+[    1717ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3333/api/workspaces/file-assets/63cb9f30-17c8-45e2-8537-bb39ba6f1369/51.png/restore/:0
+[    1717ms] [ERROR] Error restoring image:  {error: The required object does not exist.} @ http://localhost:3333/assets/use-editor-flagging-BmVhhsRh.js:284
+[   11615ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3333/api/workspaces/ouija-dev/projects/5d55f7e1-6f4d-4809-adbf-9dafeedab0c9/intake-state/:0
+[   26658ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3333/api/workspaces/ouija-dev/projects/5d55f7e1-6f4d-4809-adbf-9dafeedab0c9/intake-state/:0
+[   46708ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3333/api/workspaces/ouija-dev/projects/5d55f7e1-6f4d-4809-adbf-9dafeedab0c9/intake-state/:0

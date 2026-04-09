@@ -6,9 +6,9 @@ import type {
   PluginHealth,
   StandardPR,
   OpenPRParams,
-} from '@ouija/types';
-import type { PrId } from '@ouija/types';
-import type { PluginFactory } from '@ouija/plugin-sdk';
+} from '@ouija-dev/types';
+import type { PrId } from '@ouija-dev/types';
+import type { PluginFactory } from '@ouija-dev/plugin-sdk';
 import { githubConfigSchema, type GitHubConfig } from './config.js';
 import { GitHubApiClient, parseRepoUrl } from './api-client.js';
 import { normalizeWebhook, verifySignature } from './webhook-handler.js';
@@ -16,7 +16,7 @@ import { normalizeWebhook, verifySignature } from './webhook-handler.js';
 // ---- Plugin manifest ----
 
 const manifest: PluginManifest = {
-  name: '@ouija/plugin-github',
+  name: '@ouija-dev/plugin-github',
   version: '0.1.0',
   type: 'git',
   coreApiVersion: '>=1.0.0 <2.0.0',

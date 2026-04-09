@@ -1,17 +1,19 @@
 {
-  "name": "@ouija/plugin-notify-telegram",
+  "name": "@ouija-dev/plugin-notify-telegram",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ouija/types": "*",
-    "@ouija/plugin-sdk": "*"
+    "@ouija-dev/types": "*",
+    "@ouija-dev/plugin-sdk": "*"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

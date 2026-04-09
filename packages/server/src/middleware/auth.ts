@@ -23,7 +23,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createHash } from 'node:crypto';
 import { jwtVerify } from 'jose';
-import { ApiError } from '@ouija/types';
+import { ApiError } from '@ouija-dev/types';
 
 // ---- Session user shape ----
 

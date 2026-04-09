@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TelegramNotifyPlugin, PluginFactory } from '../src/index.js';
-import { createMockContext } from '@ouija/plugin-sdk';
-import type { Notification } from '@ouija/types';
+import { createMockContext } from '@ouija-dev/plugin-sdk';
+import type { Notification } from '@ouija-dev/types';
 
 // ---- Test helpers ----
 
@@ -51,7 +51,7 @@ describe('TelegramNotifyPlugin', () => {
 
   describe('manifest', () => {
     it('has correct plugin name', () => {
-      expect(plugin.manifest.name).toBe('@ouija/plugin-notify-telegram');
+      expect(plugin.manifest.name).toBe('@ouija-dev/plugin-notify-telegram');
     });
 
     it('has notification type', () => {
@@ -255,7 +255,7 @@ describe('TelegramNotifyPlugin', () => {
 
   describe('PluginFactory', () => {
     it('has the correct manifest name', () => {
-      expect(PluginFactory.manifest.name).toBe('@ouija/plugin-notify-telegram');
+      expect(PluginFactory.manifest.name).toBe('@ouija-dev/plugin-notify-telegram');
     });
 
     it('create() returns a TelegramNotifyPlugin instance', () => {

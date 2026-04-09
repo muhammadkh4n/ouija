@@ -141,7 +141,7 @@ interface BasePlugin<TConfig = unknown> {
 
 ```typescript
 interface PluginManifest {
-  name: string;                    // e.g. "@ouija/plugin-plane"
+  name: string;                    // e.g. "@ouija-dev/plugin-plane"
   version: string;                 // semver
   type: 'kanban' | 'git' | 'agent' | 'notification';
   coreApiVersion: string;          // e.g. ">=1.0 <2.0" — checked at startup
@@ -717,24 +717,24 @@ instance:
   port: 4000
 
 plugins:
-  - module: "@ouija/plugin-plane"
+  - module: "@ouija-dev/plugin-plane"
     config:
       baseUrl: "https://plane.example.com"
       apiToken: "${PLANE_API_TOKEN}"      # env var interpolation
       workspaceSlug: "my-workspace"
       ingestionMode: webhook
 
-  - module: "@ouija/plugin-github"
+  - module: "@ouija-dev/plugin-github"
     config:
       personalAccessToken: "${GITHUB_PAT}"
       defaultOrg: "myorg"
 
-  - module: "@ouija/plugin-agent-claude"
+  - module: "@ouija-dev/plugin-agent-claude"
     config:
       apiKey: "${ANTHROPIC_API_KEY}"
       model: "claude-opus-4-6"
 
-  - module: "@ouija/plugin-notify-telegram"
+  - module: "@ouija-dev/plugin-notify-telegram"
     config:
       botToken: "${TELEGRAM_BOT_TOKEN}"
       chatId: "${TELEGRAM_CHAT_ID}"
@@ -805,8 +805,8 @@ $ npx ouija init
 ```
 $ ouija check
   [PASS] Database: migrations up to date
-  [PASS] Plugin @ouija/plugin-plane 0.1.0: compatible with core 1.0
-  [WARN] Plugin @ouija/plugin-github 0.3.0: requires core >=1.3
+  [PASS] Plugin @ouija-dev/plugin-plane 0.1.0: compatible with core 1.0
+  [WARN] Plugin @ouija-dev/plugin-github 0.3.0: requires core >=1.3
   [PASS] OUIJA_SECRET_KEY: set
   [PASS] Plane API: reachable
   [FAIL] GitHub PAT: expired
@@ -839,8 +839,8 @@ GET /readyz → {
   "version": "1.0.0",
   "uptime": 3600,
   "plugins": {
-    "@ouija/plugin-plane": "healthy",
-    "@ouija/plugin-github": "degraded"
+    "@ouija-dev/plugin-plane": "healthy",
+    "@ouija-dev/plugin-github": "degraded"
   },
   "queues": {
     "agentDispatch": { "waiting": 0, "active": 2, "failed": 1 }

@@ -12,10 +12,10 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import type { Database, OuijaEvent } from '@ouija/types';
-import { instanceId as makeInstanceId } from '@ouija/types';
-import { ApiError } from '@ouija/types';
-import type { Orchestrator } from '@ouija/engine';
+import type { Database, OuijaEvent } from '@ouija-dev/types';
+import { instanceId as makeInstanceId } from '@ouija-dev/types';
+import { ApiError } from '@ouija-dev/types';
+import type { Orchestrator } from '@ouija-dev/engine';
 import { requireAuth } from '../middleware/auth.js';
 import { revokeJWT } from '../jwt.js';
 
@@ -26,7 +26,7 @@ export interface PipelineRouteOptions {
 
 // ---- Response serializers ----
 
-function serializePipeline(instance: import('@ouija/types').PipelineInstance) {
+function serializePipeline(instance: import('@ouija-dev/types').PipelineInstance) {
   const state = instance.state;
   // allowed_actions depends on current status
   const allowedActions: string[] = [];
@@ -89,7 +89,7 @@ export async function pipelineRoutes(
       }
 
       const page = await db.pipelines.listByBoard(
-        boardIdFilter as import('@ouija/types').BoardId,
+        boardIdFilter as import('@ouija-dev/types').BoardId,
         cursor,
         limit,
       );
@@ -161,8 +161,8 @@ export async function pipelineRoutes(
         topic: 'kanban.card.moved', // Use card.moved to re-trigger pipeline
         payload: {
           cardId: instance.cardId,
-          fromColumnId: instance.cardId as unknown as import('@ouija/types').ColumnId,
-          toColumnId: instance.cardId as unknown as import('@ouija/types').ColumnId,
+          fromColumnId: instance.cardId as unknown as import('@ouija-dev/types').ColumnId,
+          toColumnId: instance.cardId as unknown as import('@ouija-dev/types').ColumnId,
           movedBy: request.user?.userId ?? 'api',
         },
         timestamp: new Date().toISOString(),
@@ -219,8 +219,8 @@ export async function pipelineRoutes(
         topic: 'kanban.card.moved',
         payload: {
           cardId: instance.cardId,
-          fromColumnId: instance.cardId as unknown as import('@ouija/types').ColumnId,
-          toColumnId: instance.cardId as unknown as import('@ouija/types').ColumnId,
+          fromColumnId: instance.cardId as unknown as import('@ouija-dev/types').ColumnId,
+          toColumnId: instance.cardId as unknown as import('@ouija-dev/types').ColumnId,
           movedBy: request.user?.userId ?? 'api',
         },
         timestamp: new Date().toISOString(),

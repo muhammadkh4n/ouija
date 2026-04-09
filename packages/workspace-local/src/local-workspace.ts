@@ -23,7 +23,7 @@ import type {
   WorkspaceSpec,
   Workspace,
   WorkspaceHealth,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 const execFileAsync = promisify(execFile);
 

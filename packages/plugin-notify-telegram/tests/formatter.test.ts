@@ -7,7 +7,7 @@ import {
   formatAgentFailed,
   formatStallDetected,
 } from '../src/formatter.js';
-import type { Notification } from '@ouija/types';
+import type { Notification } from '@ouija-dev/types';
 
 // ---- escapeHtml ----
 

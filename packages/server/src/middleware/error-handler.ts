@@ -9,7 +9,7 @@
  */
 
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { ApiError } from '@ouija/types';
+import { ApiError } from '@ouija-dev/types';
 
 declare module 'fastify' {
   interface FastifyRequest {

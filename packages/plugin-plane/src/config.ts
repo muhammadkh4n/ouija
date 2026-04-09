@@ -1,6 +1,6 @@
 // ---- Plane plugin configuration schema ----
 // Defined as a const object so TypeScript preserves literal types.
-// Use with Ajv for runtime validation via @ouija/plugin-sdk.
+// Use with Ajv for runtime validation via @ouija-dev/plugin-sdk.
 
 export const planeConfigSchema = {
   type: 'object',

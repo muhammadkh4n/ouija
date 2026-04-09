@@ -6,7 +6,7 @@
  * - State (PipelineState) is stored as JSONB and deserialized on read.
  * - Application layer maintains updated_at — no DB triggers.
  * - pipeline_events is append-only; the application never issues UPDATE/DELETE against it.
- * - All public methods work with the branded ID types from @ouija/types.
+ * - All public methods work with the branded ID types from @ouija-dev/types.
  */
 
 import { Pool, PoolClient } from 'pg';
@@ -19,18 +19,18 @@ import type {
   Database,
   CursorPage,
   PipelineEventRecord,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 import type {
   PipelineInstance,
   PipelineConfig,
   PipelineState,
-} from '@ouija/types';
-import type { CardId, InstanceId, BoardId } from '@ouija/types';
+} from '@ouija-dev/types';
+import type { CardId, InstanceId, BoardId } from '@ouija-dev/types';
 import {
   instanceId as makeInstanceId,
   cardId as makeCardId,
   boardId as makeBoardId,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 // ---- Cursor helpers ----
 

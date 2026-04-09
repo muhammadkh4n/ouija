@@ -24,7 +24,7 @@ export interface PluginHealth {
 // ---- Plugin manifest ----
 
 export interface PluginManifest {
-  /** e.g. "@ouija/plugin-plane" */
+  /** e.g. "@ouija-dev/plugin-plane" */
   name: string;
   /** semver */
   version: string;

@@ -1,17 +1,19 @@
 {
-  "name": "@ouija/plugin-fizzy",
+  "name": "@ouija-dev/plugin-fizzy",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@ouija/types": "*",
-    "@ouija/plugin-sdk": "*"
+    "@ouija-dev/types": "*",
+    "@ouija-dev/plugin-sdk": "*"
   },
   "devDependencies": {
     "fastify": "^5.8.4",

@@ -1,15 +1,17 @@
 {
-  "name": "@ouija/plugin-sdk",
+  "name": "@ouija-dev/plugin-sdk",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ouija/types": "*",
+    "@ouija-dev/types": "*",
     "@types/semver": "^7.7.1",
     "ajv": "^8.18.0",
     "ajv-formats": "^3.0.1",

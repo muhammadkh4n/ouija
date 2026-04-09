@@ -1,0 +1,135 @@
+- generic [active] [ref=e1]:
+  - main [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button [ref=e158] [cursor=pointer]:
+          - generic [ref=e9]:
+            - generic [ref=e10]: O
+            - heading [level=4] [ref=e159]: Ouija Dev
+          - img [ref=e12]
+        - button [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+          - textbox [ref=e160]:
+            - /placeholder: Search commands...
+        - generic [ref=e23]:
+          - link [ref=e24] [cursor=pointer]:
+            - /url: /ouija-dev/notifications/
+            - img [ref=e27]
+          - button [ref=e30] [cursor=pointer]:
+            - button [ref=e31]:
+              - img [ref=e33]
+          - link [ref=e161] [cursor=pointer]:
+            - /url: https://github.com/makeplane/plane
+            - img [ref=e37]
+            - generic [ref=e38]: Star us on GitHub
+          - button [ref=e162] [cursor=pointer]:
+            - button [ref=e163]:
+              - generic [ref=e45]: M
+      - main [ref=e49]:
+        - generic [ref=e50]:
+          - link [ref=e164] [cursor=pointer]:
+            - /url: /ouija-dev/
+            - button [ref=e52]:
+              - img [ref=e53]
+            - generic [ref=e55]:
+              - generic [ref=e56]: Back to workspace
+              - generic [ref=e57]:
+                - generic [ref=e58]: O
+                - generic [ref=e59]: Ouija Dev
+          - generic [ref=e60]:
+            - generic [ref=e61]: Settings
+            - generic [ref=e62]:
+              - link [ref=e165] [cursor=pointer]:
+                - /url: /ouija-dev/settings/account/
+                - generic [ref=e64]: Account
+              - link [ref=e166] [cursor=pointer]:
+                - /url: /ouija-dev/settings/
+                - generic [ref=e66]: Workspace
+              - link [ref=e167] [cursor=pointer]:
+                - /url: /ouija-dev/settings/projects/5d55f7e1-6f4d-4809-adbf-9dafeedab0c9/
+                - generic [ref=e68]: Projects
+        - generic [ref=e73]:
+          - generic [ref=e75]:
+            - generic [ref=e77]:
+              - generic [ref=e78]: O
+              - generic [ref=e79]:
+                - generic [ref=e80]: Ouija Dev
+                - generic [ref=e81]: admin
+            - generic [ref=e82]:
+              - generic [ref=e83]:
+                - text: administration
+                - generic [ref=e84]:
+                  - button [ref=e168] [cursor=pointer]:
+                    - link [ref=e169]:
+                      - /url: /ouija-dev/settings/
+                      - generic [ref=e88]:
+                        - img [ref=e89]
+                        - generic [ref=e92]: General
+                  - button [ref=e170] [cursor=pointer]:
+                    - link [ref=e171]:
+                      - /url: /ouija-dev/settings/members/
+                      - generic [ref=e96]:
+                        - img [ref=e97]
+                        - generic [ref=e102]: Members
+                  - button [ref=e172] [cursor=pointer]:
+                    - link [ref=e173]:
+                      - /url: /ouija-dev/settings/billing/
+                      - generic [ref=e106]:
+                        - img [ref=e107]
+                        - generic [ref=e109]: Billing & Plans
+                  - button [ref=e174] [cursor=pointer]:
+                    - link [ref=e175]:
+                      - /url: /ouija-dev/settings/exports/
+                      - generic [ref=e113]:
+                        - img [ref=e114]
+                        - generic [ref=e116]: Exports
+              - generic [ref=e117]:
+                - text: developer
+                - button [ref=e176] [cursor=pointer]:
+                  - link [ref=e177]:
+                    - /url: /ouija-dev/settings/webhooks/
+                    - generic [ref=e122]:
+                      - img [ref=e123]
+                      - generic [ref=e127]: Webhooks
+          - generic [ref=e131]:
+            - generic [ref=e132]:
+              - generic [ref=e133]:
+                - heading [level=3] [ref=e178]: Webhooks
+                - generic [ref=e135]: Automate notifications to external services when project events occur.
+              - button [ref=e179] [cursor=pointer]: Add webhook
+            - link [ref=e206] [cursor=pointer]:
+              - /url: /ouija-dev/settings/webhooks/6219445f-192f-431b-aadc-538dae3241cd/
+              - generic [ref=e207]:
+                - heading [level=5] [ref=e208]: https://rexbook.tail74b8cd.ts.net/hooks/plane/5c2311922be24c7a475f7a57bcebcf3b
+                - switch [checked] [ref=e209]
+  - generic:
+    - region "Notifications":
+      - dialog "Webhook created" [ref=e212]:
+        - button [ref=e213] [cursor=pointer]:
+          - img [ref=e214]
+        - generic [ref=e218]:
+          - img [ref=e220]
+          - generic [ref=e223]:
+            - heading "Webhook created" [level=2] [ref=e224]
+            - paragraph [ref=e225]: The webhook has been successfully created
+  - generic:
+    - generic:
+      - generic:
+        - dialog:
+          - generic [ref=e185]:
+            - generic [ref=e226]:
+              - generic [ref=e227]:
+                - heading "Key created" [level=3] [ref=e228]
+                - paragraph [ref=e229]: Copy and save this secret key in Plane Pages. You can't see this key after you hit Close. A CSV file containing the key has been downloaded.
+              - generic [ref=e230]:
+                - generic [ref=e231]: Generate a token to sign-in to the webhook payload
+                - generic [ref=e232]:
+                  - generic [ref=e266]:
+                    - button [ref=e267] [cursor=pointer]:
+                      - img [ref=e268]
+                    - button [ref=e271] [cursor=pointer]:
+                      - img [ref=e272]
+                  - button "Re-generate key" [ref=e276] [cursor=pointer]:
+                    - img [ref=e277]
+                    - text: Re-generate key
+            - button "Close" [ref=e283] [cursor=pointer]

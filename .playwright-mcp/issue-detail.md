@@ -1,0 +1,140 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - button "Make a copy":
+          - img
+          - generic:
+            - heading "Make a copy" [level=5]
+        - button "Open in new tab":
+          - img
+          - generic:
+            - heading "Open in new tab" [level=5]
+        - button "Archive Only completed or canceled work items can be archived" [disabled]:
+          - img
+          - generic:
+            - heading "Archive" [level=5]
+            - paragraph: Only completed or canceled work items can be archived
+        - button "Delete":
+          - img
+          - generic:
+            - heading "Delete" [level=5]
+  - generic:
+    - region "Notifications"
+  - main [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "Open workspace switcher" [ref=e8] [cursor=pointer]:
+          - generic [ref=e9]:
+            - generic [ref=e10]: O
+            - heading "Ouija Dev" [level=4] [ref=e11]
+          - img [ref=e12]
+        - button [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+          - textbox "Search commands..." [ref=e21]
+        - generic [ref=e23]:
+          - link [ref=e24] [cursor=pointer]:
+            - /url: /ouija-dev/notifications/
+            - img [ref=e27]
+          - button [ref=e30] [cursor=pointer]:
+            - button [ref=e31]:
+              - img [ref=e33]
+          - link "Star us on GitHub" [ref=e36] [cursor=pointer]:
+            - /url: https://github.com/makeplane/plane
+            - img [ref=e37]
+            - generic [ref=e38]: Star us on GitHub
+          - button "M" [ref=e41] [cursor=pointer]:
+            - button "M" [ref=e42]:
+              - generic [ref=e45]: M
+      - generic [ref=e50]:
+        - complementary "Main sidebar" [ref=e51]:
+          - complementary [ref=e52]:
+            - generic [ref=e53]:
+              - generic [ref=e54]:
+                - generic [ref=e55]
+                - button "New work item" [ref=e65] [cursor=pointer]
+              - generic [ref=e69]:
+                - link "Home" [ref=e70] [cursor=pointer]:
+                  - /url: /ouija-dev/
+                - link "Drafts" [ref=e76] [cursor=pointer]:
+                  - /url: /ouija-dev/drafts/
+                - link "Your work" [ref=e82] [cursor=pointer]:
+                  - /url: /ouija-dev/profile/e873bf2b-958b-4edd-a66e-a9187ed9dd31/
+                - link "Stickies" [ref=e89] [cursor=pointer]:
+                  - /url: /ouija-dev/stickies/
+              - generic [ref=e95]:
+                - generic [ref=e96]
+                - generic [ref=e100]
+              - generic [ref=e115]:
+                - generic [ref=e116]
+                - generic [ref=e124]
+              - button "Open paid plans' modal" [ref=e132] [cursor=pointer]: Community
+            - separator "Resize sidebar" [ref=e133]
+        - complementary "Sidebar peek view":
+          - complementary:
+            - generic:
+              - generic:
+                - generic
+                - generic
+              - generic:
+                - link "Home":
+                  - /url: /ouija-dev/
+                - link "Drafts":
+                  - /url: /ouija-dev/drafts/
+                - link "Your work":
+                  - /url: /ouija-dev/profile/e873bf2b-958b-4edd-a66e-a9187ed9dd31/
+                - link "Stickies":
+                  - /url: /ouija-dev/stickies/
+              - generic:
+                - generic
+                - generic
+              - generic:
+                - generic
+              - generic:
+                - button "Open paid plans' modal": Community
+            - separator "Resize sidebar"
+        - main [ref=e134]:
+          - generic [ref=e138]:
+            - generic [ref=e140]:
+              - button "..." [ref=e143] [cursor=pointer]:
+                - button "..." [ref=e144]
+                - img [ref=e149]
+              - generic [ref=e152]:
+                - link "Work Items" [ref=e153] [cursor=pointer]:
+                  - /url: /ouija-dev/projects/5d55f7e1-6f4d-4809-adbf-9dafeedab0c9/issues/
+                - img [ref=e161]
+              - generic [ref=e166]: OUIJA-7
+            - generic [ref=e169]:
+              - button "Subscribe" [ref=e171] [cursor=pointer]:
+                - img [ref=e173]
+                - generic [ref=e176]: Subscribe
+              - generic [ref=e177]:
+                - button [ref=e178] [cursor=pointer]
+                - button [ref=e183] [cursor=pointer]
+          - generic [ref=e190]:
+            - generic [ref=e191]:
+              - generic [ref=e192]:
+                - generic [ref=e193]
+                - generic [ref=e200]
+                - generic [ref=e205]
+                - generic [ref=e259]
+              - generic [ref=e279]:
+                - button "Add sub-work item" [ref=e281] [cursor=pointer]
+                - button "Add relation" [ref=e288] [cursor=pointer]
+                - button "Add link" [ref=e293] [cursor=pointer]
+                - button "Choose File Attach" [ref=e300] [cursor=pointer]
+              - generic [ref=e307]:
+                - generic [ref=e308]
+                - generic [ref=e323]
+            - generic [ref=e399]:
+              - heading "Properties" [level=5] [ref=e400]
+              - generic [ref=e401]:
+                - generic [ref=e402]
+                - generic [ref=e442]
+                - generic [ref=e451]
+                - generic [ref=e464]
+                - generic [ref=e473]
+                - generic [ref=e483]
+                - generic [ref=e509]
+                - generic [ref=e521]
+                - generic [ref=e534]

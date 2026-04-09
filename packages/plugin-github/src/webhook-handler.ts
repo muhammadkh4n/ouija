@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { OuijaEvent, StandardPR, GitPrOpenedPayload, GitPrMergedPayload } from '@ouija/types';
-import { prId, instanceId } from '@ouija/types';
+import type { OuijaEvent, StandardPR, GitPrOpenedPayload, GitPrMergedPayload } from '@ouija-dev/types';
+import { prId, instanceId } from '@ouija-dev/types';
 import { encodePrId } from './api-client.js';
 
 // ---- GitHub webhook payload shapes (only the fields we need) ----
@@ -169,7 +169,7 @@ function buildEvent<T extends 'git.pr.opened' | 'git.pr.merged'>(
     topic,
     payload,
     timestamp: new Date().toISOString(),
-    sourcePlugin: '@ouija/plugin-github',
+    sourcePlugin: '@ouija-dev/plugin-github',
     correlationId: crypto.randomUUID(),
   } as OuijaEvent<T>;
 }

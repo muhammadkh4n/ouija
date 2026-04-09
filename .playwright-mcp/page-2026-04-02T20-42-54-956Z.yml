@@ -1,0 +1,51 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - region "Notifications"
+  - main [ref=e3]:
+    - generic [ref=e7]:
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - button [ref=e45] [cursor=pointer]:
+            - img [ref=e46]
+          - img [ref=e13]
+        - button "m Muhammad Khan Khan" [ref=e49] [cursor=pointer]:
+          - generic [ref=e23]: m
+          - generic [ref=e24]: Muhammad Khan Khan
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - heading "What's your role?" [level=1] [ref=e52]
+          - paragraph [ref=e53]: Let's set up Plane for how you work.
+        - generic [ref=e54]:
+          - paragraph [ref=e55]: Select one
+          - generic [ref=e56]:
+            - button "Product Manager" [ref=e57] [cursor=pointer]:
+              - generic [ref=e58]:
+                - img [ref=e59]
+                - generic [ref=e62]: Product Manager
+            - button "Engineering Manager" [ref=e63] [cursor=pointer]:
+              - generic [ref=e64]:
+                - img [ref=e65]
+                - generic [ref=e68]: Engineering Manager
+            - button "Designer" [ref=e69] [cursor=pointer]:
+              - generic [ref=e70]:
+                - img [ref=e71]
+                - generic [ref=e76]: Designer
+            - button "Developer" [ref=e77] [cursor=pointer]:
+              - generic [ref=e78]:
+                - img [ref=e79]
+                - generic [ref=e81]: Developer
+            - button "Founder/Executive" [ref=e82] [cursor=pointer]:
+              - generic [ref=e83]:
+                - img [ref=e84]
+                - generic [ref=e89]: Founder/Executive
+            - button "Operations Manager" [ref=e90] [cursor=pointer]:
+              - generic [ref=e91]:
+                - img [ref=e92]
+                - generic [ref=e97]: Operations Manager
+            - button "Others" [ref=e98] [cursor=pointer]:
+              - generic [ref=e99]:
+                - img [ref=e100]
+                - generic [ref=e103]: Others
+        - generic [ref=e104]:
+          - button "Continue" [disabled] [ref=e105]
+          - button "Skip" [ref=e106] [cursor=pointer]

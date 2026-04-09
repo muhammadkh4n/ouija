@@ -13,7 +13,7 @@ import type {
   AgentRunOptions,
   AgentRunResult,
   Workspace,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 export interface SdkAgentRunnerOptions {
   /** Claude model to use. Defaults to "claude-sonnet-4-20250514". */

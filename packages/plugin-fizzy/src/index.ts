@@ -14,20 +14,20 @@ import type {
   PluginManifest,
   PluginContext,
   PluginHealth,
-} from '@ouija/types';
-import { cardId, columnId, boardId } from '@ouija/types';
-import type { CardId, ColumnId, BoardId } from '@ouija/types';
+} from '@ouija-dev/types';
+import { cardId, columnId, boardId } from '@ouija-dev/types';
+import type { CardId, ColumnId, BoardId } from '@ouija-dev/types';
 
 import { fizzyConfigSchema } from './config.js';
 import type { FizzyConfig } from './config.js';
 import { FizzyApiClient } from './api-client.js';
 import { normalizeFizzyWebhook, verifyFizzySignature, isWebhookFresh } from './webhook-handler.js';
-import type { PluginFactory } from '@ouija/plugin-sdk';
+import type { PluginFactory } from '@ouija-dev/plugin-sdk';
 
 // ---- Plugin manifest ----
 
 const manifest: PluginManifest = {
-  name: '@ouija/plugin-fizzy',
+  name: '@ouija-dev/plugin-fizzy',
   version: '0.1.0',
   type: 'kanban',
   coreApiVersion: '>=1.0.0 <2.0.0',

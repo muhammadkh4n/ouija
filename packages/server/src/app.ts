@@ -22,9 +22,9 @@ import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 
-import type { Database } from '@ouija/types';
-import type { Orchestrator } from '@ouija/engine';
-import type { PluginLoader } from '@ouija/plugin-sdk';
+import type { Database } from '@ouija-dev/types';
+import type { Orchestrator } from '@ouija-dev/engine';
+import type { PluginLoader } from '@ouija-dev/plugin-sdk';
 import { randomUUID } from 'node:crypto';
 
 import { registerRateLimit } from './middleware/rate-limit.js';

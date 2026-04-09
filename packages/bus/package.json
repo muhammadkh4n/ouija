@@ -1,9 +1,11 @@
 {
-  "name": "@ouija/bus",
+  "name": "@ouija-dev/bus",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -16,7 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ouija/types": "*",
+    "@ouija-dev/types": "*",
     "bullmq": "^5.0.0",
     "ioredis": "^5.3.0"
   },

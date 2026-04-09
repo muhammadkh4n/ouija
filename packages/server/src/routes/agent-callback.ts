@@ -21,14 +21,14 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import type { OuijaEvent } from '@ouija/types';
+import type { OuijaEvent } from '@ouija-dev/types';
 import {
   instanceId as makeInstanceId,
   dispatchId as makeDispatchId,
   prId as makePrId,
-} from '@ouija/types';
-import { ApiError } from '@ouija/types';
-import type { Orchestrator } from '@ouija/engine';
+} from '@ouija-dev/types';
+import { ApiError } from '@ouija-dev/types';
+import type { Orchestrator } from '@ouija-dev/engine';
 import {
   verifyAgentJWT,
   refreshAgentJWT,

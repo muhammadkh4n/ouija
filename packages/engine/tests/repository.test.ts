@@ -22,7 +22,7 @@ import {
   PostgresDatabase,
   createDatabase,
 } from '../src/repository.js';
-import type { PipelineInstance, PipelineConfig, PipelineEventRecord } from '@ouija/types';
+import type { PipelineInstance, PipelineConfig, PipelineEventRecord } from '@ouija-dev/types';
 import {
   instanceId,
   cardId,
@@ -30,7 +30,7 @@ import {
   dispatchId,
   agentId,
   columnId,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 // ---- Skip guard ----
 

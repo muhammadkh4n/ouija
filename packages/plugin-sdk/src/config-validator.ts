@@ -1,7 +1,7 @@
 import { Ajv } from 'ajv';
 import type { FormatsPlugin } from 'ajv-formats';
 import { createRequire } from 'node:module';
-import type { JSONSchema } from '@ouija/types';
+import type { JSONSchema } from '@ouija-dev/types';
 
 // ajv-formats is a CJS-only package; use createRequire to import it
 // in a way that works with NodeNext module resolution.
@@ -69,7 +69,7 @@ export function validateConfig(schema: JSONSchema, data: unknown): ValidationRes
  * Validate config and format error messages with the plugin name prefix.
  * Throws if config is invalid.
  *
- * Example error: "Plugin @ouija/plugin-plane config error: apiToken is required"
+ * Example error: "Plugin @ouija-dev/plugin-plane config error: apiToken is required"
  */
 export function validateConfigOrThrow(
   pluginName: string,

@@ -10,8 +10,8 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database } from '@ouija/types';
-import type { PluginLoader } from '@ouija/plugin-sdk';
+import type { Database } from '@ouija-dev/types';
+import type { PluginLoader } from '@ouija-dev/plugin-sdk';
 
 export interface HealthRouteOptions {
   db?: Database;

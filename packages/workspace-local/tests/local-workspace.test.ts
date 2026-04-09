@@ -12,7 +12,7 @@ import { stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { LocalWorkspaceProvider, type WorktreeFn, type WorktreeRemoveFn } from '../src/local-workspace.js';
-import type { WorkspaceSpec } from '@ouija/types';
+import type { WorkspaceSpec } from '@ouija-dev/types';
 
 // ---------------------------------------------------------------------------
 // Helpers

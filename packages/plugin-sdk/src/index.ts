@@ -10,5 +10,5 @@ export type { PluginRegistration, PluginFactory } from './plugin-loader.js';
 // cannot accidentally import mocks. Re-exported here for convenience when
 // tests are co-located with source (the test runner resolves from the package
 // root). Plugin authors can also import directly from
-// '@ouija/plugin-sdk/test-utils'.
+// '@ouija-dev/plugin-sdk/test-utils'.
 export * from './test-utils/index.js';

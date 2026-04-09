@@ -66,10 +66,10 @@ async function main(): Promise<void> {
 
   // ---- Load ouija config (optional — falls back to env-var-driven defaults) ----
   const configPath = process.env['OUIJA_CONFIG_PATH'] ?? 'ouija.config.yaml';
-  let ouijaConfig: import('@ouija/config').OuijaConfig | undefined;
+  let ouijaConfig: import('@ouija-dev/config').OuijaConfig | undefined;
 
   try {
-    const { loadConfig } = await import('@ouija/config');
+    const { loadConfig } = await import('@ouija-dev/config');
     ouijaConfig = await loadConfig(configPath);
     console.info(`Loaded ouija config from ${configPath} — ${ouijaConfig.agents.length} agent(s) defined`);
   } catch (err) {
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
   }
 
   // 2. Create database
-  const { createDatabase } = await import('@ouija/engine');
+  const { createDatabase } = await import('@ouija-dev/engine');
   const { db, pool } = createDatabase(databaseUrl);
 
   // Verify DB connectivity before registering routes
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
   const { join, dirname } = await import('node:path');
   const { fileURLToPath } = await import('node:url');
   try {
-    const engineDir = dirname(fileURLToPath(import.meta.resolve('@ouija/engine')));
+    const engineDir = dirname(fileURLToPath(import.meta.resolve('@ouija-dev/engine')));
     const migrationPath = join(
       engineDir,
       '..',
@@ -125,7 +125,7 @@ async function main(): Promise<void> {
 
   // 3. Create EventBus + JobQueue
   const redisConnection = { url: redisUrl };
-  const { BullMQEventBus, BullMQJobQueue } = await import('@ouija/bus');
+  const { BullMQEventBus, BullMQJobQueue } = await import('@ouija-dev/bus');
   const eventBus = new BullMQEventBus(redisConnection);
   const jobQueue = new BullMQJobQueue(redisConnection);
 
@@ -142,7 +142,7 @@ async function main(): Promise<void> {
   });
 
   // 5. Create PluginLoader
-  const { PluginLoader } = await import('@ouija/plugin-sdk');
+  const { PluginLoader } = await import('@ouija-dev/plugin-sdk');
   const startupLogger = {
     debug: (msg: string) => console.debug(msg),
     info: (msg: string) => console.info(msg),
@@ -156,7 +156,7 @@ async function main(): Promise<void> {
   const makePluginContext = (
     pluginName: string,
     config: Record<string, unknown>,
-  ): import('@ouija/types').PluginContext<Record<string, unknown>> => ({
+  ): import('@ouija-dev/types').PluginContext<Record<string, unknown>> => ({
     config,
     logger: {
       debug: (msg, meta) => console.debug(JSON.stringify({ level: 'debug', plugin: pluginName, msg, ...meta })),
@@ -165,14 +165,14 @@ async function main(): Promise<void> {
       error: (msg, meta) => console.error(JSON.stringify({ level: 'error', plugin: pluginName, msg, ...meta })),
     },
     publishEvent: async (topic, payload) => {
-      await eventBus.publish(topic as import('@ouija/types').OuijaTopic, payload as never);
+      await eventBus.publish(topic as import('@ouija-dev/types').OuijaTopic, payload as never);
     },
     enqueueJob: async (queue, job, options) => {
-      const enqueueOpts: import('@ouija/bus').EnqueueOptions = {};
+      const enqueueOpts: import('@ouija-dev/bus').EnqueueOptions = {};
       if (options?.attempts !== undefined) enqueueOpts.attempts = options.attempts;
       if (options?.delay !== undefined) enqueueOpts.delayMs = options.delay;
       await jobQueue.enqueue(
-        queue as import('@ouija/bus').QueueName,
+        queue as import('@ouija-dev/bus').QueueName,
         job as never,
         enqueueOpts,
       );
@@ -180,11 +180,11 @@ async function main(): Promise<void> {
   });
 
   // 6. Wire kanban plugin — Plane, Fizzy, or placeholder
-  const { Orchestrator, StallMonitor } = await import('@ouija/engine');
+  const { Orchestrator, StallMonitor } = await import('@ouija-dev/engine');
 
-  let kanbanPlugin: import('@ouija/types').KanbanPlugin;
-  let planePluginInstance: import('@ouija/plugin-plane').PlanePlugin | undefined;
-  let fizzyPluginInstance: import('@ouija/plugin-fizzy').FizzyPlugin | undefined;
+  let kanbanPlugin: import('@ouija-dev/types').KanbanPlugin;
+  let planePluginInstance: import('@ouija-dev/plugin-plane').PlanePlugin | undefined;
+  let fizzyPluginInstance: import('@ouija-dev/plugin-fizzy').FizzyPlugin | undefined;
   let kanbanBackend: 'plane' | 'fizzy' | 'none' = 'none';
 
   const planeApiToken = process.env['PLANE_API_TOKEN'];
@@ -208,7 +208,7 @@ async function main(): Promise<void> {
 
   if (planeConfigured) {
     console.info('Wiring Plane kanban plugin');
-    const { PlanePlugin } = await import('@ouija/plugin-plane');
+    const { PlanePlugin } = await import('@ouija-dev/plugin-plane');
     const planePlugin = new PlanePlugin();
     const planeConfig = {
       baseUrl: planeBaseUrl,
@@ -217,7 +217,7 @@ async function main(): Promise<void> {
       webhookSecret: planeWebhookSecret!,
     };
     await planePlugin.init(
-      makePluginContext('@ouija/plugin-plane', planeConfig) as unknown as Parameters<typeof planePlugin.init>[0],
+      makePluginContext('@ouija-dev/plugin-plane', planeConfig) as unknown as Parameters<typeof planePlugin.init>[0],
     );
     await planePlugin.start();
     planePluginInstance = planePlugin;
@@ -225,7 +225,7 @@ async function main(): Promise<void> {
     kanbanBackend = 'plane';
   } else if (fizzyConfigured) {
     console.info('Wiring Fizzy kanban plugin');
-    const { FizzyPlugin } = await import('@ouija/plugin-fizzy');
+    const { FizzyPlugin } = await import('@ouija-dev/plugin-fizzy');
     const fizzyPlugin = new FizzyPlugin();
     const fizzyConfig = {
       baseUrl: fizzyBaseUrl!,
@@ -233,7 +233,7 @@ async function main(): Promise<void> {
       webhookSecret: fizzyWebhookSecret!,
     };
     await fizzyPlugin.init(
-      makePluginContext('@ouija/plugin-fizzy', fizzyConfig) as unknown as Parameters<typeof fizzyPlugin.init>[0],
+      makePluginContext('@ouija-dev/plugin-fizzy', fizzyConfig) as unknown as Parameters<typeof fizzyPlugin.init>[0],
     );
     await fizzyPlugin.start();
     fizzyPluginInstance = fizzyPlugin;
@@ -246,7 +246,7 @@ async function main(): Promise<void> {
     );
     kanbanPlugin = {
       manifest: {
-        name: '@ouija/kanban-placeholder',
+        name: '@ouija-dev/kanban-placeholder',
         version: '0.1.0',
         type: 'kanban' as const,
         coreApiVersion: '>=1.0.0',
@@ -256,7 +256,7 @@ async function main(): Promise<void> {
       start: async () => undefined,
       stop: async () => undefined,
       healthCheck: async () => ({ healthy: true }),
-      getCard: async (cardId: import('@ouija/types').CardId) => {
+      getCard: async (cardId: import('@ouija-dev/types').CardId) => {
         throw new Error(`No kanban plugin loaded — cannot fetch card ${String(cardId)}`);
       },
       moveCard: async () => undefined,
@@ -267,7 +267,7 @@ async function main(): Promise<void> {
   }
 
   // 6b. Provision agent kanban members if config is loaded
-  let agentRegistry: import('@ouija/config').AgentMemberRegistry | undefined;
+  let agentRegistry: import('@ouija-dev/config').AgentMemberRegistry | undefined;
 
   const registryLogger = {
     info: (msg: string, ctx?: Record<string, unknown>) =>
@@ -279,8 +279,8 @@ async function main(): Promise<void> {
   };
 
   if (ouijaConfig && kanbanBackend === 'plane' && planePluginInstance && planeWorkspaceSlug) {
-    const { AgentMemberRegistry } = await import('@ouija/config');
-    const registryClient: import('@ouija/config').KanbanMemberClient = {
+    const { AgentMemberRegistry } = await import('@ouija-dev/config');
+    const registryClient: import('@ouija-dev/config').KanbanMemberClient = {
       getMembers: async (ws: string) => planePluginInstance!.getMembers(ws),
       inviteMember: async (ws: string, email: string, role: number) =>
         planePluginInstance!.inviteMember(ws, email, role as 5 | 10 | 15 | 20),
@@ -290,8 +290,8 @@ async function main(): Promise<void> {
     console.info('Agent kanban members provisioned (Plane)');
   } else if (ouijaConfig && kanbanBackend === 'fizzy') {
     // Fizzy: no inviteMember API. Agents must use kanbanUserId in config or be pre-created.
-    const { AgentMemberRegistry } = await import('@ouija/config');
-    const noopClient: import('@ouija/config').KanbanMemberClient = {
+    const { AgentMemberRegistry } = await import('@ouija-dev/config');
+    const noopClient: import('@ouija-dev/config').KanbanMemberClient = {
       getMembers: async () => [],
       inviteMember: async () => { throw new Error('Fizzy does not support programmatic member creation — set kanbanUserId in agent config'); },
     };
@@ -302,8 +302,8 @@ async function main(): Promise<void> {
 
   // 6c. Seed board configs from ouija config (works with any kanban plugin)
   if (ouijaConfig?.boards && ouijaConfig.boards.length > 0) {
-    const { buildPipelineConfig } = await import('@ouija/config');
-    const { boardId: makeBoardId, columnId: makeColumnId, agentId: makeAgentId } = await import('@ouija/types');
+    const { buildPipelineConfig } = await import('@ouija-dev/config');
+    const { boardId: makeBoardId, columnId: makeColumnId, agentId: makeAgentId } = await import('@ouija-dev/types');
 
     for (const boardConf of ouijaConfig.boards) {
       const resolvedId = boardConf.boardId ?? boardConf.projectId;
@@ -350,7 +350,7 @@ async function main(): Promise<void> {
         autoStartOnAssign: seedable.autoStartOnAssign,
       };
 
-      await db.boardConfigs.save(pipelineConfig as import('@ouija/types').PipelineConfig);
+      await db.boardConfigs.save(pipelineConfig as import('@ouija-dev/types').PipelineConfig);
       console.info(`Seeded board config for ${resolvedId}`);
     }
   }
@@ -397,7 +397,7 @@ async function main(): Promise<void> {
 
   if (telegramBotToken && telegramChatId) {
     console.info('Wiring Telegram notification plugin');
-    const { TelegramNotifyPlugin } = await import('@ouija/plugin-notify-telegram');
+    const { TelegramNotifyPlugin } = await import('@ouija-dev/plugin-notify-telegram');
     const telegramPlugin = new TelegramNotifyPlugin();
     const telegramConfig = {
       botToken: telegramBotToken,
@@ -406,7 +406,7 @@ async function main(): Promise<void> {
     };
     // Double-cast: makePluginContext returns PluginContext<Record<string,unknown>>.
     await telegramPlugin.init(
-      makePluginContext('@ouija/plugin-notify-telegram', telegramConfig) as unknown as Parameters<typeof telegramPlugin.init>[0],
+      makePluginContext('@ouija-dev/plugin-notify-telegram', telegramConfig) as unknown as Parameters<typeof telegramPlugin.init>[0],
     );
     await telegramPlugin.start();
 
@@ -416,7 +416,7 @@ async function main(): Promise<void> {
       async (event) => {
         const payload = event.payload;
         try {
-          const notificationMsg: import('@ouija/types').Notification = {
+          const notificationMsg: import('@ouija-dev/types').Notification = {
             title: payload.title,
             body: payload.body,
             level: payload.level,
@@ -449,7 +449,7 @@ async function main(): Promise<void> {
   let workerHandle: { stop(): Promise<void> } | undefined;
 
   // Build agent profile map from config
-  type AgentProfile = import('@ouija/agent-worker').AgentProfile;
+  type AgentProfile = import('@ouija-dev/agent-worker').AgentProfile;
   let agentProfiles: Map<string, AgentProfile> | undefined;
 
   if (ouijaConfig) {
@@ -488,7 +488,7 @@ async function main(): Promise<void> {
   const agentWorkerDisabled = process.env['OUIJA_DISABLE_AGENT_WORKER'] === '1';
   if (!agentWorkerDisabled) {
     app.log.info('Starting agent worker in-process (single-process mode)');
-    const { startAgentWorker } = await import('@ouija/agent-worker');
+    const { startAgentWorker } = await import('@ouija-dev/agent-worker');
 
     const workerOpts: Parameters<typeof startAgentWorker>[0] = {
       redisUrl,
@@ -504,7 +504,7 @@ async function main(): Promise<void> {
     if (kanbanBackend !== 'none') {
       const _kanban = kanbanPlugin;
       workerOpts.getCardDetails = async (cardId: string) => {
-        const card = await _kanban.getCard(cardId as import('@ouija/types').CardId);
+        const card = await _kanban.getCard(cardId as import('@ouija-dev/types').CardId);
         return {
           title: card.title,
           description: card.description,

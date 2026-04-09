@@ -1,6 +1,6 @@
 // ---- Inline keyboard builder for Telegram notifications ----
 
-import type { NotificationAction } from '@ouija/types';
+import type { NotificationAction } from '@ouija-dev/types';
 import type { TelegramInlineKeyboard, TelegramInlineButton } from './telegram-client.js';
 
 export type { TelegramInlineKeyboard, TelegramInlineButton };

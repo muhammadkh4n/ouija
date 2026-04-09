@@ -84,7 +84,7 @@ Task 6 (Phase 1 bug fixes) -- independent, can run anytime
 **Worktree recommendations:**
 - Task 1: `worktrees/phase2-telegram` -- fully independent, no shared state with Task 2
 - Task 2: `worktrees/phase2-claude-agent` -- fully independent, no shared state with Task 1
-- Task 3: `worktrees/phase2-agent-worker` -- depends on Task 2 types but not implementation; can start in parallel once the plugin interface shape is settled (it already exists in `@ouija/types`)
+- Task 3: `worktrees/phase2-agent-worker` -- depends on Task 2 types but not implementation; can start in parallel once the plugin interface shape is settled (it already exists in `@ouija-dev/types`)
 - Task 4-6: main branch after Tasks 1-3 merge
 
 **Agent assignment recommendations:**
@@ -112,7 +112,7 @@ Task 6 (Phase 1 bug fixes) -- independent, can run anytime
 ```json
 // packages/plugin-notify-telegram/package.json
 {
-  "name": "@ouija/plugin-notify-telegram",
+  "name": "@ouija-dev/plugin-notify-telegram",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -123,7 +123,7 @@ Task 6 (Phase 1 bug fixes) -- independent, can run anytime
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ouija/types": "workspace:*"
+    "@ouija-dev/types": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
@@ -202,7 +202,7 @@ export const telegramConfigSchema = {
 ```ts
 // packages/plugin-notify-telegram/src/formatter.ts
 
-import type { Notification, NotificationLevel } from '@ouija/types';
+import type { Notification, NotificationLevel } from '@ouija-dev/types';
 
 const LEVEL_EMOJI: Record<NotificationLevel, string> = {
   info: '\u2139\uFE0F',      // info icon
@@ -247,7 +247,7 @@ export function escapeHtml(text: string): string {
 ```ts
 // packages/plugin-notify-telegram/src/keyboard.ts
 
-import type { NotificationAction } from '@ouija/types';
+import type { NotificationAction } from '@ouija-dev/types';
 
 /**
  * Telegram inline keyboard button shape.
@@ -286,7 +286,7 @@ export function buildInlineKeyboard(
 // packages/plugin-notify-telegram/tests/formatter.test.ts
 import { describe, it, expect } from 'vitest';
 import { formatNotification, escapeHtml } from '../src/formatter.js';
-import type { Notification } from '@ouija/types';
+import type { Notification } from '@ouija-dev/types';
 
 describe('escapeHtml', () => {
   it('escapes ampersands', () => {
@@ -395,7 +395,7 @@ import type {
   PluginManifest,
   PluginContext,
   PluginHealth,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 import type { TelegramConfig } from './config.js';
 import { telegramConfigSchema } from './config.js';
 import { formatNotification } from './formatter.js';
@@ -423,7 +423,7 @@ const SENT_CACHE_MAX = 1000;
 
 export class TelegramNotifyPlugin implements NotificationPlugin<TelegramConfig> {
   readonly manifest: PluginManifest = {
-    name: '@ouija/plugin-notify-telegram',
+    name: '@ouija-dev/plugin-notify-telegram',
     version: '0.1.0',
     type: 'notification',
     coreApiVersion: '>=1.0.0 <2.0.0',
@@ -567,8 +567,8 @@ export default PluginFactory;
 // packages/plugin-notify-telegram/tests/plugin.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TelegramNotifyPlugin } from '../src/index.js';
-import { createMockContext } from '@ouija/plugin-sdk/test-utils';
-import type { Notification } from '@ouija/types';
+import { createMockContext } from '@ouija-dev/plugin-sdk/test-utils';
+import type { Notification } from '@ouija-dev/types';
 
 function makeNotification(overrides: Partial<Notification> = {}): Notification {
   return {
@@ -707,7 +707,7 @@ Expected: All formatter, keyboard, and plugin tests pass.
 
 - [ ] **Step 10: Build and verify**
 
-Run: `npx turbo build --filter=@ouija/plugin-notify-telegram`
+Run: `npx turbo build --filter=@ouija-dev/plugin-notify-telegram`
 Expected: Compiles to `dist/`. No type errors.
 
 - [ ] **Step 11: Commit**
@@ -743,7 +743,7 @@ raw fetch against api.telegram.org."
 ```json
 // packages/plugin-agent-claude/package.json
 {
-  "name": "@ouija/plugin-agent-claude",
+  "name": "@ouija-dev/plugin-agent-claude",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -754,7 +754,7 @@ raw fetch against api.telegram.org."
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ouija/types": "workspace:*"
+    "@ouija-dev/types": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
@@ -849,7 +849,7 @@ export const claudeAgentConfigSchema = {
 ```ts
 // packages/plugin-agent-claude/src/work-order-builder.ts
 
-import type { WorkOrder } from '@ouija/types';
+import type { WorkOrder } from '@ouija-dev/types';
 
 /**
  * Arguments passed to the Claude Code CLI subprocess.
@@ -974,7 +974,7 @@ export function buildGitCloneArgs(
 ```ts
 // packages/plugin-agent-claude/src/heartbeat-reporter.ts
 
-import type { DispatchId } from '@ouija/types';
+import type { DispatchId } from '@ouija-dev/types';
 
 /**
  * Heartbeat payload sent to Ouija's /hooks/agent/callback endpoint.
@@ -1284,9 +1284,9 @@ import type {
   PluginManifest,
   PluginContext,
   PluginHealth,
-} from '@ouija/types';
-import type { DispatchId, InstanceId } from '@ouija/types';
-import { dispatchId as makeDispatchId } from '@ouija/types';
+} from '@ouija-dev/types';
+import type { DispatchId, InstanceId } from '@ouija-dev/types';
+import { dispatchId as makeDispatchId } from '@ouija-dev/types';
 import type { ClaudeAgentConfig } from './config.js';
 import { claudeAgentConfigSchema } from './config.js';
 import { buildCliArgs, buildGitCloneArgs } from './work-order-builder.js';
@@ -1310,7 +1310,7 @@ interface ActiveDispatch {
 
 export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
   readonly manifest: PluginManifest = {
-    name: '@ouija/plugin-agent-claude',
+    name: '@ouija-dev/plugin-agent-claude',
     version: '0.1.0',
     type: 'agent',
     coreApiVersion: '>=1.0.0 <2.0.0',
@@ -1564,7 +1564,7 @@ export default PluginFactory;
 // packages/plugin-agent-claude/tests/work-order-builder.test.ts
 import { describe, it, expect } from 'vitest';
 import { buildPrompt, buildCliArgs, buildGitCloneArgs } from '../src/work-order-builder.js';
-import type { WorkOrder } from '@ouija/types';
+import type { WorkOrder } from '@ouija-dev/types';
 
 const baseWorkOrder: WorkOrder = {
   instanceId: 'inst-123' as WorkOrder['instanceId'],
@@ -1754,8 +1754,8 @@ describe('spawnClaude', () => {
 // packages/plugin-agent-claude/tests/plugin.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ClaudeAgentPlugin } from '../src/index.js';
-import { createMockContext } from '@ouija/plugin-sdk/test-utils';
-import type { WorkOrder } from '@ouija/types';
+import { createMockContext } from '@ouija-dev/plugin-sdk/test-utils';
+import type { WorkOrder } from '@ouija-dev/types';
 import type { SubprocessResult } from '../src/subprocess.js';
 
 const baseWorkOrder: WorkOrder = {
@@ -1832,7 +1832,7 @@ describe('ClaudeAgentPlugin', () => {
 
   describe('getStatus()', () => {
     it('returns idle for unknown dispatch IDs', async () => {
-      const { dispatchId } = await import('@ouija/types');
+      const { dispatchId } = await import('@ouija-dev/types');
       const status = await plugin.getStatus(dispatchId('nonexistent'));
       expect(status.state).toBe('idle');
     });
@@ -1858,7 +1858,7 @@ Expected: All work-order-builder, subprocess, and plugin tests pass.
 
 - [ ] **Step 11: Build and verify**
 
-Run: `npx turbo build --filter=@ouija/plugin-agent-claude`
+Run: `npx turbo build --filter=@ouija-dev/plugin-agent-claude`
 Expected: Compiles to `dist/`. No type errors.
 
 - [ ] **Step 12: Commit**
@@ -1892,7 +1892,7 @@ back to Ouija callback URL using JWT auth with automatic refresh."
 ```json
 // packages/agent-worker/package.json
 {
-  "name": "@ouija/agent-worker",
+  "name": "@ouija-dev/agent-worker",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -1904,11 +1904,11 @@ back to Ouija callback URL using JWT auth with automatic refresh."
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ouija/types": "workspace:*",
-    "@ouija/bus": "workspace:*",
-    "@ouija/engine": "workspace:*",
-    "@ouija/plugin-sdk": "workspace:*",
-    "@ouija/plugin-agent-claude": "workspace:*"
+    "@ouija-dev/types": "workspace:*",
+    "@ouija-dev/bus": "workspace:*",
+    "@ouija-dev/engine": "workspace:*",
+    "@ouija-dev/plugin-sdk": "workspace:*",
+    "@ouija-dev/plugin-agent-claude": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
@@ -1947,9 +1947,9 @@ The orchestrator dispatches `AgentDispatchJobData` (minimal data). The worker mu
 ```ts
 // packages/agent-worker/src/work-order-assembler.ts
 
-import type { WorkOrder, Database, AgentId } from '@ouija/types';
-import type { AgentDispatchJobData } from '@ouija/bus';
-import { instanceId as makeInstanceId } from '@ouija/types';
+import type { WorkOrder, Database, AgentId } from '@ouija-dev/types';
+import type { AgentDispatchJobData } from '@ouija-dev/bus';
+import { instanceId as makeInstanceId } from '@ouija-dev/types';
 
 /**
  * Agent profile stored in the database.
@@ -2068,9 +2068,9 @@ export function createTimeout(ms: number): {
 ```ts
 // packages/agent-worker/src/worker.ts
 
-import type { AgentPlugin, WorkOrder } from '@ouija/types';
-import type { JobQueue, AgentDispatchJobData } from '@ouija/bus';
-import { QUEUE_NAMES } from '@ouija/bus';
+import type { AgentPlugin, WorkOrder } from '@ouija-dev/types';
+import type { JobQueue, AgentDispatchJobData } from '@ouija-dev/bus';
+import { QUEUE_NAMES } from '@ouija-dev/bus';
 import { createTimeout } from './timeout.js';
 import type { AssemblerDeps } from './work-order-assembler.js';
 import { assembleWorkOrder } from './work-order-assembler.js';
@@ -2235,8 +2235,8 @@ export class AgentDispatchWorker {
  *   OUIJA_DATABASE_URL       - Postgres URL (for assembling WorkOrders)
  */
 
-import { BullMQJobQueue } from '@ouija/bus';
-import { ClaudeAgentPlugin } from '@ouija/plugin-agent-claude';
+import { BullMQJobQueue } from '@ouija-dev/bus';
+import { ClaudeAgentPlugin } from '@ouija-dev/plugin-agent-claude';
 import { AgentDispatchWorker } from './worker.js';
 import type { AssemblerDeps } from './work-order-assembler.js';
 import { issueAgentJWT } from './jwt-helper.js';
@@ -2340,7 +2340,7 @@ main().catch((err) => {
 });
 ```
 
-Note: `jwt-helper.ts` is a thin wrapper that imports from `@ouija/server` or duplicates the JWT issuance logic. Create it as:
+Note: `jwt-helper.ts` is a thin wrapper that imports from `@ouija-dev/server` or duplicates the JWT issuance logic. Create it as:
 
 ```ts
 // packages/agent-worker/src/jwt-helper.ts
@@ -2388,7 +2388,7 @@ export async function issueAgentJWT(
 import { describe, it, expect, vi } from 'vitest';
 import { assembleWorkOrder } from '../src/work-order-assembler.js';
 import type { AssemblerDeps, AgentProfile } from '../src/work-order-assembler.js';
-import type { AgentDispatchJobData } from '@ouija/bus';
+import type { AgentDispatchJobData } from '@ouija-dev/bus';
 
 const baseJobData: AgentDispatchJobData = {
   instanceId: 'inst-123',
@@ -2496,9 +2496,9 @@ describe('createTimeout', () => {
 // packages/agent-worker/tests/worker.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentDispatchWorker } from '../src/worker.js';
-import type { AgentDispatchJobData } from '@ouija/bus';
-import type { AgentPlugin, WorkOrder } from '@ouija/types';
-import { dispatchId as makeDispatchId } from '@ouija/types';
+import type { AgentDispatchJobData } from '@ouija-dev/bus';
+import type { AgentPlugin, WorkOrder } from '@ouija-dev/types';
+import { dispatchId as makeDispatchId } from '@ouija-dev/types';
 
 // ---- Mock JobQueue ----
 
@@ -2525,7 +2525,7 @@ function makeMockJobQueue() {
 function makeMockAgentPlugin(): AgentPlugin {
   return {
     manifest: {
-      name: '@ouija/mock-agent',
+      name: '@ouija-dev/mock-agent',
       version: '0.1.0',
       type: 'agent',
       coreApiVersion: '>=1.0.0',
@@ -2567,7 +2567,7 @@ describe('AgentDispatchWorker', () => {
 
   it('starts and registers as a BullMQ processor', async () => {
     const worker = new AgentDispatchWorker({
-      jobQueue: mockJobQueue as unknown as import('@ouija/bus').JobQueue,
+      jobQueue: mockJobQueue as unknown as import('@ouija-dev/bus').JobQueue,
       agentPlugin: mockPlugin,
       assemblerDeps: {
         getAgentProfile: vi.fn().mockResolvedValue({
@@ -2589,7 +2589,7 @@ describe('AgentDispatchWorker', () => {
 
   it('dispatches to agent plugin when a job arrives', async () => {
     const worker = new AgentDispatchWorker({
-      jobQueue: mockJobQueue as unknown as import('@ouija/bus').JobQueue,
+      jobQueue: mockJobQueue as unknown as import('@ouija-dev/bus').JobQueue,
       agentPlugin: mockPlugin,
       assemblerDeps: {
         getAgentProfile: vi.fn().mockResolvedValue({
@@ -2616,7 +2616,7 @@ describe('AgentDispatchWorker', () => {
 
   it('re-throws errors so BullMQ can retry', async () => {
     const worker = new AgentDispatchWorker({
-      jobQueue: mockJobQueue as unknown as import('@ouija/bus').JobQueue,
+      jobQueue: mockJobQueue as unknown as import('@ouija-dev/bus').JobQueue,
       agentPlugin: mockPlugin,
       assemblerDeps: {
         getAgentProfile: vi.fn().mockRejectedValue(new Error('DB down')),
@@ -2639,7 +2639,7 @@ Expected: All assembler, timeout, and worker tests pass.
 
 - [ ] **Step 10: Build and verify**
 
-Run: `npx turbo build --filter=@ouija/agent-worker`
+Run: `npx turbo build --filter=@ouija-dev/agent-worker`
 Expected: Compiles to `dist/`. No type errors.
 
 - [ ] **Step 11: Commit**
@@ -2690,7 +2690,7 @@ In server startup (`packages/server/src/index.ts`):
 - [ ] **Step 3: Replace kanbanPlaceholder with real Plane plugin**
 
 In server startup:
-- Load `@ouija/plugin-plane` via PluginLoader with config from env vars (`PLANE_API_TOKEN`, `PLANE_BASE_URL`, `PLANE_WORKSPACE_SLUG`)
+- Load `@ouija-dev/plugin-plane` via PluginLoader with config from env vars (`PLANE_API_TOKEN`, `PLANE_BASE_URL`, `PLANE_WORKSPACE_SLUG`)
 - Pass the loaded Plane plugin instance to the Orchestrator constructor instead of `kanbanPlaceholder`
 - Wire `registerRoutes()` if the Plane plugin implements it
 
@@ -2940,15 +2940,15 @@ webhook pattern). Falls back to body.event_id, then to randomUUID."
 The following features were implemented during Phase 2 but were not in the original plan. They emerged from real-world e2e testing and the self-hoster story.
 
 ### Workspace Abstraction (separate plan: 2026-04-02)
-- **DONE**: `WorkspaceProvider` + `AgentRunner` interfaces in `@ouija/types`
+- **DONE**: `WorkspaceProvider` + `AgentRunner` interfaces in `@ouija-dev/types`
 - **DONE**: `provisioning` state added to pipeline state machine
-- **DONE**: `@ouija/workspace-local` — `LocalWorkspaceProvider` (clone + git worktree modes)
-- **DONE**: `@ouija/workspace-local` — `LocalAgentRunner` (CLI subprocess) + `SdkAgentRunner` (Claude Agent SDK)
+- **DONE**: `@ouija-dev/workspace-local` — `LocalWorkspaceProvider` (clone + git worktree modes)
+- **DONE**: `@ouija-dev/workspace-local` — `LocalAgentRunner` (CLI subprocess) + `SdkAgentRunner` (Claude Agent SDK)
 - **DONE**: `ClaudeAgentPlugin` refactored to use WorkspaceProvider + AgentRunner
 - **DONE**: Stall monitor updated for provisioning-aware thresholds (2x grace period)
 
 ### Agent Profiles + Plane Member Provisioning (separate plan: 2026-04-03)
-- **DONE**: `@ouija/config` — YAML config loader, Ajv schema validator, types
+- **DONE**: `@ouija-dev/config` — YAML config loader, Ajv schema validator, types
 - **DONE**: `AgentMemberRegistry` — maps kanban member IDs to ouija agent IDs
 - **DONE**: `repoPath` support (git worktree) alongside `repoUrl` (clone)
 - **DONE**: Multi-repo resolution by Plane project ID
@@ -2960,7 +2960,7 @@ The following features were implemented during Phase 2 but were not in the origi
 - **DONE**: Workspace config assembly — layered `.claude/` config (repo → agent → task)
 
 ### Fizzy Kanban Integration (2026-04-04)
-- **DONE**: `@ouija/plugin-fizzy` — full KanbanPlugin implementation against Fizzy REST API
+- **DONE**: `@ouija-dev/plugin-fizzy` — full KanbanPlugin implementation against Fizzy REST API
 - **DONE**: `FizzyApiClient` — 10 API methods, error handling, rate limit support
 - **DONE**: Fizzy webhook handler — HMAC-SHA256 verification, 4 event mappings
 - **DONE**: Server wiring — `FIZZY_*` env vars, mutual exclusion with Plane
@@ -2971,7 +2971,7 @@ The following features were implemented during Phase 2 but were not in the origi
 - **DONE**: `PlaneColumnClient` → `KanbanColumnClient` (backward-compatible alias)
 - **DONE**: `kanbanUserId` field — pre-mapped agent IDs for backends without auto-provisioning
 - **DONE**: `boardId` field — generic alternative to Plane-specific `projectId`
-- **DONE**: Duplicate Plane webhook normalizer eliminated — server now imports from `@ouija/plugin-plane`
+- **DONE**: Duplicate Plane webhook normalizer eliminated — server now imports from `@ouija-dev/plugin-plane`
 
 ### Bug Fixes Found During E2E (2026-04-03)
 - **DONE**: Webhook column ID resolution — `new_identifier` (UUID) over `new_value` (name)

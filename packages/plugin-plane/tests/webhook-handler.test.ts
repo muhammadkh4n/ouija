@@ -80,8 +80,8 @@ describe('normalizeWebhook: state change fixture', () => {
   });
 
   it('sets sourcePlugin correctly', () => {
-    const event = normalizeWebhook(stateChangeFixture, '@ouija/plugin-plane');
-    expect(event?.sourcePlugin).toBe('@ouija/plugin-plane');
+    const event = normalizeWebhook(stateChangeFixture, '@ouija-dev/plugin-plane');
+    expect(event?.sourcePlugin).toBe('@ouija-dev/plugin-plane');
   });
 
   it('sets event id from activity id', () => {

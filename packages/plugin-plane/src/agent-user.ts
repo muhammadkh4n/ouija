@@ -5,7 +5,7 @@
 // This module handles creating / verifying agent bot users during plugin start.
 
 import type { PlaneApiClient } from './api-client.js';
-import type { PluginLogger } from '@ouija/types';
+import type { PluginLogger } from '@ouija-dev/types';
 
 export interface AgentUserRecord {
   memberId: string;

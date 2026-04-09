@@ -3,7 +3,7 @@
  *
  * The worker runs as a separate process from the Fastify server and shares the
  * same OUIJA_SECRET_KEY. This module duplicates the minimal JWT issuance logic
- * from @ouija/server/jwt rather than importing from that package (which would
+ * from @ouija-dev/server/jwt rather than importing from that package (which would
  * pull in Fastify and other server-only deps).
  *
  * Algorithm, claims, and constants must stay in sync with packages/server/src/jwt.ts.

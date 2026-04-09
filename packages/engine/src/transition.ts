@@ -19,8 +19,8 @@ import type {
   TransitionOutcome,
   SideEffect,
   ColumnMapping,
-} from '@ouija/types';
-import { dispatchId as makeDispatchId, agentId as makeAgentId } from '@ouija/types';
+} from '@ouija-dev/types';
+import { dispatchId as makeDispatchId, agentId as makeAgentId } from '@ouija-dev/types';
 import { evaluateGuards } from './guards.js';
 
 // ---- Public API ----

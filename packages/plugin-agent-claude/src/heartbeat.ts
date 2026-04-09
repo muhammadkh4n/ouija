@@ -44,7 +44,14 @@ interface FailedPayload {
   retryable: boolean;
 }
 
+interface AcknowledgedPayload {
+  type: 'agent_acknowledged';
+  instanceId: string;
+  dispatchId: string;
+}
+
 type CallbackPayload =
+  | AcknowledgedPayload
   | HeartbeatPayload
   | PrReadyPayload
   | CompletedPayload
@@ -122,6 +129,18 @@ export class HeartbeatReporter {
   }
 
   // ---- One-shot reports ----
+
+  /**
+   * Report that the agent has received and acknowledged the work order.
+   * Transitions pipeline from dispatching → running.
+   */
+  async reportAcknowledged(): Promise<void> {
+    await this._post({
+      type: 'agent_acknowledged',
+      instanceId: this.instanceId,
+      dispatchId: this.dispatchId,
+    });
+  }
 
   /**
    * Report incremental progress. Called during setup steps and on demand.

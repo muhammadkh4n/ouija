@@ -15,14 +15,14 @@
 // Everything else returns null.
 
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { cardId, columnId } from '@ouija/types';
+import { cardId, columnId } from '@ouija-dev/types';
 import type {
   OuijaEvent,
   KanbanCardMovedPayload,
   KanbanCardAssignedPayload,
   KanbanCard,
-} from '@ouija/types';
-import { boardId as mkBoardId } from '@ouija/types';
+} from '@ouija-dev/types';
+import { boardId as mkBoardId } from '@ouija-dev/types';
 
 // ---- Raw Plane webhook shape ----
 
@@ -156,7 +156,7 @@ export type NormalizedWebhookEvent =
  */
 export function normalizeWebhook(
   raw: unknown,
-  sourcePlugin = '@ouija/plugin-plane',
+  sourcePlugin = '@ouija-dev/plugin-plane',
   baseUrl = '',
 ): NormalizedWebhookEvent {
   try {

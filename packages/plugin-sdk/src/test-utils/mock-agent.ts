@@ -6,9 +6,9 @@ import type {
   PluginManifest,
   PluginContext,
   PluginHealth,
-} from '@ouija/types';
-import type { DispatchId, InstanceId } from '@ouija/types';
-import { dispatchId, instanceId } from '@ouija/types';
+} from '@ouija-dev/types';
+import type { DispatchId, InstanceId } from '@ouija-dev/types';
+import { dispatchId, instanceId } from '@ouija-dev/types';
 
 // ---- Mock Agent Plugin ----
 
@@ -35,7 +35,7 @@ export interface CancelRecord {
  */
 export class MockAgentPlugin implements AgentPlugin<Record<string, never>> {
   readonly manifest: PluginManifest = {
-    name: '@ouija/mock-agent',
+    name: '@ouija-dev/mock-agent',
     version: '0.1.0',
     type: 'agent',
     coreApiVersion: '>=1.0.0 <2.0.0',

@@ -1,4 +1,4 @@
-import type { Guard, GuardContext, GuardResult } from '@ouija/types';
+import type { Guard, GuardContext, GuardResult } from '@ouija-dev/types';
 
 /**
  * Evaluate all guards against the provided context.

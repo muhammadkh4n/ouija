@@ -6,7 +6,7 @@
  * the plugin so it can be unit-tested in isolation without touching I/O.
  */
 
-import type { WorkOrder } from '@ouija/types';
+import type { WorkOrder } from '@ouija-dev/types';
 
 // ---------------------------------------------------------------------------
 // Public types

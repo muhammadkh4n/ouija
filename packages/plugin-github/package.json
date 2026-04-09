@@ -1,17 +1,19 @@
 {
-  "name": "@ouija/plugin-github",
+  "name": "@ouija-dev/plugin-github",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@ouija/types": "*",
-    "@ouija/plugin-sdk": "*",
+    "@ouija-dev/types": "*",
+    "@ouija-dev/plugin-sdk": "*",
     "@octokit/rest": "^21.0.0"
   },
   "devDependencies": {

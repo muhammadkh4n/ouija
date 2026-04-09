@@ -17,12 +17,12 @@
 // Everything else returns null.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { cardId, columnId } from '@ouija/types';
+import { cardId, columnId } from '@ouija-dev/types';
 import type {
   OuijaEvent,
   KanbanCardMovedPayload,
   KanbanCardAssignedPayload,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 // ---- Raw Fizzy webhook shape ----
 
@@ -87,7 +87,7 @@ export type NormalizedWebhookEvent =
 
 export function normalizeFizzyWebhook(
   raw: unknown,
-  sourcePlugin = '@ouija/plugin-fizzy',
+  sourcePlugin = '@ouija-dev/plugin-fizzy',
 ): NormalizedWebhookEvent {
   try {
     if (!isFizzyWebhookPayload(raw)) {

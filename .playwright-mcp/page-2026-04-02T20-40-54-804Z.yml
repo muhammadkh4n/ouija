@@ -1,0 +1,68 @@
+- generic [ref=e1]:
+  - generic:
+    - region "Notifications"
+  - generic [ref=e2]:
+    - link [ref=e4] [cursor=pointer]:
+      - /url: /god-mode/
+      - img [ref=e5]
+    - generic [ref=e14]:
+      - generic [ref=e15]:
+        - generic [ref=e16]: Setup your Plane Instance
+        - generic [ref=e17]: Post setup you will be able to manage this Plane instance.
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - generic [ref=e20]:
+            - generic [ref=e21]: First name *
+            - textbox "First name *" [active] [ref=e22]:
+              - /placeholder: Wilber
+          - generic [ref=e23]:
+            - generic [ref=e24]: Last name *
+            - textbox "Last name *" [ref=e25]:
+              - /placeholder: Wright
+        - generic [ref=e26]:
+          - generic [ref=e27]: Email *
+          - textbox "Email *" [ref=e28]:
+            - /placeholder: name@company.com
+        - generic [ref=e29]:
+          - generic [ref=e30]: Company name *
+          - textbox "Company name *" [ref=e31]:
+            - /placeholder: Company name
+        - generic [ref=e32]:
+          - generic [ref=e33]: Set a password *
+          - generic [ref=e34]:
+            - textbox "Set a password *" [ref=e35]:
+              - /placeholder: New password...
+            - button [ref=e36] [cursor=pointer]:
+              - img [ref=e37]
+          - generic [ref=e46]:
+            - generic [ref=e47]:
+              - img [ref=e49]
+              - generic [ref=e52]: Min 8 characters
+            - generic [ref=e53]:
+              - img [ref=e55]
+              - generic [ref=e58]: Min 1 upper-case letter
+            - generic [ref=e59]:
+              - img [ref=e61]
+              - generic [ref=e64]: Min 1 lower-case letter
+            - generic [ref=e65]:
+              - img [ref=e67]
+              - generic [ref=e70]: Min 1 number
+            - generic [ref=e71]:
+              - img [ref=e73]
+              - generic [ref=e76]: Min 1 special character
+        - generic [ref=e77]:
+          - generic [ref=e78]: Confirm password *
+          - generic [ref=e79]:
+            - textbox "Confirm password *" [ref=e80]:
+              - /placeholder: Confirm password
+            - button [ref=e81] [cursor=pointer]:
+              - img [ref=e82]
+        - generic [ref=e85]:
+          - generic [ref=e87]:
+            - checkbox "Allow Plane to anonymously collect usage events. See More" [checked] [ref=e88] [cursor=pointer]
+            - img
+          - generic [ref=e89] [cursor=pointer]:
+            - text: Allow Plane to anonymously collect usage events.
+            - link "See More" [ref=e90]:
+              - /url: https://developers.plane.so/self-hosting/telemetry
+        - button "Continue" [disabled] [ref=e92]

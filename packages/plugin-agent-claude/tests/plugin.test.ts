@@ -7,9 +7,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ClaudeAgentPlugin } from '../src/index.js';
-import { createMockContext } from '@ouija/plugin-sdk';
-import type { WorkOrder, WorkspaceProvider, AgentRunner, WorkspaceSpec, Workspace, WorkspaceHealth, AgentRunResult } from '@ouija/types';
-import { dispatchId } from '@ouija/types';
+import { createMockContext } from '@ouija-dev/plugin-sdk';
+import type { WorkOrder, WorkspaceProvider, AgentRunner, WorkspaceSpec, Workspace, WorkspaceHealth, AgentRunResult } from '@ouija-dev/types';
+import { dispatchId } from '@ouija-dev/types';
 
 // ---------------------------------------------------------------------------
 // Test fixtures

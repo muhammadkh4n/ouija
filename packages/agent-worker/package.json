@@ -1,9 +1,11 @@
 {
-  "name": "@ouija/agent-worker",
+  "name": "@ouija-dev/agent-worker",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
@@ -11,11 +13,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ouija/types": "*",
-    "@ouija/bus": "*",
-    "@ouija/engine": "*",
-    "@ouija/plugin-sdk": "*",
-    "@ouija/plugin-agent-claude": "*",
+    "@ouija-dev/types": "*",
+    "@ouija-dev/bus": "*",
+    "@ouija-dev/engine": "*",
+    "@ouija-dev/plugin-sdk": "*",
+    "@ouija-dev/plugin-agent-claude": "*",
     "jose": "^5.0.0"
   },
   "devDependencies": {

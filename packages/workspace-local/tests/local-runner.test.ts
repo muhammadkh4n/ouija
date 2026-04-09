@@ -19,7 +19,7 @@ import { EventEmitter } from 'node:events';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { Writable } from 'node:stream';
 import { LocalAgentRunner } from '../src/local-runner.js';
-import type { Workspace, AgentRunResult } from '@ouija/types';
+import type { Workspace, AgentRunResult } from '@ouija-dev/types';
 
 // ---------------------------------------------------------------------------
 // Helpers

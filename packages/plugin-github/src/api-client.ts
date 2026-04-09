@@ -1,6 +1,6 @@
 import { Octokit } from '@octokit/rest';
-import type { OpenPRParams, StandardPR } from '@ouija/types';
-import { prId } from '@ouija/types';
+import type { OpenPRParams, StandardPR } from '@ouija-dev/types';
+import { prId } from '@ouija-dev/types';
 
 // ---- Helpers ----
 

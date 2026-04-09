@@ -30,9 +30,9 @@ import type {
   BoardConfigRepository,
   DeduplicationRepository,
   CursorPage,
-} from '@ouija/types';
-import type { EventBus, PublishOptions, Unsubscribe, JobQueue, QueueName, QueueDataMap, EnqueueOptions } from '@ouija/bus';
-import { QUEUE_NAMES } from '@ouija/bus';
+} from '@ouija-dev/types';
+import type { EventBus, PublishOptions, Unsubscribe, JobQueue, QueueName, QueueDataMap, EnqueueOptions } from '@ouija-dev/bus';
+import { QUEUE_NAMES } from '@ouija-dev/bus';
 import {
   cardId,
   columnId,
@@ -41,7 +41,7 @@ import {
   agentId,
   dispatchId,
   prId,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 // ---- In-memory mock database ----
 

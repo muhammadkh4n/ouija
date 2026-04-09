@@ -29,8 +29,8 @@ import type {
   WorkspaceProvider,
   AgentRunner,
   Workspace,
-} from '@ouija/types';
-import { dispatchId as makeDispatchId } from '@ouija/types';
+} from '@ouija-dev/types';
+import { dispatchId as makeDispatchId } from '@ouija-dev/types';
 import type { ClaudeAgentConfig } from './config.js';
 import { claudeAgentConfigSchema } from './config.js';
 import { buildPrompt } from './work-order-builder.js';
@@ -57,7 +57,7 @@ interface ActiveDispatch {
 
 export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
   readonly manifest: PluginManifest = {
-    name: '@ouija/plugin-agent-claude',
+    name: '@ouija-dev/plugin-agent-claude',
     version: '0.1.0',
     type: 'agent',
     coreApiVersion: '>=1.0.0 <2.0.0',
@@ -96,14 +96,14 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
 
     // Default: local execution (override externally for testing or remote)
     if (!this.workspaceProvider) {
-      const { LocalWorkspaceProvider } = await import('@ouija/workspace-local');
+      const { LocalWorkspaceProvider } = await import('@ouija-dev/workspace-local');
       this.workspaceProvider = new LocalWorkspaceProvider(
         this.config.workDir !== undefined ? { baseDir: this.config.workDir } : {},
       );
     }
     if (!this.agentRunner) {
       try {
-        const { SdkAgentRunner } = await import('@ouija/workspace-local');
+        const { SdkAgentRunner } = await import('@ouija-dev/workspace-local');
         // Resolve the SDK's bundled CLI path from the monorepo root
         const { createRequire } = await import('node:module');
         const require = createRequire(process.cwd() + '/package.json');
@@ -115,7 +115,7 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
         this.logger.info('Using Claude Agent SDK runner', { cliPath });
       } catch {
         // SDK not available -- fall back to raw subprocess
-        const { LocalAgentRunner } = await import('@ouija/workspace-local');
+        const { LocalAgentRunner } = await import('@ouija-dev/workspace-local');
         this.agentRunner = new LocalAgentRunner(
           this.config.claudeBinaryPath !== undefined ? { binaryPath: this.config.claudeBinaryPath } : {},
         );

@@ -11,14 +11,14 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { StallMonitor } from '../src/stall-monitor.js';
-import type { Database, PipelineInstance, PipelineRepository, PipelineEventRepository, BoardConfigRepository, DeduplicationRepository, UnitOfWork, CursorPage, PipelineConfig } from '@ouija/types';
+import type { Database, PipelineInstance, PipelineRepository, PipelineEventRepository, BoardConfigRepository, DeduplicationRepository, UnitOfWork, CursorPage, PipelineConfig } from '@ouija-dev/types';
 import {
   instanceId,
   cardId,
   boardId,
   dispatchId,
   agentId,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 // ---- Minimal mock database ----
 

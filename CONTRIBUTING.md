@@ -75,12 +75,12 @@ packages/
 
 ### Build a single package:
 ```bash
-npm run build --workspace=@ouija/engine
+npm run build --workspace=@ouija-dev/engine
 ```
 
 ### Test a single package:
 ```bash
-npm run test --workspace=@ouija/engine
+npm run test --workspace=@ouija-dev/engine
 ```
 
 ### Type-check all packages:
@@ -114,7 +114,7 @@ npx tsc --init
 
 Create `src/index.ts`:
 ```typescript
-import { KanbanPlugin, KanbanPluginConfig } from '@ouija/types';
+import { KanbanPlugin, KanbanPluginConfig } from '@ouija-dev/types';
 
 export interface JiraConfig extends KanbanPluginConfig {
   baseUrl: string;
@@ -127,7 +127,7 @@ export class JiraPlugin implements KanbanPlugin {
 
   async getBoard(boardId: string) {
     // Fetch board from Jira API
-    // Return Board type from @ouija/types
+    // Return Board type from @ouija-dev/types
   }
 
   async createCard(board: Board, card: Card) {
@@ -176,7 +176,7 @@ describe('JiraPlugin', () => {
 
 Add to `packages/plugin-sdk/src/plugin-loader.ts`:
 ```typescript
-import JiraPlugin from '@ouija/plugin-jira';
+import JiraPlugin from '@ouija-dev/plugin-jira';
 
 const PLUGINS = {
   'jira': JiraPlugin,
@@ -203,7 +203,7 @@ npm install --save-dev typescript
 
 Create `src/index.ts`:
 ```typescript
-import { AgentPlugin, WorkOrder, AgentConfig } from '@ouija/types';
+import { AgentPlugin, WorkOrder, AgentConfig } from '@ouija-dev/types';
 
 export interface GPTConfig extends AgentConfig {
   apiKey: string;
@@ -240,7 +240,7 @@ Test against real repositories (not mocks). Create a test repo and verify:
 
 Add to `packages/plugin-sdk/src/plugin-loader.ts`:
 ```typescript
-import GPTPlugin from '@ouija/plugin-agent-gpt';
+import GPTPlugin from '@ouija-dev/plugin-agent-gpt';
 
 const AGENT_PLUGINS = {
   'gpt': GPTPlugin,
@@ -270,7 +270,7 @@ npm run test
 npm run test:watch
 
 # Run tests for a single package
-npm run test --workspace=@ouija/engine
+npm run test --workspace=@ouija-dev/engine
 
 # Run tests matching a pattern
 npm run test -- --grep "transition"

@@ -1,5 +1,5 @@
 import semver from 'semver';
-import type { BasePlugin, PluginLogger, PluginHealth, JSONSchema, PluginContext } from '@ouija/types';
+import type { BasePlugin, PluginLogger, PluginHealth, JSONSchema, PluginContext } from '@ouija-dev/types';
 import { validateConfigOrThrow } from './config-validator.js';
 
 // ---- Types ----

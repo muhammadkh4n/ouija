@@ -4,7 +4,7 @@
 
 **Goal:** Replace the hardcoded agent profile with a config-file-driven system where agents are Plane members that can be assigned cards, with configurable trigger modes (auto-dispatch on assign vs wait for column move).
 
-**Architecture:** A new `@ouija/config` package owns parsing/validating `ouija.config.yaml`. It produces typed `AgentProfileConfig` objects consumed by the agent worker (for profile resolution) and the server (for Plane member provisioning + assignee→agent mapping). The orchestrator gains an `AgentMemberRegistry` dependency that maps Plane member IDs to ouija agent IDs, enabling the `card_assigned` trigger to dispatch work.
+**Architecture:** A new `@ouija-dev/config` package owns parsing/validating `ouija.config.yaml`. It produces typed `AgentProfileConfig` objects consumed by the agent worker (for profile resolution) and the server (for Plane member provisioning + assignee→agent mapping). The orchestrator gains an `AgentMemberRegistry` dependency that maps Plane member IDs to ouija agent IDs, enabling the `card_assigned` trigger to dispatch work.
 
 **Tech Stack:** TypeScript, Vitest, yaml (npm package for YAML parsing), Ajv (already in plugin-sdk for JSON Schema validation), existing monorepo toolchain (Turbo, npm workspaces).
 
@@ -47,7 +47,7 @@
 
 ---
 
-### Task 1: Create `@ouija/config` package scaffold
+### Task 1: Create `@ouija-dev/config` package scaffold
 
 **Files:**
 - Create: `packages/config/package.json`
@@ -59,7 +59,7 @@
 
 ```json
 {
-  "name": "@ouija/config",
+  "name": "@ouija-dev/config",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -138,7 +138,7 @@ Expected: `packages/config` added to workspace, `yaml` and `ajv` installed.
 
 ```bash
 git add packages/config/package.json packages/config/tsconfig.json packages/config/vitest.config.ts packages/config/src/index.ts
-git commit -m "feat(config): scaffold @ouija/config package"
+git commit -m "feat(config): scaffold @ouija-dev/config package"
 ```
 
 ---
@@ -1384,7 +1384,7 @@ This is the core logic change. When a card is assigned to an agent member:
 
 - [ ] **Step 1: Add AgentMemberLookup interface to orchestrator**
 
-In `packages/engine/src/orchestrator.ts`, add a minimal interface (no dependency on `@ouija/config`):
+In `packages/engine/src/orchestrator.ts`, add a minimal interface (no dependency on `@ouija-dev/config`):
 
 ```typescript
 /** Injected by the server — maps Plane member IDs to agent IDs. */
@@ -1516,7 +1516,7 @@ describe('card_assigned → auto dispatch', () => {
         assignedBy: 'human@example.com',
       },
       timestamp: new Date().toISOString(),
-      sourcePlugin: '@ouija/plugin-plane',
+      sourcePlugin: '@ouija-dev/plugin-plane',
       correlationId: 'corr-1',
     };
 
@@ -1555,7 +1555,7 @@ describe('card_assigned → auto dispatch', () => {
         assignedBy: 'other-human@example.com',
       },
       timestamp: new Date().toISOString(),
-      sourcePlugin: '@ouija/plugin-plane',
+      sourcePlugin: '@ouija-dev/plugin-plane',
       correlationId: 'corr-2',
     };
 
@@ -1639,10 +1639,10 @@ After the existing env validation block in `main()`, add:
 ```typescript
 // ---- Load ouija config (optional — falls back to env-var-driven defaults) ----
 const configPath = process.env['OUIJA_CONFIG_PATH'] ?? 'ouija.config.yaml';
-let ouijaConfig: import('@ouija/config').OuijaConfig | undefined;
+let ouijaConfig: import('@ouija-dev/config').OuijaConfig | undefined;
 
 try {
-  const { loadConfig } = await import('@ouija/config');
+  const { loadConfig } = await import('@ouija-dev/config');
   ouijaConfig = await loadConfig(configPath);
   console.info(`Loaded ouija config from ${configPath} — ${ouijaConfig.agents.length} agent(s) defined`);
 } catch (err) {
@@ -1660,10 +1660,10 @@ After the `await planePlugin.start()` line, add:
 
 ```typescript
 // Provision agent Plane members if config is loaded
-let agentRegistry: import('@ouija/config').AgentMemberRegistry | undefined;
+let agentRegistry: import('@ouija-dev/config').AgentMemberRegistry | undefined;
 
 if (ouijaConfig && planePluginInstance && planeWorkspaceSlug) {
-  const { AgentMemberRegistry } = await import('@ouija/config');
+  const { AgentMemberRegistry } = await import('@ouija-dev/config');
   const registryPlaneClient = {
     getMembers: async (ws: string) => {
       const members = await planePluginInstance!.getMembers(ws);
@@ -1725,10 +1725,10 @@ Update the agent worker startup section:
 
 ```typescript
 // Build agent profile map from config
-let agentProfiles: Map<string, import('@ouija/agent-worker').AgentProfile> | undefined;
+let agentProfiles: Map<string, import('@ouija-dev/agent-worker').AgentProfile> | undefined;
 
 if (ouijaConfig) {
-  const { AgentProfile } = await import('@ouija/agent-worker');
+  const { AgentProfile } = await import('@ouija-dev/agent-worker');
   agentProfiles = new Map();
   for (const agent of ouijaConfig.agents) {
     const defaultRepo = agent.repos.find((r) => r.default);

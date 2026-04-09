@@ -1,0 +1,50 @@
+- generic [ref=e1]:
+  - generic:
+    - region "Notifications"
+  - main [ref=e3]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - link [ref=e7] [cursor=pointer]:
+          - /url: /
+          - img [ref=e8]
+        - generic [ref=e16]:
+          - text: New to Plane?
+          - link "Sign up" [ref=e17] [cursor=pointer]:
+            - /url: /sign-up/
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]: Work in all dimensions.
+          - generic [ref=e22]: Welcome back to Plane.
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - text: Email
+            - generic [ref=e62]:
+              - textbox "Email" [disabled] [ref=e63]:
+                - /placeholder: name@company.com
+                - text: mk@ouija.dev
+              - button "Clear email" [ref=e64] [cursor=pointer]:
+                - img [ref=e65]
+          - generic [ref=e69]:
+            - text: Password
+            - generic [ref=e70]:
+              - textbox "Password" [active] [ref=e71]:
+                - /placeholder: Enter password
+              - button "Show password" [ref=e72] [cursor=pointer]:
+                - img [ref=e73]
+            - button "Forgot your password?" [ref=e78] [cursor=pointer]
+          - button "Go to workspace" [disabled] [ref=e80]
+        - paragraph [ref=e29]:
+          - text: By signing in, you understand and agree to our
+          - link "Terms of Service" [ref=e30] [cursor=pointer]:
+            - /url: https://plane.so/legals/terms-and-conditions/
+          - text: and
+          - link "Privacy Policy" [ref=e31] [cursor=pointer]:
+            - /url: https://plane.so/legals/privacy-policy/
+          - text: .
+      - generic [ref=e32]:
+        - generic [ref=e33]: Join 10,000+ teams building with Plane
+        - generic [ref=e34]:
+          - img [ref=e36]
+          - img [ref=e40]
+          - img [ref=e43]
+          - img [ref=e52]

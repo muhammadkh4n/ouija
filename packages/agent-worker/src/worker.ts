@@ -18,9 +18,9 @@
  * the engine catches any cases where the plugin dies silently.
  */
 
-import type { AgentPlugin } from '@ouija/types';
-import type { JobQueue, AgentDispatchJobData } from '@ouija/bus';
-import { QUEUE_NAMES } from '@ouija/bus';
+import type { AgentPlugin } from '@ouija-dev/types';
+import type { JobQueue, AgentDispatchJobData } from '@ouija-dev/bus';
+import { QUEUE_NAMES } from '@ouija-dev/bus';
 import type { AssemblerDeps } from './work-order-assembler.js';
 import { assembleWorkOrder } from './work-order-assembler.js';
 

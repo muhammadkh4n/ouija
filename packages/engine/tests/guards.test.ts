@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { evaluateGuards } from '../src/guards.js';
-import type { Guard, GuardContext } from '@ouija/types';
+import type { Guard, GuardContext } from '@ouija-dev/types';
 
 // Representative base context — description is long enough, has labels, has assignees
 const baseContext: GuardContext = {

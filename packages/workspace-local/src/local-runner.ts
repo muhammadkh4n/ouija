@@ -26,7 +26,7 @@ import type {
   AgentRunOptions,
   AgentRunResult,
   Workspace,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -95,7 +95,10 @@ export class LocalAgentRunner implements AgentRunner {
     options?: AgentRunOptions,
   ): Promise<AgentRunResult> {
     const binary = this.binaryPath;
-    const args = ['--print', '--output-format', 'text'];
+    // -p: non-interactive prompt mode (reads prompt, acts, exits)
+    // --dangerously-skip-permissions: auto-accept all tool calls (agent mode)
+    // --output-format text: plain text output (not JSON)
+    const args = ['-p', prompt, '--dangerously-skip-permissions', '--output-format', 'text'];
 
     // Build env: allowlist from process.env, then caller env, then CI=1.
     const safeBaseEnv: Record<string, string | undefined> = {};
@@ -134,9 +137,8 @@ export class LocalAgentRunner implements AgentRunner {
         return;
       }
 
-      // ---- stdin: write prompt then close ----
+      // Prompt is passed via -p flag, not stdin. Close stdin immediately.
       if (child.stdin) {
-        child.stdin.write(prompt, 'utf8');
         child.stdin.end();
       }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { assembleWorkOrder } from '../src/work-order-assembler.js';
 import type { AssemblerDeps, AgentProfile } from '../src/work-order-assembler.js';
-import type { AgentDispatchJobData } from '@ouija/bus';
+import type { AgentDispatchJobData } from '@ouija-dev/bus';
 
 // ---- Fixtures ----
 

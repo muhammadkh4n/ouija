@@ -1,7 +1,7 @@
 // ---- Notification -> Telegram HTML message formatter ----
 // Uses HTML parse mode throughout — simpler escaping than MarkdownV2.
 
-import type { Notification, NotificationLevel } from '@ouija/types';
+import type { Notification, NotificationLevel } from '@ouija-dev/types';
 
 // ---- Data shapes for typed pipeline events ----
 

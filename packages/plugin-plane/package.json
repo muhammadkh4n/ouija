@@ -1,9 +1,11 @@
 {
-  "name": "@ouija/plugin-plane",
+  "name": "@ouija-dev/plugin-plane",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -20,8 +22,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ouija/types": "*",
-    "@ouija/plugin-sdk": "*"
+    "@ouija-dev/types": "*",
+    "@ouija-dev/plugin-sdk": "*"
   },
   "devDependencies": {
     "fastify": "^5.8.4",

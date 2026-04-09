@@ -8,7 +8,7 @@ import type {
   PluginManifest,
   PluginContext,
   PluginHealth,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 import type { TelegramConfig } from './config.js';
 import { telegramConfigSchema } from './config.js';
@@ -24,7 +24,7 @@ const SENT_CACHE_MAX = 1_000;
 
 export class TelegramNotifyPlugin implements NotificationPlugin<TelegramConfig> {
   readonly manifest: PluginManifest = {
-    name: '@ouija/plugin-notify-telegram',
+    name: '@ouija-dev/plugin-notify-telegram',
     version: '0.1.0',
     type: 'notification',
     coreApiVersion: '>=1.0.0 <2.0.0',

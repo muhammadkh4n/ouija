@@ -21,17 +21,17 @@ import { join } from 'node:path';
 import os from 'node:os';
 
 // Config
-import { loadConfig, AgentMemberRegistry } from '@ouija/config';
-import type { PlaneClient, RegistryLogger } from '@ouija/config';
+import { loadConfig, AgentMemberRegistry } from '@ouija-dev/config';
+import type { PlaneClient, RegistryLogger } from '@ouija-dev/config';
 
 // Engine
-import { Orchestrator } from '@ouija/engine';
-import type { AgentMemberLookup } from '@ouija/engine';
+import { Orchestrator } from '@ouija-dev/engine';
+import type { AgentMemberLookup } from '@ouija-dev/engine';
 
 // Types
 import {
   cardId, columnId, instanceId, boardId, agentId, dispatchId,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 import type {
   Database,
   PipelineInstance,
@@ -47,10 +47,10 @@ import type {
   BoardConfigRepository,
   DeduplicationRepository,
   CursorPage,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 // Bus
-import type { EventBus, PublishOptions, Unsubscribe, JobQueue, QueueName, QueueDataMap, EnqueueOptions } from '@ouija/bus';
+import type { EventBus, PublishOptions, Unsubscribe, JobQueue, QueueName, QueueDataMap, EnqueueOptions } from '@ouija-dev/bus';
 
 // Agent worker
 import { assembleWorkOrder } from '../../agent-worker/src/work-order-assembler.js';
@@ -380,7 +380,7 @@ describe('End-to-end pipeline', () => {
         assignedBy: 'human@example.com',
       },
       timestamp: new Date().toISOString(),
-      sourcePlugin: '@ouija/plugin-plane',
+      sourcePlugin: '@ouija-dev/plugin-plane',
       correlationId: 'corr-1',
     };
 
@@ -558,7 +558,7 @@ describe('End-to-end pipeline', () => {
         assignedBy: 'human@example.com',
       },
       timestamp: new Date().toISOString(),
-      sourcePlugin: '@ouija/plugin-plane',
+      sourcePlugin: '@ouija-dev/plugin-plane',
       correlationId: 'corr-manual',
     };
 
@@ -585,7 +585,7 @@ describe('End-to-end pipeline', () => {
         movedBy: 'human@example.com',
       },
       timestamp: new Date().toISOString(),
-      sourcePlugin: '@ouija/plugin-plane',
+      sourcePlugin: '@ouija-dev/plugin-plane',
       correlationId: 'corr-move-manual',
     };
 

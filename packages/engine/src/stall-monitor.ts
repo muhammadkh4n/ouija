@@ -21,8 +21,8 @@
  * and nothing changes.
  */
 
-import type { Database, PipelineInstance, PipelineState } from '@ouija/types';
-import { dispatchId as makeDispatchId } from '@ouija/types';
+import type { Database, PipelineInstance, PipelineState } from '@ouija-dev/types';
+import { dispatchId as makeDispatchId } from '@ouija-dev/types';
 import type { Orchestrator } from './orchestrator.js';
 
 // ---- Logger interface ----

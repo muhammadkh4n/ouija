@@ -5,9 +5,9 @@ import type {
   PluginManifest,
   PluginContext,
   PluginHealth,
-} from '@ouija/types';
-import type { PrId } from '@ouija/types';
-import { prId } from '@ouija/types';
+} from '@ouija-dev/types';
+import type { PrId } from '@ouija-dev/types';
+import { prId } from '@ouija-dev/types';
 
 // ---- Mock Git Plugin ----
 
@@ -20,7 +20,7 @@ import { prId } from '@ouija/types';
  */
 export class MockGitPlugin implements GitPlugin<Record<string, never>> {
   readonly manifest: PluginManifest = {
-    name: '@ouija/mock-git',
+    name: '@ouija-dev/mock-git',
     version: '0.1.0',
     type: 'git',
     coreApiVersion: '>=1.0.0 <2.0.0',

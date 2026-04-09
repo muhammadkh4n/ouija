@@ -11,9 +11,9 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { Database, PipelineConfig, ColumnMapping } from '@ouija/types';
-import { boardId as makeBoardId, columnId as makeColumnId, agentId as makeAgentId } from '@ouija/types';
-import { ApiError } from '@ouija/types';
+import type { Database, PipelineConfig, ColumnMapping } from '@ouija-dev/types';
+import { boardId as makeBoardId, columnId as makeColumnId, agentId as makeAgentId } from '@ouija-dev/types';
+import { ApiError } from '@ouija-dev/types';
 import { requireAuth } from '../middleware/auth.js';
 
 export interface ProjectRouteOptions {

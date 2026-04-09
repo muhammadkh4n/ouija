@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { validateConfig, validateConfigOrThrow } from '../src/config-validator.js';
-import type { JSONSchema } from '@ouija/types';
+import type { JSONSchema } from '@ouija-dev/types';
 
 // ---- Fixtures ----
 
@@ -93,7 +93,7 @@ describe('validateConfig', () => {
 describe('validateConfigOrThrow', () => {
   it('does not throw for a valid config', () => {
     expect(() =>
-      validateConfigOrThrow('@ouija/plugin-plane', strictSchema, {
+      validateConfigOrThrow('@ouija-dev/plugin-plane', strictSchema, {
         apiToken: 'tok_abc',
         baseUrl: 'https://api.example.com',
       }),
@@ -102,7 +102,7 @@ describe('validateConfigOrThrow', () => {
 
   it('throws with the plugin name and field in the message', () => {
     expect(() =>
-      validateConfigOrThrow('@ouija/plugin-plane', strictSchema, {
+      validateConfigOrThrow('@ouija-dev/plugin-plane', strictSchema, {
         baseUrl: 'https://api.example.com',
         // apiToken missing
       }),
@@ -112,13 +112,13 @@ describe('validateConfigOrThrow', () => {
   it('includes the missing field name in the thrown message', () => {
     let message = '';
     try {
-      validateConfigOrThrow('@ouija/plugin-plane', strictSchema, {
+      validateConfigOrThrow('@ouija-dev/plugin-plane', strictSchema, {
         baseUrl: 'https://api.example.com',
       });
     } catch (err) {
       message = (err as Error).message;
     }
     expect(message).toContain('apiToken');
-    expect(message).toContain('@ouija/plugin-plane');
+    expect(message).toContain('@ouija-dev/plugin-plane');
   });
 });

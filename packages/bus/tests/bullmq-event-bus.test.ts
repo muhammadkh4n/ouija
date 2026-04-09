@@ -189,7 +189,7 @@ describe.skipIf(!process.env['REDIS_URL'])(
           instanceId: 'inst-1' as never,
           mergedAt: '2026-04-01T00:00:00Z',
         },
-        { correlationId: 'corr-test', sourcePlugin: '@ouija/test' },
+        { correlationId: 'corr-test', sourcePlugin: '@ouija-dev/test' },
       );
 
       await Promise.race([
@@ -202,7 +202,7 @@ describe.skipIf(!process.env['REDIS_URL'])(
       expect(delivered).toMatchObject({
         topic: 'git.pr.merged',
         correlationId: 'corr-test',
-        sourcePlugin: '@ouija/test',
+        sourcePlugin: '@ouija-dev/test',
         payload: { mergedAt: '2026-04-01T00:00:00Z' },
       });
 

@@ -21,8 +21,8 @@
  *   OUIJA_WORKER_CONCURRENCY  — Number of concurrent dispatches (default: 1)
  */
 
-import { BullMQJobQueue } from '@ouija/bus';
-import { ClaudeAgentPlugin } from '@ouija/plugin-agent-claude';
+import { BullMQJobQueue } from '@ouija-dev/bus';
+import { ClaudeAgentPlugin } from '@ouija-dev/plugin-agent-claude';
 import { AgentDispatchWorker } from './worker.js';
 import type { AssemblerDeps, AgentProfile } from './work-order-assembler.js';
 

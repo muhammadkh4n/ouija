@@ -1,17 +1,19 @@
 {
-  "name": "@ouija/engine",
+  "name": "@ouija-dev/engine",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ouija/bus": "*",
-    "@ouija/types": "*",
+    "@ouija-dev/bus": "*",
+    "@ouija-dev/types": "*",
     "pg": "^8.13.3"
   },
   "devDependencies": {

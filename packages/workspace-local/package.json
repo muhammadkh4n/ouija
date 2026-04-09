@@ -1,6 +1,8 @@
 {
-  "name": "@ouija/workspace-local",
+  "name": "@ouija-dev/workspace-local",
   "version": "0.1.0",
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -11,7 +13,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.71",
-    "@ouija/types": "*"
+    "@ouija-dev/types": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

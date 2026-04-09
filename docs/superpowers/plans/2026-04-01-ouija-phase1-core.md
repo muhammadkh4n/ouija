@@ -248,7 +248,7 @@ Expected: Installs turbo, typescript, vitest at root.
 ```json
 // packages/types/package.json
 {
-  "name": "@ouija/types",
+  "name": "@ouija-dev/types",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -300,7 +300,7 @@ ANTHROPIC_API_KEY=
 - [ ] **Step 5: Verify monorepo builds**
 
 Run: `npx turbo build`
-Expected: Compiles `@ouija/types` (empty for now). No errors.
+Expected: Compiles `@ouija-dev/types` (empty for now). No errors.
 
 - [ ] **Step 6: Commit**
 
@@ -625,7 +625,7 @@ export * from './errors.js';
 
 - [ ] **Step 6: Build and verify**
 
-Run: `npx turbo build --filter=@ouija/types`
+Run: `npx turbo build --filter=@ouija-dev/types`
 Expected: Compiles to `packages/types/dist/`. No errors.
 
 - [ ] **Step 7: Commit**
@@ -653,7 +653,7 @@ This is the crown jewel. 100% transition coverage. Pure functions, zero mocks.
 ```json
 // packages/engine/package.json
 {
-  "name": "@ouija/engine",
+  "name": "@ouija-dev/engine",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -664,7 +664,7 @@ This is the crown jewel. 100% transition coverage. Pure functions, zero mocks.
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ouija/types": "workspace:*"
+    "@ouija-dev/types": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
@@ -677,7 +677,7 @@ This is the crown jewel. 100% transition coverage. Pure functions, zero mocks.
 
 ```ts
 // packages/engine/src/guards.ts
-import type { Guard, GuardContext, GuardResult } from '@ouija/types';
+import type { Guard, GuardContext, GuardResult } from '@ouija-dev/types';
 
 export function evaluateGuards(guards: Guard[], context: GuardContext): GuardResult[] {
   return guards.map((guard) => evaluateGuard(guard, context));
@@ -725,8 +725,8 @@ function evaluateGuard(guard: Guard, context: GuardContext): GuardResult {
 // packages/engine/tests/guards.test.ts
 import { describe, it, expect } from 'vitest';
 import { evaluateGuards } from '../src/guards.js';
-import type { Guard, GuardContext } from '@ouija/types';
-import { cardId } from '@ouija/types';
+import type { Guard, GuardContext } from '@ouija-dev/types';
+import { cardId } from '@ouija-dev/types';
 
 const baseContext: GuardContext = {
   cardDescription: 'Implement login page with OAuth support and error handling',
@@ -810,9 +810,9 @@ This is the largest single file. Every state/trigger combination handled. No I/O
 import type {
   PipelineState, PipelineTrigger, PipelineConfig, TransitionOutcome,
   SideEffect, ColumnMapping, DispatchId, AgentId,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 import { evaluateGuards } from './guards.js';
-import { dispatchId as makeDispatchId } from '@ouija/types';
+import { dispatchId as makeDispatchId } from '@ouija-dev/types';
 import { randomUUID } from 'node:crypto';
 
 export function transition(
@@ -1147,8 +1147,8 @@ function findColumnMapping(colId: ColumnId, config: PipelineConfig): ColumnMappi
 // packages/engine/tests/transition.test.ts
 import { describe, it, expect } from 'vitest';
 import { transition } from '../src/transition.js';
-import type { PipelineState, PipelineTrigger, PipelineConfig, GuardContext } from '@ouija/types';
-import { cardId, columnId, dispatchId, agentId, prId, boardId } from '@ouija/types';
+import type { PipelineState, PipelineTrigger, PipelineConfig, GuardContext } from '@ouija-dev/types';
+import { cardId, columnId, dispatchId, agentId, prId, boardId } from '@ouija-dev/types';
 
 const testConfig: PipelineConfig = {
   boardId: boardId('board-1'),

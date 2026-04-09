@@ -1,20 +1,22 @@
 {
-  "name": "@ouija/plugin-agent-claude",
+  "name": "@ouija-dev/plugin-agent-claude",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": ["dist/", "README.md"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ouija/types": "*",
-    "@ouija/workspace-local": "*"
+    "@ouija-dev/types": "*",
+    "@ouija-dev/workspace-local": "*"
   },
   "devDependencies": {
-    "@ouija/plugin-sdk": "*",
+    "@ouija-dev/plugin-sdk": "*",
     "@types/node": "^22.0.0",
     "typescript": "^5.5.0",
     "vitest": "^3.0.0"

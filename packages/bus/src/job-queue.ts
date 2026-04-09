@@ -1,4 +1,4 @@
-import type { OuijaEvent, OuijaTopic } from '@ouija/types';
+import type { OuijaEvent, OuijaTopic } from '@ouija-dev/types';
 
 // ---------------------------------------------------------------------------
 // Queue names — single source of truth
@@ -13,7 +13,7 @@ export const QUEUE_NAMES = {
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 // ---------------------------------------------------------------------------
-// Job data types (implementation-specific — live here, not in @ouija/types)
+// Job data types (implementation-specific — live here, not in @ouija-dev/types)
 // ---------------------------------------------------------------------------
 
 export interface AgentDispatchJobData {

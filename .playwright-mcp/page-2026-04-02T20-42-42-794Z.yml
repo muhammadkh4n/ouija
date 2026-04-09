@@ -1,0 +1,25 @@
+- generic [ref=e1]:
+  - generic:
+    - region "Notifications"
+  - main [ref=e3]:
+    - generic [ref=e7]:
+      - generic [ref=e11]:
+        - img [ref=e13]
+        - button "m Muhammad Khan" [ref=e22] [cursor=pointer]:
+          - generic [ref=e23]: m
+          - generic [ref=e24]: Muhammad Khan
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - heading "Create your profile." [level=1] [ref=e30]
+          - paragraph [ref=e31]: This is how you will appear in Plane.
+        - generic [ref=e32]:
+          - button "M" [ref=e33] [cursor=pointer]
+          - button "Upload image" [ref=e34] [cursor=pointer]:
+            - img [ref=e35]
+            - generic [ref=e39]: Upload image
+        - generic [ref=e41]:
+          - generic [ref=e42]: Name*
+          - textbox "Name*" [active] [ref=e43]:
+            - /placeholder: Enter your full name
+            - text: Muhammad
+        - button "Continue" [ref=e44] [cursor=pointer]

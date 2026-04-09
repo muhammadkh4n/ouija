@@ -8,9 +8,9 @@
  * the job is actually dequeued.
  */
 
-import type { WorkOrder } from '@ouija/types';
-import { instanceId as makeInstanceId } from '@ouija/types';
-import type { AgentDispatchJobData } from '@ouija/bus';
+import type { WorkOrder } from '@ouija-dev/types';
+import { instanceId as makeInstanceId } from '@ouija-dev/types';
+import type { AgentDispatchJobData } from '@ouija-dev/bus';
 
 // ---- Agent profile shape ----
 
@@ -75,8 +75,8 @@ export async function assembleWorkOrder(
   let baseBranch = profile.baseBranch;
 
   if (profile.repos && profile.repos.length > 0) {
-    const { resolveRepo } = await import('@ouija/config');
-    const resolved = resolveRepo(profile.repos as import('@ouija/config').RepoConfig[], jobData.projectId);
+    const { resolveRepo } = await import('@ouija-dev/config');
+    const resolved = resolveRepo(profile.repos as import('@ouija-dev/config').RepoConfig[], jobData.projectId);
     if (resolved) {
       repoUrl = resolved.url ?? '';
       repoPath = resolved.path;

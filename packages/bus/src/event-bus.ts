@@ -1,4 +1,4 @@
-import type { OuijaEvent, OuijaEventMap, OuijaTopic } from '@ouija/types';
+import type { OuijaEvent, OuijaEventMap, OuijaTopic } from '@ouija-dev/types';
 
 /**
  * Handler for a specific typed topic. Receives the full OuijaEvent envelope.

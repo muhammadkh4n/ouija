@@ -13,7 +13,7 @@ import type {
   PipelineTrigger,
   PipelineConfig,
   GuardContext,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 import {
   cardId,
   columnId,
@@ -21,7 +21,7 @@ import {
   agentId,
   prId,
   boardId,
-} from '@ouija/types';
+} from '@ouija-dev/types';
 
 // ---- Test fixtures ----
 

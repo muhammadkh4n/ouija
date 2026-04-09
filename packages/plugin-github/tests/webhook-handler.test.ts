@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizeWebhook, verifySignature, computeSignature } from '../src/webhook-handler.js';
-import type { OuijaEvent } from '@ouija/types';
+import type { OuijaEvent } from '@ouija-dev/types';
 
 // ---- Fixture loader ----
 
@@ -28,7 +28,7 @@ describe('normalizeWebhook', () => {
 
       expect(event).not.toBeNull();
       expect(event!.topic).toBe('git.pr.opened');
-      expect(event!.sourcePlugin).toBe('@ouija/plugin-github');
+      expect(event!.sourcePlugin).toBe('@ouija-dev/plugin-github');
       expect(event!.id).toMatch(/^[0-9a-f-]{36}$/);
       expect(event!.timestamp).toBeTruthy();
       expect(event!.correlationId).toMatch(/^[0-9a-f-]{36}$/);

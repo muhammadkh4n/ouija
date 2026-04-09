@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentDispatchWorker } from '../src/worker.js';
-import type { AgentDispatchJobData, JobQueue } from '@ouija/bus';
-import type { AgentPlugin, WorkOrder } from '@ouija/types';
-import { dispatchId as makeDispatchId } from '@ouija/types';
+import type { AgentDispatchJobData, JobQueue } from '@ouija-dev/bus';
+import type { AgentPlugin, WorkOrder } from '@ouija-dev/types';
+import { dispatchId as makeDispatchId } from '@ouija-dev/types';
 import type { AssemblerDeps, AgentProfile } from '../src/work-order-assembler.js';
 
 // ---- Mock job queue ----
@@ -42,7 +42,7 @@ function makeMockJobQueue() {
 function makeMockAgentPlugin(): AgentPlugin {
   return {
     manifest: {
-      name: '@ouija/mock-agent',
+      name: '@ouija-dev/mock-agent',
       version: '0.1.0',
       type: 'agent',
       coreApiVersion: '>=1.0.0',

@@ -1,0 +1,2 @@
+[     226ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3333/api/instances/admins/:0
+[     227ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3333/api/instances/admins/me/:0

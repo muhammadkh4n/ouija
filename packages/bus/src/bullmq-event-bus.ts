@@ -1,6 +1,6 @@
 import { Queue, Worker, type ConnectionOptions } from 'bullmq';
 import { randomUUID } from 'node:crypto';
-import type { OuijaEvent, OuijaEventMap, OuijaTopic } from '@ouija/types';
+import type { OuijaEvent, OuijaEventMap, OuijaTopic } from '@ouija-dev/types';
 import type {
   EventBus,
   EventHandler,
