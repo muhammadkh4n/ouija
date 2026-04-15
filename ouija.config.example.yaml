@@ -23,6 +23,19 @@ agents:
     #   manual: wait for card to be moved to the dispatch column
     triggerMode: auto
 
+    # Runner implementation. Defaults to 'stream-json' when unset.
+    #   local        — claude -p text mode. Subscription billing (via ~/.claude/).
+    #                  No structured events. Simplest fallback.
+    #   stream-json  — claude -p with NDJSON stdio. Subscription billing AND
+    #                  structured events (cost, turn count, assistant text).
+    #                  Recommended default for self-hosted.
+    #   sdk          — @anthropic-ai/claude-agent-sdk. API-key billing only
+    #                  (Anthropic, Bedrock, Vertex, Foundry, Proxy).
+    #                  Pick this when you don't have a Claude Pro/Max
+    #                  subscription or need cloud-provider-specific auth.
+    # See docs/configuration.md#runners for the full trade-off matrix.
+    runner: stream-json
+
     model: claude-sonnet-4-20250514
 
     # System prompt — used when configDir is not set.

@@ -72,6 +72,69 @@ agents:
 |-------|------|----------|--------|---------|
 | `triggerMode` | `string` | **Yes** | `auto`, `manual` | `auto` dispatches immediately when a card is assigned. `manual` stores the assignment and waits for the card to enter a `dispatch_agent` column. |
 | `model` | `string` | **Yes** | any Claude model ID | Passed through to the Claude CLI. Example: `claude-sonnet-4-20250514`, `claude-opus-4-20250514`. |
+| `runner` | `string` | No | `local`, `stream-json`, `sdk` | Which runner implementation to use. Defaults to `stream-json` when unset. See [Runners](#runners) below. |
+
+### Runners
+
+Ouija ships three agent runners. Each one controls **how** the `claude`
+binary is invoked for a dispatch, which determines whether you get
+structured events back and whether you bill against a subscription or
+API tokens.
+
+| Runner | What it spawns | Structured events | Auth source | Cost model |
+|---|---|---|---|---|
+| `local` | `claude -p <prompt> --output-format text` | ❌ text only | `~/.claude/` session *(no `ANTHROPIC_API_KEY` in env)* or API key *(when set)* | **Subscription** by default — flat-rate Pro/Max. |
+| `stream-json` *(default)* | `claude -p --input-format stream-json --output-format stream-json --verbose` with the prompt on stdin | ✅ assistant text, tool calls, cost, turn count | Same as `local` — it's the same binary | **Subscription** by default — same as `local`, plus dashboard visibility. |
+| `sdk` | `@anthropic-ai/claude-agent-sdk`'s `query()` | ✅ via the SDK's message protocol | **API key only** — the SDK does NOT read `~/.claude/` session credentials | **Per-token API billing**. Use this for Bedrock, Vertex, Foundry, Proxy, or when you want metered Anthropic usage. |
+
+**Default:** `stream-json`. Subscription billing *and* structured events
+out of the box.
+
+**When to pick `local`:**
+- Minimal install — no desire for live dashboard visibility
+- The `stream-json` protocol ever regresses and you need a known-good fallback
+- Test environments where you're specifically exercising text-mode output
+
+**When to pick `sdk`:**
+- You want to bill against the Anthropic API, Bedrock, Vertex, Foundry, or a proxy
+- You're running Ouija as a shared service where session auth doesn't apply
+  (SaaS deployments, multi-tenant setups)
+- You need the SDK's specific cost tracking and conversation-shape guarantees
+
+**Cannot have:** structured events with `local`, or subscription billing with `sdk`. The first requires stream-json mode; the second requires the interactive binary.
+
+### Billing and auth
+
+Ouija's self-hosted billing story is **built on the Claude CLI's session auth**.
+When the `local` or `stream-json` runner dispatches and `ANTHROPIC_API_KEY`
+is **not** set in the environment, the subprocess reads
+`~/.claude/.credentials.json` just like a normal `claude` command would —
+which means every dispatch bills against your Claude Pro or Max
+subscription. **Flat rate. No per-dispatch API spend.**
+
+This is intentional. It's the single biggest cost advantage Ouija has
+over every other AI-in-CI tool, all of which are API-billed.
+
+To use API billing instead:
+
+1. Set `auth.method: api-key` (or `bedrock`, `vertex`, `foundry`, `proxy`) in the agent profile.
+2. Provide the secret via `auth.secretRef` (e.g. `env:ANTHROPIC_API_KEY`).
+3. The plugin injects the key into the subprocess env, which overrides session auth inside the `claude` binary.
+
+Alternatively, set `runner: sdk` — the SDK *only* supports API-key billing
+and will fail fast if no key is present, so there's no risk of silently
+falling back to session auth.
+
+**SaaS deployments must use API billing.** Anthropic's Pro/Max
+subscriptions are per-user and non-transferable. If you operate Ouija
+for customers other than yourself, you cannot share your subscription
+across tenants — use `runner: sdk` with a BYOK (bring-your-own-key) or
+pooled API-billing model.
+
+**How to tell which mode you're in:**
+- Look at the logs. The plugin emits `Runner constructed: <type>` on first use.
+- Check `~/.claude/.credentials.json` — if it exists and you haven't set `ANTHROPIC_API_KEY`, you're on subscription.
+- After a dispatch, query the pipeline detail view: the `cost` field reflects what Claude charged. For subscription runs this comes out of your flat-rate allowance; for API runs it comes out of your Anthropic balance.
 
 ### Prompt and Claude config
 

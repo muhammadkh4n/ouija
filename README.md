@@ -2,9 +2,11 @@
 
 Your kanban board is the control plane. AI agents are the engineers.
 
+[![npm version](https://img.shields.io/npm/v/@ouija-dev/cli.svg?label=%40ouija-dev%2Fcli)](https://www.npmjs.com/package/@ouija-dev/cli)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/Tests-604%20passing-green.svg)](#)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](#)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript)](https://www.typescriptlang.org/)
+[![Tests Passing](https://img.shields.io/badge/tests-770%2B%20passing-green.svg)](#)
 
 ## What is Ouija?
 

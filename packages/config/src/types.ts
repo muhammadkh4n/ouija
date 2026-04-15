@@ -5,6 +5,23 @@ export interface AuthConfig {
   secretRef: string;
 }
 
+/**
+ * Which agent runner to use for dispatches.
+ *
+ *   'local'       — spawn `claude -p` in text mode. Subscription auth via
+ *                   ~/.claude/. No structured events. Simplest fallback.
+ *   'stream-json' — spawn `claude -p --input-format stream-json
+ *                   --output-format stream-json --verbose`. Subscription
+ *                   auth preserved AND emits structured events (assistant
+ *                   text, cost, turn count). **Default.**
+ *   'sdk'         — use @anthropic-ai/claude-agent-sdk's query(). Requires
+ *                   API key (Anthropic, Bedrock, Vertex, Foundry, Proxy).
+ *                   Does NOT support subscription auth.
+ *
+ * See docs/configuration.md#runners for the full trade-off matrix.
+ */
+export type RunnerType = 'local' | 'stream-json' | 'sdk';
+
 export interface RepoConfig {
   url?: string | undefined;
   path?: string | undefined;
@@ -26,6 +43,12 @@ export interface AgentProfileConfig {
   configDir?: string;
   model: string;
   triggerMode: TriggerMode;
+  /**
+   * Which runner to use. Defaults to 'stream-json' when unset —
+   * subscription billing + structured events out of the box.
+   * See docs/configuration.md#runners for the trade-off matrix.
+   */
+  runner?: RunnerType;
   auth: AuthConfig;
   repos: RepoConfig[];
   limits: {

@@ -30,6 +30,19 @@ import type {
   AgentRunner,
   Workspace,
 } from '@ouija-dev/types';
+
+/**
+ * Runner selection. Duplicated from @ouija-dev/config's RunnerType to avoid
+ * a package dep from plugin-agent-claude to config. Keep in sync.
+ */
+type RunnerType = 'local' | 'stream-json' | 'sdk';
+
+function parseRunnerType(raw: string | undefined): RunnerType | undefined {
+  if (raw === 'local' || raw === 'stream-json' || raw === 'sdk') {
+    return raw;
+  }
+  return undefined;
+}
 import { dispatchId as makeDispatchId } from '@ouija-dev/types';
 import type { ClaudeAgentConfig } from './config.js';
 import { claudeAgentConfigSchema } from './config.js';
@@ -85,8 +98,23 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
   /** Workspace lifecycle provider. Injected at init or set externally for testing. */
   workspaceProvider!: WorkspaceProvider;
 
-  /** Agent execution runner. Injected at init or set externally for testing. */
-  agentRunner!: AgentRunner;
+  /**
+   * Lazy runner cache. One instance per runner type is constructed on first
+   * use and reused across dispatches. Exposed for tests so they can seed
+   * the cache with a fake runner before calling dispatch.
+   */
+  readonly runnerCache = new Map<RunnerType, AgentRunner>();
+
+  /**
+   * Legacy injection point — when set externally (e.g. by tests), this
+   * runner is used for ALL dispatches regardless of the work order's
+   * runner metadata. Production code should not set this; it should let
+   * `runnerCache` drive selection.
+   */
+  agentRunner?: AgentRunner;
+
+  /** Default runner when the work order has no explicit choice. */
+  private static readonly DEFAULT_RUNNER: RunnerType = 'stream-json';
 
   // ---- BasePlugin lifecycle ----
 
@@ -94,34 +122,80 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
     this.config = context.config;
     this.logger = context.logger;
 
-    // Default: local execution (override externally for testing or remote)
+    // Default: local filesystem workspace. Tests override by setting
+    // workspaceProvider before init().
     if (!this.workspaceProvider) {
       const { LocalWorkspaceProvider } = await import('@ouija-dev/workspace-local');
       this.workspaceProvider = new LocalWorkspaceProvider(
         this.config.workDir !== undefined ? { baseDir: this.config.workDir } : {},
       );
     }
-    if (!this.agentRunner) {
+    // Runners are constructed lazily in getRunner(). No pre-building here —
+    // this avoids paying import costs for runners that may never be used
+    // (e.g. the SDK when all agents are configured for stream-json).
+    this.logger.info('Claude agent plugin ready — runner selection is per-dispatch', {
+      defaultRunner: ClaudeAgentPlugin.DEFAULT_RUNNER,
+    });
+  }
+
+  /**
+   * Resolve a runner by type, constructing and caching on first use.
+   * Called by _runAgent() for each dispatch.
+   */
+  private async getRunner(type: RunnerType): Promise<AgentRunner> {
+    // Test override: if agentRunner was explicitly set, use it unconditionally.
+    if (this.agentRunner !== undefined) {
+      return this.agentRunner;
+    }
+
+    const cached = this.runnerCache.get(type);
+    if (cached !== undefined) return cached;
+
+    let runner: AgentRunner;
+    if (type === 'local') {
+      const { LocalAgentRunner } = await import('@ouija-dev/workspace-local');
+      runner = new LocalAgentRunner(
+        this.config.claudeBinaryPath !== undefined
+          ? { binaryPath: this.config.claudeBinaryPath }
+          : {},
+      );
+      this.logger.info('Runner constructed: local (text-mode subprocess)');
+    } else if (type === 'stream-json') {
+      const { StreamJsonAgentRunner } = await import('@ouija-dev/workspace-local');
+      runner = new StreamJsonAgentRunner(
+        this.config.claudeBinaryPath !== undefined
+          ? { binaryPath: this.config.claudeBinaryPath }
+          : {},
+      );
+      this.logger.info(
+        'Runner constructed: stream-json (structured events + subscription auth)',
+      );
+    } else if (type === 'sdk') {
       try {
         const { SdkAgentRunner } = await import('@ouija-dev/workspace-local');
-        // Resolve the SDK's bundled CLI path from the monorepo root
         const { createRequire } = await import('node:module');
         const require = createRequire(process.cwd() + '/package.json');
         const cliPath = require.resolve('@anthropic-ai/claude-agent-sdk/cli.js');
-        this.agentRunner = new SdkAgentRunner({
+        runner = new SdkAgentRunner({
           model: this.config.defaultModel,
           executablePath: cliPath,
         });
-        this.logger.info('Using Claude Agent SDK runner', { cliPath });
-      } catch {
-        // SDK not available -- fall back to raw subprocess
-        const { LocalAgentRunner } = await import('@ouija-dev/workspace-local');
-        this.agentRunner = new LocalAgentRunner(
-          this.config.claudeBinaryPath !== undefined ? { binaryPath: this.config.claudeBinaryPath } : {},
+        this.logger.info('Runner constructed: sdk (Claude Agent SDK)', { cliPath });
+      } catch (err) {
+        throw new Error(
+          `runner: 'sdk' was requested but @anthropic-ai/claude-agent-sdk ` +
+            `is not installed. Install the package or switch to runner: 'stream-json'. ` +
+            `Details: ${err instanceof Error ? err.message : String(err)}`,
         );
-        this.logger.info('Using local subprocess runner (SDK not available)');
       }
+    } else {
+      throw new Error(
+        `Unknown runner type: ${String(type)} — expected 'local', 'stream-json', or 'sdk'`,
+      );
     }
+
+    this.runnerCache.set(type, runner);
+    return runner;
   }
 
   async start(): Promise<void> {
@@ -139,6 +213,7 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
       }
     }
     this.activeDispatches.clear();
+    this.runnerCache.clear();
     this.logger.info('Claude agent plugin stopped');
   }
 
@@ -290,7 +365,14 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
         agentEnv['HOME'] = claudeHome;
       }
 
-      const result = await this.agentRunner.run(
+      // Runner selection per dispatch from the work order's metadata.
+      // Falls back to the plugin default (stream-json) when unset.
+      const runnerType =
+        parseRunnerType(workOrder.metadata['runner']) ??
+        ClaudeAgentPlugin.DEFAULT_RUNNER;
+      const runner = await this.getRunner(runnerType);
+
+      const result = await runner.run(
         workspace,
         prompt,
         agentEnv,

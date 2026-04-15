@@ -25,6 +25,12 @@ export interface AgentProfile {
   repoPath?: string;
   baseBranch: string;
   triggerMode: 'auto' | 'manual';
+  /**
+   * Runner implementation to dispatch this agent with.
+   * See packages/config/src/types.ts RunnerType.
+   * Defaults to 'stream-json' when unset — applied in the plugin.
+   */
+  runner?: 'local' | 'stream-json' | 'sdk';
   configDir?: string;
   authMethod?: string;
   /** All repos for this agent — resolved at assembly time using projectId. */
@@ -98,6 +104,7 @@ export async function assembleWorkOrder(
   if (profile.configDir) metadata['configDir'] = profile.configDir;
   if (profile.authMethod) metadata['authMethod'] = profile.authMethod;
   if (deps.claudeHome) metadata['claudeHome'] = deps.claudeHome;
+  if (profile.runner) metadata['runner'] = profile.runner;
 
   // 6. Construct the WorkOrder
   const workOrder: WorkOrder = {

@@ -538,6 +538,7 @@ async function main(): Promise<void> {
       if (defaultRepo?.url) profile.repoUrl = defaultRepo.url;
       if (defaultRepo?.path) profile.repoPath = defaultRepo.path;
       if (agent.configDir) profile.configDir = agent.configDir;
+      if (agent.runner) profile.runner = agent.runner;
       agentProfiles.set(agent.id, profile);
     }
   }

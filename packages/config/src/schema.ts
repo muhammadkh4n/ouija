@@ -40,6 +40,11 @@ const agentProfileSchema = {
     configDir: { type: 'string', nullable: true },
     model: { type: 'string', minLength: 1 },
     triggerMode: { type: 'string', enum: ['auto', 'manual'] },
+    runner: {
+      type: 'string',
+      enum: ['local', 'stream-json', 'sdk'],
+      nullable: true,
+    },
     auth: {
       type: 'object',
       properties: {

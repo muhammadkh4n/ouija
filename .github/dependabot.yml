@@ -1,0 +1,55 @@
+# Dependabot configuration for Ouija.
+#
+# Two ecosystems:
+#   - npm: workspace-root package.json, covers all @ouija-dev/* packages
+#   - github-actions: .github/workflows/*.yml
+#
+# Grouping strategy: bundle minor/patch updates together to keep PR noise
+# down. Major updates still land as individual PRs so they can be reviewed
+# carefully. Dev dependencies are grouped separately from runtime deps so
+# a routine test-framework bump doesn't drag attention to runtime work.
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Karachi"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      runtime-minor-patch:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Karachi"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions:
+        update-types:
+          - "minor"
+          - "patch"
