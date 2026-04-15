@@ -3,6 +3,9 @@ dist/
 .env
 *.tsbuildinfo
 .turbo/
+
+# Generated at CLI build time from repo-root sources
+packages/cli/assets/
 # package-lock.json is committed for reproducible Docker builds
 
 # Debug/sensitive artifacts

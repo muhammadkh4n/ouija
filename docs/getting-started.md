@@ -23,19 +23,29 @@ Before starting, have these ready:
 
 ---
 
-## Step 1: Clone and bootstrap
+## Step 1: Bootstrap a project
 
 ```bash
-git clone https://github.com/muhammadkh4n/ouija.git
-cd ouija
-bash infra/setup.sh
+mkdir my-ouija && cd my-ouija
+npx @ouija-dev/cli init
 ```
 
-`setup.sh` generates `OUIJA_SECRET_KEY`, `PLANE_SECRET_KEY`, and
-`PLANE_WEBHOOK_SECRET`, writes them to `.env`, and copies
-`ouija.config.example.yaml` to `ouija.config.yaml`.
+The CLI will:
 
-Open `.env` and fill in:
+1. Generate `OUIJA_SECRET_KEY`, `PLANE_SECRET_KEY`, and `PLANE_WEBHOOK_SECRET`
+2. Write them to `.env` alongside the full commented template
+3. Interactively prompt for your Plane/Fizzy credentials, `ANTHROPIC_API_KEY`, and `GITHUB_PAT`
+4. Copy `ouija.config.example.yaml` to `ouija.config.yaml`
+5. Copy the `docker/` compose files and `infra/setup.sh` into the project
+
+You can also pass `-y` / `--non-interactive` to skip the prompts and edit
+`.env` by hand afterwards.
+
+> **Contributors:** If you prefer to clone the repo and work from source,
+> replace this step with `git clone https://github.com/muhammadkh4n/ouija.git && cd ouija && bash infra/setup.sh`.
+> Everything else in this guide is identical.
+
+Open `.env` and double-check / fill in anything the prompts missed:
 
 ```bash
 $EDITOR .env
@@ -94,7 +104,7 @@ in Step 4.
 ## Step 3: Start Ouija
 
 ```bash
-docker compose -f docker/docker-compose.ouija.yml up -d
+npx @ouija-dev/cli up
 ```
 
 Wait ~10 seconds for Postgres to initialize, then verify:
@@ -104,10 +114,17 @@ curl http://localhost:4000/healthz
 # → {"status":"ok","checks":{"db":"ok","redis":"ok"}}
 ```
 
+Or run the preflight audit — it checks Docker, env, config, and Claude auth
+in one shot:
+
+```bash
+npx @ouija-dev/cli doctor
+```
+
 If you see errors, tail the logs:
 
 ```bash
-docker compose -f docker/docker-compose.ouija.yml logs -f ouija
+npx @ouija-dev/cli logs ouija
 ```
 
 On first boot, Ouija will:
@@ -172,7 +189,8 @@ boards:
 Restart Ouija to pick up the config change:
 
 ```bash
-docker compose -f docker/docker-compose.ouija.yml restart ouija
+npx @ouija-dev/cli down
+npx @ouija-dev/cli up
 ```
 
 ---
@@ -192,7 +210,7 @@ docker compose -f docker/docker-compose.ouija.yml restart ouija
 Now tail the logs:
 
 ```bash
-docker compose -f docker/docker-compose.ouija.yml logs -f ouija
+npx @ouija-dev/cli logs ouija
 ```
 
 You should see (in order):
@@ -226,7 +244,7 @@ If something didn't work, see [troubleshooting.md](troubleshooting.md) for
 the common failure modes. The fastest signal is usually:
 
 ```bash
-docker compose -f docker/docker-compose.ouija.yml logs ouija | grep -E "(error|warn)"
+npx @ouija-dev/cli logs ouija --no-follow | grep -E "(error|warn)"
 ```
 
 ---
@@ -236,11 +254,10 @@ docker compose -f docker/docker-compose.ouija.yml logs ouija | grep -E "(error|w
 If you don't already have a Plane workspace and want everything bundled:
 
 ```bash
-git clone https://github.com/muhammadkh4n/ouija.git
-cd ouija
-bash infra/setup.sh
+mkdir my-ouija && cd my-ouija
+npx @ouija-dev/cli init
 $EDITOR ouija.config.yaml
-docker compose -f docker/docker-compose.yml up -d
+npx @ouija-dev/cli up --stack full
 ```
 
 **Plane AIO needs ~5 GB of RAM** and takes 1–2 minutes to finish booting.
@@ -249,7 +266,7 @@ Once ready:
 1. Open `http://localhost:80`, create a workspace
 2. Plane → Settings → API Tokens → create one → paste into `.env` as `PLANE_API_TOKEN`
 3. Plane → Settings → Webhooks → point at `http://ouija:4000/hooks/plane/<PLANE_WEBHOOK_SECRET>`
-4. `docker compose -f docker/docker-compose.yml restart ouija`
+4. `npx @ouija-dev/cli down --stack full && npx @ouija-dev/cli up --stack full`
 5. Continue from [Step 5](#step-5-assign-the-agent-to-a-board)
 
 ---

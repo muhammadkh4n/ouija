@@ -57,72 +57,53 @@ Unlike generic CI/CD systems or coding assistants, Ouija treats your kanban boar
 ### Prerequisites
 
 - Docker & Docker Compose (24+)
-- Git
-- One of: `openssl` (for secret generation)
-- An Anthropic API key, or `claude` CLI with an active session (`claude login`)
+- Node.js 20+ (only for running the CLI — the server itself builds inside Docker)
+- An Anthropic API key, or the `claude` CLI with an active session
 
-Node.js is only required if you want to run Ouija outside Docker — the Docker path builds the server inside the image.
+### 30-second install (recommended)
 
-### Path A: BYO Kanban (recommended for first run)
-
-Ouija + Postgres + Redis only. Point it at your existing board (or Plane Cloud).
+Use [`@ouija-dev/cli`](packages/cli/README.md) — no need to clone the repo.
 
 ```bash
-# 1. Clone
-git clone https://github.com/muhammadkh4n/ouija.git
-cd ouija
-
-# 2. Generate secrets and create .env from the template
-bash infra/setup.sh
-
-# 3. Fill in your credentials in .env (opens your $EDITOR)
-#    - PLANE_API_TOKEN / PLANE_WORKSPACE_SLUG (or FIZZY_* for the Fizzy backend)
-#    - ANTHROPIC_API_KEY (or configure Bedrock/Vertex in ouija.config.yaml)
-#    - GITHUB_PAT (for the agent to push branches and open PRs)
-$EDITOR .env
-
-# 4. Configure your agents and repos
-cp ouija.config.example.yaml ouija.config.yaml
-$EDITOR ouija.config.yaml
-
-# 5. Start the stack
-docker compose -f docker/docker-compose.ouija.yml up -d
-
-# 6. Verify it's healthy
-curl http://localhost:4000/healthz
+mkdir my-ouija && cd my-ouija
+npx @ouija-dev/cli init      # generates secrets, copies docker/ + config
+$EDITOR ouija.config.yaml    # set your repo URL and prompt
+npx @ouija-dev/cli up        # starts Ouija + Postgres + Redis
+npx @ouija-dev/cli doctor    # preflight audit
 ```
 
-Ouija now listens on `http://localhost:4000`. Point your Plane/Fizzy webhook at
-`http://<ouija-host>:4000/hooks/plane/$PLANE_WEBHOOK_SECRET`
-(use [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) or
-[ngrok](https://ngrok.com/) to expose it if your kanban board is in the cloud).
+Ouija now listens on `http://localhost:4000`. Point your Plane/Fizzy webhook
+at `http://<ouija-host>:4000/hooks/plane/$PLANE_WEBHOOK_SECRET` (use
+[Tailscale Funnel](https://tailscale.com/kb/1223/funnel) or
+[ngrok](https://ngrok.com/) to expose it if your kanban board lives in the cloud).
 
-### Path B: Full stack with self-hosted Plane
-
-Includes Plane Community Edition as a submodule for a batteries-included demo.
-**Requires ~5GB RAM** — Plane AIO is heavy.
+CLI command reference:
 
 ```bash
-git clone https://github.com/muhammadkh4n/ouija.git
-cd ouija
-bash infra/setup.sh
-$EDITOR .env                              # fill in PLANE_API_TOKEN after first Plane login
-cp ouija.config.example.yaml ouija.config.yaml
-$EDITOR ouija.config.yaml
-docker compose -f docker/docker-compose.yml up -d
+ouija init [-y]               # bootstrap a project
+ouija up [--stack S]          # start stack (S = ouija|full|fizzy)
+ouija down [-v]               # stop stack (-v also removes volumes)
+ouija logs [service]          # tail compose logs
+ouija status                  # docker compose ps
+ouija doctor                  # preflight audit
 ```
 
-Services:
+### Alternative: Full stack with self-hosted Plane
 
-| URL | What |
-|-----|------|
-| `http://localhost:4000/healthz`  | Ouija health check |
-| `http://localhost:4000/hooks/plane/$PLANE_WEBHOOK_SECRET` | Plane webhook ingress |
-| `http://localhost:80`            | Plane UI — sign up, create a workspace, generate an API token |
+If you don't already have a Plane workspace, start the bundled Plane.
+**Requires ~5GB RAM.**
 
-Once Plane is up, paste the API token into `.env`, then `docker compose restart ouija`.
+```bash
+npx @ouija-dev/cli init
+npx @ouija-dev/cli up --stack full
+# Then open http://localhost:80, sign up, create a workspace,
+# generate an API token, paste it into .env, and:
+npx @ouija-dev/cli up --stack full    # restart picks up new .env
+```
 
-### Path C: Local development (no Docker)
+### Alternative: Clone for hacking
+
+If you want to contribute, modify the engine, or run without Docker:
 
 ```bash
 git clone https://github.com/muhammadkh4n/ouija.git
@@ -135,7 +116,8 @@ node packages/server/dist/index.js
 ```
 
 See [docs/getting-started.md](docs/getting-started.md) for a full walkthrough
-from first clone to first dispatched PR.
+from first clone to first dispatched PR, and
+[packages/cli/README.md](packages/cli/README.md) for the full CLI reference.
 
 ## Supported Kanban Backends
 
@@ -168,7 +150,7 @@ OUIJA_REDIS_URL=redis://host:6379
 
 ## Architecture
 
-Ouija is built as a TypeScript monorepo (Turborepo + npm workspaces) with 14 packages:
+Ouija is built as a TypeScript monorepo (Turborepo + npm workspaces):
 
 | Package | Purpose |
 |---------|---------|
@@ -184,7 +166,8 @@ Ouija is built as a TypeScript monorepo (Turborepo + npm workspaces) with 14 pac
 | **agent-worker** | Agent subprocess driver (spawns Claude Code CLI) |
 | **workspace-local** | Repo workspace management (git clone + worktree) |
 | **config** | Configuration loading + validation (ouija.config.yaml) |
-| **server** | HTTP server (Fastify), dashboard, REST API, webhooks |
+| **server** | HTTP server (Fastify), REST API, webhooks |
+| **cli** | `@ouija-dev/cli` — init, up, down, logs, doctor |
 
 ### Core Design Principles
 

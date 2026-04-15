@@ -1,0 +1,44 @@
+{
+  "name": "@ouija-dev/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Command-line interface for the Ouija pipeline engine — init, up, down, logs, doctor.",
+  "keywords": ["ouija", "ai", "agents", "kanban", "claude", "automation"],
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "ouija": "./dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "assets/",
+    "scripts/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/muhammadkh4n/ouija.git",
+    "directory": "packages/cli"
+  },
+  "scripts": {
+    "build": "tsc && node ./scripts/copy-assets.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "picocolors": "^1.1.1",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/prompts": "^2.4.9",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

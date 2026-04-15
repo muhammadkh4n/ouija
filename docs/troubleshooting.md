@@ -3,7 +3,7 @@
 When things go sideways, the fastest signal is almost always:
 
 ```bash
-docker compose -f docker/docker-compose.ouija.yml logs -f ouija | grep -E "(error|warn|rejected)"
+npx @ouija-dev/cli logs ouija | grep -E "(error|warn|rejected)"
 ```
 
 This page covers the failure modes we've actually hit — most were found
@@ -57,7 +57,7 @@ the secret and update both sides:
 NEW_SECRET=$(openssl rand -hex 16)
 sed -i '' "s|PLANE_WEBHOOK_SECRET=.*|PLANE_WEBHOOK_SECRET=$NEW_SECRET|" .env
 # Then update the Plane webhook URL to match
-docker compose -f docker/docker-compose.ouija.yml restart ouija
+npx @ouija-dev/cli down && npx @ouija-dev/cli up
 ```
 
 ---
@@ -179,7 +179,7 @@ private repos, `public_repo` for public.
 ```bash
 # Rotate to a fresh token if unsure
 $EDITOR .env
-docker compose -f docker/docker-compose.ouija.yml restart ouija
+npx @ouija-dev/cli down && npx @ouija-dev/cli up
 ```
 
 For SSH clones, make sure `SSH_AUTH_SOCK` is forwarded into the container
@@ -250,12 +250,12 @@ generous.
 
 **Fix:**
 ```bash
-docker compose -f docker/docker-compose.ouija.yml restart ouija
+npx @ouija-dev/cli down && npx @ouija-dev/cli up
 ```
 
 If it happens consistently, check the Postgres logs:
 ```bash
-docker compose -f docker/docker-compose.ouija.yml logs postgres
+npx @ouija-dev/cli logs postgres --no-follow
 ```
 
 ---
@@ -305,19 +305,22 @@ Either unset it or start the worker container explicitly.
 
 ## When all else fails
 
-1. **Turn on debug logging:**
-   ```bash
-   LOG_LEVEL=debug docker compose -f docker/docker-compose.ouija.yml up ouija
-   ```
+1. **Turn on debug logging:** add `LOG_LEVEL=debug` to `.env`, then
+   `npx @ouija-dev/cli down && npx @ouija-dev/cli up`
 
 2. **Tail everything:**
    ```bash
-   docker compose -f docker/docker-compose.ouija.yml logs -f
+   npx @ouija-dev/cli logs
    ```
 
-3. **Dump Postgres state:**
+3. **Preflight audit:**
    ```bash
-   docker compose -f docker/docker-compose.ouija.yml exec postgres \
+   npx @ouija-dev/cli doctor
+   ```
+
+4. **Dump Postgres state** (raw docker compose — CLI doesn't wrap `exec`):
+   ```bash
+   docker compose --project-directory "$(pwd)" -f docker/docker-compose.ouija.yml exec postgres \
      psql -U ouija -d ouija_db -c "SELECT id, status, updated_at FROM pipeline_instances ORDER BY updated_at DESC LIMIT 10;"
    ```
 

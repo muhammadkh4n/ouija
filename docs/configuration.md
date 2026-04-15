@@ -329,7 +329,7 @@ loadConfig('./ouija.config.yaml').then(c => console.log('OK:', c.agents.length, 
 Ouija does not hot-reload. To apply changes:
 
 ```bash
-docker compose -f docker/docker-compose.ouija.yml restart ouija
+npx @ouija-dev/cli down && npx @ouija-dev/cli up
 ```
 
 The restart is fast (<5 seconds) because migrations are already applied and
