@@ -36,7 +36,7 @@
     "@ouija-dev/plugin-plane": "*",
     "@ouija-dev/plugin-sdk": "*",
     "@ouija-dev/types": "*",
-    "fastify": "^5.3.2",
+    "fastify": "^5.8.5",
     "ioredis": "^5.6.1",
     "jose": "^5.9.6"
   },
