@@ -1,7 +1,8 @@
 /**
- * Project config CRUD routes (spec §5.2) — stub implementation for v1.
+ * Project + board config routes (spec §5.2).
  *
- *   GET  /api/v1/projects           — list board configs (offset pagination)
+ *   GET  /api/v1/boards             — list all configured boards (for dashboard picker)
+ *   GET  /api/v1/projects           — list board configs (offset pagination, stub)
  *   POST /api/v1/projects           — create a board config
  *   PUT  /api/v1/projects/:id/column-mappings — replace column-action mappings
  *
@@ -45,6 +46,22 @@ export async function projectRoutes(
   opts: ProjectRouteOptions,
 ): Promise<void> {
   const { db } = opts;
+
+  // ---- GET /api/v1/boards ----
+  // Lightweight endpoint for the dashboard board picker. Returns the full
+  // column mappings so the UI can show which columns dispatch agents
+  // without needing a second round-trip.
+  app.get(
+    '/api/v1/boards',
+    { preHandler: requireAuth },
+    async (_request: FastifyRequest, reply: FastifyReply) => {
+      const boards = await db.boardConfigs.listAll();
+      return reply.status(200).send({
+        items: boards.map(serializeConfig),
+        total: boards.length,
+      });
+    },
+  );
 
   // ---- GET /api/v1/projects ----
   // v1: boardId is the project identity — list is not yet paginated

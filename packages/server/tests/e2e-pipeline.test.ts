@@ -112,6 +112,9 @@ function createMockDatabase(): Database & {
     async findByBoardId(bid) {
       return configs.get(String(bid));
     },
+    async listAll() {
+      return Array.from(configs.values());
+    },
     async save(config) {
       configs.set(String(config.boardId), config);
     },

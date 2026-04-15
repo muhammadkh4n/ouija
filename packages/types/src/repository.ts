@@ -77,6 +77,8 @@ export interface PipelineEventRepository {
 
 export interface BoardConfigRepository {
   findByBoardId(boardId: BoardId): Promise<PipelineConfig | undefined>;
+  /** List all configured boards. Used by the dashboard to populate a board picker. */
+  listAll(): Promise<PipelineConfig[]>;
   save(config: PipelineConfig): Promise<void>;
   delete(boardId: BoardId): Promise<void>;
 }

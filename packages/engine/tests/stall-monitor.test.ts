@@ -38,6 +38,7 @@ function createMinimalDatabase(stalledCandidates: PipelineInstance[] = []): Data
   };
   const boardConfigs: BoardConfigRepository = {
     async findByBoardId() { return undefined; },
+    async listAll() { return []; },
     async save() { return; },
     async delete() { return; },
   };

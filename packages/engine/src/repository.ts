@@ -355,6 +355,15 @@ export class PostgresBoardConfigRepository implements BoardConfigRepository {
     return row !== undefined ? row.config_json : undefined;
   }
 
+  async listAll(): Promise<PipelineConfig[]> {
+    const result = await this.client.query<BoardConfigRow>(
+      `SELECT board_id, project_id, config_json, created_at, updated_at
+         FROM board_configs
+        ORDER BY updated_at DESC`,
+    );
+    return result.rows.map((row) => row.config_json);
+  }
+
   async save(config: PipelineConfig): Promise<void> {
     const now = new Date().toISOString();
     await this.client.query(

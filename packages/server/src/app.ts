@@ -37,6 +37,7 @@ import type { WebhookRouteOptions } from './routes/webhooks.js';
 import { agentCallbackRoutes } from './routes/agent-callback.js';
 import { pipelineRoutes } from './routes/pipelines.js';
 import { projectRoutes } from './routes/projects.js';
+import { registerDashboardRoutes } from './routes/dashboard.js';
 
 // ---- App options ----
 
@@ -160,6 +161,10 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
 
     await app.register(projectRoutes, { db: opts.db });
   }
+
+  // Dashboard static serving (best-effort — falls back to a placeholder when
+  // the built assets aren't available, e.g. during tests).
+  await registerDashboardRoutes(app);
 
   return app;
 }

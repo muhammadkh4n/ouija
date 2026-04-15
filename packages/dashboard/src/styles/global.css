@@ -1,0 +1,109 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+@theme {
+  --font-mono: var(--font-mono);
+  --font-sans: var(--font-sans);
+}
+
+/* ---- Reset-ish base ---- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-image:
+    radial-gradient(ellipse 100% 60% at 50% 0%, oklch(21% 0.03 195 / 0.18), transparent 70%);
+}
+
+/* ---- Typography defaults ---- */
+
+h1, h2, h3, h4, h5 {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+code, pre, kbd, samp {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+  transition: color var(--dur-fast) var(--ease-out-expo);
+}
+
+a:hover {
+  color: var(--color-text);
+}
+
+/* ---- Utility classes (hand-picked, not wholesale Tailwind) ---- */
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.dim { color: var(--color-text-dim); }
+.faint { color: var(--color-text-faint); }
+
+.surface {
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.sunken {
+  background: var(--color-bg-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+/* Status dot — a filled circle keyed to pipeline status */
+.status-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot[data-status='idle']         { background: var(--color-status-idle); }
+.status-dot[data-status='provisioning'] { background: var(--color-status-provisioning); box-shadow: 0 0 12px var(--color-status-provisioning); }
+.status-dot[data-status='dispatching']  { background: var(--color-status-dispatching); box-shadow: 0 0 12px var(--color-status-dispatching); }
+.status-dot[data-status='running']      { background: var(--color-status-running); box-shadow: 0 0 14px var(--color-status-running); }
+.status-dot[data-status='succeeded']    { background: var(--color-status-succeeded); }
+.status-dot[data-status='failed']       { background: var(--color-status-failed); box-shadow: 0 0 12px var(--color-status-failed); }
+.status-dot[data-status='stalled']      { background: var(--color-status-stalled); }
+.status-dot[data-status='cancelled']    { background: var(--color-status-cancelled); }
+
+/* Live pulse — applied to dots whose state is "in-flight" */
+.status-dot.pulse {
+  animation: pulse var(--dur-slow) var(--ease-out-expo) infinite alternate;
+}
+
+@keyframes pulse {
+  from { transform: scale(1);    opacity: 1; }
+  to   { transform: scale(1.25); opacity: 0.75; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.pulse { animation: none; }
+}

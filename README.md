@@ -72,8 +72,12 @@ npx @ouija-dev/cli up        # starts Ouija + Postgres + Redis
 npx @ouija-dev/cli doctor    # preflight audit
 ```
 
-Ouija now listens on `http://localhost:4000`. Point your Plane/Fizzy webhook
-at `http://<ouija-host>:4000/hooks/plane/$PLANE_WEBHOOK_SECRET` (use
+Ouija now listens on `http://localhost:4000`. The dashboard lives at
+[`http://localhost:4000/dashboard`](http://localhost:4000/dashboard) — paste
+your `OUIJA_API_KEY` on first visit to sign in.
+
+Point your Plane/Fizzy webhook at
+`http://<ouija-host>:4000/hooks/plane/$PLANE_WEBHOOK_SECRET` (use
 [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) or
 [ngrok](https://ngrok.com/) to expose it if your kanban board lives in the cloud).
 
@@ -166,8 +170,9 @@ Ouija is built as a TypeScript monorepo (Turborepo + npm workspaces):
 | **agent-worker** | Agent subprocess driver (spawns Claude Code CLI) |
 | **workspace-local** | Repo workspace management (git clone + worktree) |
 | **config** | Configuration loading + validation (ouija.config.yaml) |
-| **server** | HTTP server (Fastify), REST API, webhooks |
+| **server** | HTTP server (Fastify), REST API, webhooks, dashboard static serving |
 | **cli** | `@ouija-dev/cli` — init, up, down, logs, doctor |
+| **dashboard** | React SPA served at `/dashboard` — pipeline monitoring |
 
 ### Core Design Principles
 

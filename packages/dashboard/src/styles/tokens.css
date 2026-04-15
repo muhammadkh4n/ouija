@@ -1,0 +1,72 @@
+/* =============================================================================
+   Ouija design tokens
+   =============================================================================
+   Terminal-inspired, information-dense. Built for operators, not marketing.
+
+   Naming:
+     --color-*   semantic colors (surface, text, accent, status)
+     --text-*    type scale (fluid clamp)
+     --space-*   spacing scale
+     --radius-*  corner radii
+     --dur-*     animation duration
+     --ease-*    animation easing
+   ============================================================================= */
+
+:root {
+  /* ---- Base palette (OKLCH for perceptual consistency) ---- */
+  --color-bg:              oklch(17% 0.015 240);  /* near-black with a cool tint */
+  --color-bg-raised:       oklch(21% 0.018 240);  /* panels, cards */
+  --color-bg-sunken:       oklch(14% 0.012 240);  /* code blocks, inputs */
+  --color-border:          oklch(28% 0.02 240);
+  --color-border-strong:   oklch(38% 0.025 240);
+
+  --color-text:            oklch(96% 0.005 240);
+  --color-text-dim:        oklch(72% 0.015 240);
+  --color-text-faint:      oklch(50% 0.015 240);
+
+  --color-accent:          oklch(75% 0.17 195);   /* cyan-teal — the "Ouija signal" */
+  --color-accent-dim:      oklch(55% 0.12 195);
+
+  /* ---- Semantic status colors ---- */
+  --color-status-idle:        oklch(65% 0.02 240);
+  --color-status-provisioning: oklch(72% 0.16 90); /* amber */
+  --color-status-dispatching: oklch(72% 0.16 90);  /* amber */
+  --color-status-running:     oklch(76% 0.18 145); /* green */
+  --color-status-succeeded:   oklch(76% 0.18 145); /* green */
+  --color-status-failed:      oklch(67% 0.22 20);  /* red */
+  --color-status-stalled:     oklch(67% 0.22 20);
+  --color-status-cancelled:   oklch(55% 0.02 240); /* slate */
+
+  /* ---- Typography ---- */
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+
+  --text-xs:    clamp(0.72rem, 0.68rem + 0.1vw, 0.78rem);
+  --text-sm:    clamp(0.82rem, 0.78rem + 0.12vw, 0.9rem);
+  --text-base:  clamp(0.94rem, 0.9rem + 0.15vw, 1.02rem);
+  --text-md:    clamp(1.06rem, 1rem + 0.2vw, 1.18rem);
+  --text-lg:    clamp(1.3rem, 1.2rem + 0.35vw, 1.55rem);
+  --text-xl:    clamp(1.75rem, 1.55rem + 0.8vw, 2.3rem);
+  --text-hero:  clamp(2.4rem, 2rem + 1.6vw, 3.6rem);
+
+  /* ---- Spacing (4px baseline) ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* ---- Radii ---- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* ---- Animation ---- */
+  --dur-fast:   120ms;
+  --dur-normal: 240ms;
+  --dur-slow:   440ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
