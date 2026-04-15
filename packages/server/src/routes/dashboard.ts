@@ -78,15 +78,30 @@ export async function registerDashboardRoutes(app: FastifyInstance): Promise<voi
   app.get('/dashboard', async (_req, reply) => reply.redirect('/dashboard/', 301));
 
   // SPA fallback: any /dashboard/* path that isn't a real asset serves
-  // index.html so React Router can take over client-side routing. Non-
-  // /dashboard routes get the normal JSON 404.
+  // index.html so React Router can take over client-side routing.
+  //
+  // We refuse to serve index.html for paths that look like asset requests
+  // (under /dashboard/assets/ or ending in a known static extension).
+  // Browsers choke on text/html being returned for a <script> or <link>
+  // tag, so a broken asset must 404 normally instead of silently
+  // returning HTML.
+  const ASSET_EXTENSIONS = /\.(js|css|map|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|json)$/;
+
   app.setNotFoundHandler(async (request, reply) => {
-    if (request.url.startsWith('/dashboard')) {
-      return reply.sendFile('index.html');
+    const url = request.url;
+    if (!url.startsWith('/dashboard')) {
+      return reply.status(404).send({
+        error: { code: 'NOT_FOUND', message: `Route ${url} not found.` },
+      });
     }
-    return reply.status(404).send({
-      error: { code: 'NOT_FOUND', message: `Route ${request.url} not found.` },
-    });
+    const isAssetRequest =
+      url.startsWith('/dashboard/assets/') || ASSET_EXTENSIONS.test(url);
+    if (isAssetRequest) {
+      return reply.status(404).send({
+        error: { code: 'NOT_FOUND', message: `Asset ${url} not found.` },
+      });
+    }
+    return reply.sendFile('index.html');
   });
 
   app.log.info(`Dashboard served from ${dashboardDir} at /dashboard`);

@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { listBoards, listPipelines } from '../lib/api-client.js';
 import { Header } from '../components/Header.js';
 import { StatusDot } from '../components/StatusDot.js';
@@ -218,81 +219,85 @@ function PipelineTable({ pipelines }: { pipelines: PipelineSummary[] }) {
 
 function PipelineRow({ pipeline }: { pipeline: PipelineSummary }) {
   return (
-    <li
-      className="grid items-center"
-      style={{
-        gridTemplateColumns: '2.5rem 10rem 1fr 4rem 6rem 8rem',
-        gap: 'var(--space-4)',
-        padding: 'var(--space-3) var(--space-5)',
-        borderTop: '1px solid var(--color-border)',
-        transition: 'background var(--dur-fast) var(--ease-out-expo)',
-      }}
-      onMouseEnter={(e) =>
-        (e.currentTarget.style.background = 'var(--color-bg-sunken)')
-      }
-      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-    >
-      <StatusDot status={pipeline.status} />
-
-      <span
-        className="mono dim"
-        title={pipeline.id}
-        style={{ fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}
-      >
-        {shortId(pipeline.id)}
-      </span>
-
-      <span
-        className="mono"
-        title={pipeline.cardId}
+    <li style={{ borderTop: '1px solid var(--color-border)' }}>
+      <Link
+        to={`/pipelines/${pipeline.id}`}
+        className="grid items-center"
         style={{
-          fontSize: 'var(--text-sm)',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
+          gridTemplateColumns: '2.5rem 10rem 1fr 4rem 6rem 8rem',
+          gap: 'var(--space-4)',
+          padding: 'var(--space-3) var(--space-5)',
+          color: 'var(--color-text)',
+          textDecoration: 'none',
+          transition: 'background var(--dur-fast) var(--ease-out-expo)',
         }}
+        onMouseEnter={(e) =>
+          (e.currentTarget.style.background = 'var(--color-bg-sunken)')
+        }
+        onMouseLeave={(e) =>
+          (e.currentTarget.style.background = 'transparent')
+        }
       >
-        {pipeline.cardId}
-      </span>
+        <StatusDot status={pipeline.status} />
 
-      <span
-        className="mono dim"
-        style={{ fontSize: 'var(--text-sm)', textAlign: 'right' }}
-      >
-        {pipeline.attempt}
-      </span>
+        <span
+          className="mono dim"
+          title={pipeline.id}
+          style={{ fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}
+        >
+          {shortId(pipeline.id)}
+        </span>
 
-      <span
-        className="faint"
-        style={{ fontSize: 'var(--text-xs)', whiteSpace: 'nowrap' }}
-      >
-        {relativeTime(pipeline.updatedAt)}
-      </span>
+        <span
+          className="mono"
+          title={pipeline.cardId}
+          style={{
+            fontSize: 'var(--text-sm)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {pipeline.cardId}
+        </span>
 
-      <div
-        className="flex items-center justify-end gap-2"
-        style={{ fontSize: 'var(--text-xs)' }}
-      >
-        {pipeline.prUrl !== null && pipeline.prUrl !== undefined && (
-          <a
-            href={pipeline.prUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mono"
-          >
-            pr →
-          </a>
-        )}
-        {pipeline.allowedActions.map((action) => (
-          <span
-            key={action}
-            className="mono faint"
-            style={{ textTransform: 'uppercase' }}
-          >
-            {action}
-          </span>
-        ))}
-      </div>
+        <span
+          className="mono dim"
+          style={{ fontSize: 'var(--text-sm)', textAlign: 'right' }}
+        >
+          {pipeline.attempt}
+        </span>
+
+        <span
+          className="faint"
+          style={{ fontSize: 'var(--text-xs)', whiteSpace: 'nowrap' }}
+        >
+          {relativeTime(pipeline.updatedAt)}
+        </span>
+
+        <div
+          className="flex items-center justify-end gap-2"
+          style={{ fontSize: 'var(--text-xs)' }}
+        >
+          {pipeline.prUrl !== null && pipeline.prUrl !== undefined && (
+            <span
+              className="mono"
+              style={{ color: 'var(--color-accent)' }}
+            >
+              pr →
+            </span>
+          )}
+          {pipeline.allowedActions.map((action) => (
+            <span
+              key={action}
+              className="mono faint"
+              style={{ textTransform: 'uppercase' }}
+            >
+              {action}
+            </span>
+          ))}
+        </div>
+      </Link>
     </li>
   );
 }
