@@ -56,52 +56,86 @@ Unlike generic CI/CD systems or coding assistants, Ouija treats your kanban boar
 
 ### Prerequisites
 
-- Node.js 22+
-- Docker & Docker Compose
+- Docker & Docker Compose (24+)
 - Git
-- PostgreSQL (or use Docker Compose)
+- One of: `openssl` (for secret generation)
+- An Anthropic API key, or `claude` CLI with an active session (`claude login`)
 
-### Setup (5 minutes)
+Node.js is only required if you want to run Ouija outside Docker — the Docker path builds the server inside the image.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/muhammadkh4n/ouija.git
-   cd ouija
-   ```
+### Path A: BYO Kanban (recommended for first run)
 
-2. Install dependencies:
-   ```bash
-   npm install
-   npm run build
-   ```
-
-3. Configure your agent and board:
-   ```bash
-   cp ouija.config.example.yaml ouija.config.yaml
-   # Edit ouija.config.yaml with your agent credentials and repo URLs
-   ```
-
-4. Start the full stack (Ouija + Plane + PostgreSQL):
-   ```bash
-   cd docker
-   cp .env.example .env
-   ./infra/setup.sh          # Generate secrets
-   docker compose up -d
-   ```
-
-5. Access Ouija:
-   - Dashboard: `http://localhost:4000`
-   - Plane board: `http://localhost:4000/board`
-   - API: `http://localhost:4000/api`
-
-### Minimal Setup (BYO Kanban)
-
-If you already have a kanban board (Jira, Linear, Trello), use Ouija's lightweight mode:
+Ouija + Postgres + Redis only. Point it at your existing board (or Plane Cloud).
 
 ```bash
+# 1. Clone
+git clone https://github.com/muhammadkh4n/ouija.git
+cd ouija
+
+# 2. Generate secrets and create .env from the template
+bash infra/setup.sh
+
+# 3. Fill in your credentials in .env (opens your $EDITOR)
+#    - PLANE_API_TOKEN / PLANE_WORKSPACE_SLUG (or FIZZY_* for the Fizzy backend)
+#    - ANTHROPIC_API_KEY (or configure Bedrock/Vertex in ouija.config.yaml)
+#    - GITHUB_PAT (for the agent to push branches and open PRs)
+$EDITOR .env
+
+# 4. Configure your agents and repos
+cp ouija.config.example.yaml ouija.config.yaml
+$EDITOR ouija.config.yaml
+
+# 5. Start the stack
 docker compose -f docker/docker-compose.ouija.yml up -d
-# Ouija + PostgreSQL + Redis only (no Plane)
+
+# 6. Verify it's healthy
+curl http://localhost:4000/healthz
 ```
+
+Ouija now listens on `http://localhost:4000`. Point your Plane/Fizzy webhook at
+`http://<ouija-host>:4000/hooks/plane/$PLANE_WEBHOOK_SECRET`
+(use [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) or
+[ngrok](https://ngrok.com/) to expose it if your kanban board is in the cloud).
+
+### Path B: Full stack with self-hosted Plane
+
+Includes Plane Community Edition as a submodule for a batteries-included demo.
+**Requires ~5GB RAM** — Plane AIO is heavy.
+
+```bash
+git clone https://github.com/muhammadkh4n/ouija.git
+cd ouija
+bash infra/setup.sh
+$EDITOR .env                              # fill in PLANE_API_TOKEN after first Plane login
+cp ouija.config.example.yaml ouija.config.yaml
+$EDITOR ouija.config.yaml
+docker compose -f docker/docker-compose.yml up -d
+```
+
+Services:
+
+| URL | What |
+|-----|------|
+| `http://localhost:4000/healthz`  | Ouija health check |
+| `http://localhost:4000/hooks/plane/$PLANE_WEBHOOK_SECRET` | Plane webhook ingress |
+| `http://localhost:80`            | Plane UI — sign up, create a workspace, generate an API token |
+
+Once Plane is up, paste the API token into `.env`, then `docker compose restart ouija`.
+
+### Path C: Local development (no Docker)
+
+```bash
+git clone https://github.com/muhammadkh4n/ouija.git
+cd ouija
+npm install
+npm run build
+bash infra/setup.sh
+# Bring your own Postgres + Redis (update OUIJA_DATABASE_URL / OUIJA_REDIS_URL in .env)
+node packages/server/dist/index.js
+```
+
+See [docs/getting-started.md](docs/getting-started.md) for a full walkthrough
+from first clone to first dispatched PR.
 
 ## Supported Kanban Backends
 
@@ -213,7 +247,7 @@ Ouija supports multiple Claude API authentication methods:
 - **foundry:** Anthropic Foundry (enterprise usage-based billing)
 - **proxy:** Custom proxy (for air-gapped or regulated environments)
 
-See [`plugin-agent-claude` configuration](packages/plugin-agent-claude/README.md) for setup details.
+See [docs/configuration.md](docs/configuration.md#auth-authconfig) for setup details.
 
 ## Testing
 
@@ -250,7 +284,7 @@ See [LICENSE](LICENSE) for full terms.
 
 - **Issues:** [GitHub Issues](https://github.com/muhammadkh4n/ouija/issues)
 - **Discussions:** [GitHub Discussions](https://github.com/muhammadkh4n/ouija/discussions)
-- **Security:** See [SECURITY.md](SECURITY.md) for responsible disclosure
+- **Security:** Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/muhammadkh4n/ouija/security/advisories/new)
 
 ---
 
