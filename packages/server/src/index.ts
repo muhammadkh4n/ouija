@@ -445,6 +445,67 @@ async function main(): Promise<void> {
     );
   }
 
+  // 9b. Wire Engram memory plugin (optional)
+  //
+  // Forwards every `notification.send` event to `engram-ingest` so pipeline
+  // events land in the shared Engram memory graph. The Claude Code agent
+  // dispatched on the next run reads that memory via its own MCP tools —
+  // this is the "agents that remember" loop with zero changes to the agent
+  // subprocess itself.
+  let unsubscribeEngram: (() => Promise<void>) | undefined;
+  const engramEnabled = process.env['OUIJA_ENGRAM_ENABLED'] === '1';
+
+  if (engramEnabled) {
+    console.info('Wiring Engram memory plugin');
+    const { EngramNotifyPlugin } = await import('@ouija-dev/plugin-engram');
+    const engramPlugin = new EngramNotifyPlugin();
+    const engramConfig: import('@ouija-dev/plugin-engram').EngramConfig = {};
+    const binaryOverride = process.env['OUIJA_ENGRAM_BINARY'];
+    if (binaryOverride !== undefined) engramConfig.binaryPath = binaryOverride;
+    const projectOverride = process.env['OUIJA_ENGRAM_PROJECT'];
+    if (projectOverride !== undefined) engramConfig.project = projectOverride;
+
+    await engramPlugin.init(
+      makePluginContext(
+        '@ouija-dev/plugin-engram',
+        engramConfig as unknown as Record<string, unknown>,
+      ) as unknown as Parameters<typeof engramPlugin.init>[0],
+    );
+    await engramPlugin.start();
+
+    unsubscribeEngram = await eventBus.subscribe(
+      'notification.send',
+      async (event) => {
+        const payload = event.payload;
+        try {
+          const notificationMsg: import('@ouija-dev/types').Notification = {
+            title: payload.title,
+            body: payload.body,
+            level: payload.level,
+            occurredAt: event.timestamp,
+            idempotencyKey: payload.idempotencyKey,
+          };
+          if (payload.actions !== undefined) {
+            notificationMsg.actions = payload.actions;
+          }
+          await engramPlugin.send(notificationMsg);
+        } catch (err) {
+          app.log.error(
+            { err, instanceId: payload.instanceId },
+            'Engram memory ingest failed',
+          );
+        }
+      },
+    );
+
+    app.log.info('Engram memory plugin active');
+  } else {
+    console.info(
+      'Engram integration disabled — set OUIJA_ENGRAM_ENABLED=1 to forward ' +
+      'pipeline events to the Engram memory graph.',
+    );
+  }
+
   // 10. Start agent worker in-process (single-process mode)
   let workerHandle: { stop(): Promise<void> } | undefined;
 
@@ -550,6 +611,11 @@ async function main(): Promise<void> {
       // Unsubscribe Telegram listener
       if (unsubscribeTelegram) {
         await unsubscribeTelegram();
+      }
+
+      // Unsubscribe Engram listener
+      if (unsubscribeEngram) {
+        await unsubscribeEngram();
       }
 
       // Stop kanban plugin if real one was loaded

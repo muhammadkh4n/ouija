@@ -167,6 +167,7 @@ Ouija is built as a TypeScript monorepo (Turborepo + npm workspaces):
 | **plugin-github** | Git plugin for GitHub (clone, push, PR creation) |
 | **plugin-agent-claude** | Agent dispatcher for Claude Code / Claude API |
 | **plugin-notify-telegram** | Notifications via Telegram |
+| **plugin-engram** | Forwards pipeline events into an Engram memory graph — enables cross-run agent memory |
 | **agent-worker** | Agent subprocess driver (spawns Claude Code CLI) |
 | **workspace-local** | Repo workspace management (git clone + worktree) |
 | **config** | Configuration loading + validation (ouija.config.yaml) |
