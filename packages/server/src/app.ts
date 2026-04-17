@@ -36,8 +36,10 @@ import { webhookRoutes } from './routes/webhooks.js';
 import type { WebhookRouteOptions } from './routes/webhooks.js';
 import { agentCallbackRoutes } from './routes/agent-callback.js';
 import { pipelineRoutes } from './routes/pipelines.js';
+import { pipelineStreamRoutes } from './routes/pipeline-stream.js';
 import { projectRoutes } from './routes/projects.js';
 import { registerDashboardRoutes } from './routes/dashboard.js';
+import { LiveEventBus } from './live-events.js';
 
 // ---- App options ----
 
@@ -48,6 +50,13 @@ export interface AppOptions {
   planeWebhookSecret?: string;
   githubWebhookSecret?: string;
   logger?: boolean | object;
+  /**
+   * Process-local event fan-out for SSE subscribers. When provided alongside
+   * `db`, the /api/v1/pipelines/:id/stream route is registered. Tests pass
+   * their own instance; production wires it to the durable event bus via
+   * registerLiveEventsBridge().
+   */
+  liveEvents?: LiveEventBus;
 }
 
 // ---- Factory ----
@@ -160,6 +169,14 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
     });
 
     await app.register(projectRoutes, { db: opts.db });
+  }
+
+  // Pipeline live SSE stream (only when liveEvents wiring is provided).
+  if (opts.db !== undefined && opts.liveEvents !== undefined) {
+    await app.register(pipelineStreamRoutes, {
+      db: opts.db,
+      live: opts.liveEvents,
+    });
   }
 
   // Dashboard static serving (best-effort — falls back to a placeholder when

@@ -363,11 +363,22 @@ async function main(): Promise<void> {
   };
   const orchestrator = new Orchestrator(db, eventBus, jobQueue, kanbanPlugin, orchestratorLogger, agentRegistry ?? undefined);
 
+  // 7b. Live event fan-out for SSE subscribers.
+  //
+  // One process-local emitter bridges instance-scoped OuijaEvents from the
+  // durable bus to dashboard SSE connections — see live-events.ts. This
+  // avoids spinning up a per-connection BullMQ subscriber, which would
+  // create and tear down Redis-backed queues on every dashboard visit.
+  const { LiveEventBus, registerLiveEventsBridge } = await import('./live-events.js');
+  const liveEvents = new LiveEventBus();
+  const unsubscribeLiveBridge = await registerLiveEventsBridge(eventBus, liveEvents);
+
   // 8. Build Fastify app
   const appOpts: Parameters<typeof buildApp>[0] = {
     db,
     orchestrator,
     pluginLoader,
+    liveEvents,
     logger: {
       level: process.env['LOG_LEVEL'] ?? 'info',
     },
@@ -618,6 +629,9 @@ async function main(): Promise<void> {
       if (unsubscribeEngram) {
         await unsubscribeEngram();
       }
+
+      // Unsubscribe SSE live-event bridge
+      await unsubscribeLiveBridge();
 
       // Stop kanban plugin if real one was loaded
       if (planePluginInstance) {

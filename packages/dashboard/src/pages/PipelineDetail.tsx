@@ -10,7 +10,7 @@
  * DB quota on pipelines that aren't changing.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import {
@@ -19,6 +19,7 @@ import {
   listBoards,
   retryPipeline,
 } from '../lib/api-client.js';
+import { streamPipelineEvents } from '../lib/pipeline-stream.js';
 import { Header } from '../components/Header.js';
 import { StatusDot } from '../components/StatusDot.js';
 import { useToast } from '../components/Toast.js';
@@ -32,6 +33,9 @@ import type {
 export function PipelineDetail() {
   const { id } = useParams<{ id: string }>();
   const instanceId = id ?? '';
+  const qc = useQueryClient();
+  const [streamLive, setStreamLive] = useState(false);
+  const [latestMessage, setLatestMessage] = useState<string | null>(null);
 
   const boardsQuery = useQuery({
     queryKey: ['boards'],
@@ -43,12 +47,51 @@ export function PipelineDetail() {
     queryKey: ['pipeline', instanceId],
     queryFn: () => getPipeline(instanceId),
     enabled: instanceId.length > 0,
+    // SSE is the primary update channel. Polling stays on as a fallback
+    // at a slower cadence when the stream drops or for the brief window
+    // before the handshake completes.
     refetchInterval: (query) => {
       const data = query.state.data as PipelineDetailResponse | undefined;
       if (data === undefined) return 2_000;
-      return isInFlight(data.pipeline.status) ? 2_000 : false;
+      if (!isInFlight(data.pipeline.status)) return false;
+      return streamLive ? 10_000 : 2_000;
     },
   });
+
+  // Live event stream — one connection per in-flight pipeline. The stream
+  // pushes progress updates, PR links, and terminal state into the cache
+  // so the UI reflects changes without waiting for the next poll tick.
+  useEffect(() => {
+    if (instanceId.length === 0) return;
+    const status = detailQuery.data?.pipeline.status;
+    if (status !== undefined && !isInFlight(status)) return;
+
+    const stop = streamPipelineEvents(instanceId, {
+      onOpen: () => setStreamLive(true),
+      onError: () => setStreamLive(false),
+      onFrame: (frame) => {
+        if (frame.event === 'ready' || frame.event === 'message') return;
+
+        // Any agent-scoped frame means state has changed — refresh the
+        // detail query so timeline + status + PR URL update from the
+        // authoritative REST endpoint.
+        void qc.invalidateQueries({ queryKey: ['pipeline', instanceId] });
+
+        if (frame.event === 'agent.work.progress') {
+          const payload = (frame.data as {
+            payload?: { message?: string };
+          }).payload;
+          if (typeof payload?.message === 'string' && payload.message.length > 0) {
+            setLatestMessage(payload.message);
+          }
+        }
+      },
+    });
+    return () => {
+      stop();
+      setStreamLive(false);
+    };
+  }, [instanceId, detailQuery.data?.pipeline.status, qc]);
 
   return (
     <div className="min-h-screen">
@@ -67,7 +110,11 @@ export function PipelineDetail() {
         ) : detailQuery.isError ? (
           <ErrorState error={detailQuery.error} />
         ) : detailQuery.data !== undefined ? (
-          <DetailContent data={detailQuery.data} />
+          <DetailContent
+            data={detailQuery.data}
+            streamLive={streamLive}
+            latestMessage={latestMessage}
+          />
         ) : null}
       </main>
     </div>
@@ -99,9 +146,11 @@ function Breadcrumb({ instanceId }: { instanceId: string }) {
 
 interface DetailContentProps {
   data: PipelineDetailResponse;
+  streamLive: boolean;
+  latestMessage: string | null;
 }
 
-function DetailContent({ data }: DetailContentProps) {
+function DetailContent({ data, streamLive, latestMessage }: DetailContentProps) {
   const { pipeline, timeline } = data;
 
   return (
@@ -120,7 +169,11 @@ function DetailContent({ data }: DetailContentProps) {
           gap: 'var(--space-5)',
         }}
       >
-        <DetailHeader pipeline={pipeline} />
+        <DetailHeader
+          pipeline={pipeline}
+          streamLive={streamLive}
+          latestMessage={latestMessage}
+        />
         <TimelineCard timeline={timeline} />
       </div>
       <MetaCard pipeline={pipeline} />
@@ -132,7 +185,17 @@ function DetailContent({ data }: DetailContentProps) {
 // Header with status + title + actions
 // ---------------------------------------------------------------------------
 
-function DetailHeader({ pipeline }: { pipeline: PipelineSummary }) {
+function DetailHeader({
+  pipeline,
+  streamLive,
+  latestMessage,
+}: {
+  pipeline: PipelineSummary;
+  streamLive: boolean;
+  latestMessage: string | null;
+}) {
+  const showLiveBadge = streamLive && isInFlight(pipeline.status);
+
   return (
     <section className="surface" style={{ padding: 'var(--space-5)' }}>
       <div
@@ -143,6 +206,7 @@ function DetailHeader({ pipeline }: { pipeline: PipelineSummary }) {
         <span className="faint mono" style={{ fontSize: 'var(--text-xs)' }}>
           attempt {pipeline.attempt}
         </span>
+        {showLiveBadge && <LiveBadge />}
       </div>
 
       <h1
@@ -160,6 +224,24 @@ function DetailHeader({ pipeline }: { pipeline: PipelineSummary }) {
       <p className="dim mono" style={{ fontSize: 'var(--text-xs)' }}>
         <span className="faint">id</span> {pipeline.id}
       </p>
+
+      {latestMessage !== null && isInFlight(pipeline.status) && (
+        <p
+          className="mono"
+          style={{
+            marginTop: 'var(--space-3)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--color-text-dim)',
+            background: 'var(--color-bg-sunken)',
+            borderLeft: '2px solid var(--color-accent-dim)',
+            padding: 'var(--space-2) var(--space-3)',
+            borderRadius: 'var(--radius-sm)',
+            wordBreak: 'break-word',
+          }}
+        >
+          <span className="faint">agent:</span> {latestMessage}
+        </p>
+      )}
 
       <div
         style={{
@@ -191,6 +273,36 @@ function DetailHeader({ pipeline }: { pipeline: PipelineSummary }) {
         )}
       </div>
     </section>
+  );
+}
+
+function LiveBadge() {
+  return (
+    <span
+      className="mono"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 'var(--space-1)',
+        fontSize: 'var(--text-xs)',
+        color: 'var(--color-accent)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          display: 'inline-block',
+          width: '0.5rem',
+          height: '0.5rem',
+          borderRadius: '999px',
+          background: 'var(--color-accent)',
+          animation: 'pulse 1.2s ease-in-out infinite',
+        }}
+      />
+      live
+    </span>
   );
 }
 
