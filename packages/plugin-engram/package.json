@@ -24,7 +24,7 @@
     "@ouija-dev/plugin-sdk": "*"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
+    "typescript": "^6.0.3",
     "vitest": "^3.0.0"
   }
 }
