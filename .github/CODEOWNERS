@@ -1,0 +1,4 @@
+# Global ownership — every change requires review from the repo owner.
+# Referenced by the "Main protection" ruleset (require_code_owner_review).
+# See https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+*   @muhammadkh4n
