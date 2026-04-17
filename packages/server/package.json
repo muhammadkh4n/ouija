@@ -25,7 +25,7 @@
     "@fastify/cors": "^10.0.2",
     "@fastify/helmet": "^13.0.1",
     "@fastify/rate-limit": "^10.2.2",
-    "@fastify/static": "^8.3.0",
+    "@fastify/static": "^9.1.1",
     "@ouija-dev/agent-worker": "*",
     "@ouija-dev/bus": "*",
     "@ouija-dev/engine": "*",
