@@ -97,9 +97,15 @@ export class SdkAgentRunner implements AgentRunner {
       for await (const msg of q) {
         // Collect assistant text output
         if (msg.type === 'assistant' && 'message' in msg) {
-          const text = (msg.message?.content ?? [])
-            .filter((b: { type: string }) => b.type === 'text')
-            .map((b: { text: string }) => b.text)
+          const content = msg.message?.content ?? [];
+          const text = content
+            .map((b) => {
+              if (b !== null && typeof b === 'object' && (b as { type: unknown }).type === 'text') {
+                const rec = b as { text?: unknown };
+                return typeof rec.text === 'string' ? rec.text : '';
+              }
+              return '';
+            })
             .join('');
           if (text) {
             outputChunks.push(text);

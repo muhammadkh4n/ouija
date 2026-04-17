@@ -1,9 +1,17 @@
 {
   "name": "@ouija-dev/workspace-local",
   "version": "0.1.0",
-  "files": ["dist/", "README.md"],
-  "publishConfig": { "access": "public" },
-  "repository": { "type": "git", "url": "https://github.com/muhammadkh4n/ouija.git" },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/muhammadkh4n/ouija.git"
+  },
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -12,7 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.71",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.112",
     "@ouija-dev/types": "*"
   },
   "devDependencies": {
