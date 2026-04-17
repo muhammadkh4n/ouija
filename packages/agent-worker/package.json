@@ -19,7 +19,7 @@
     "@ouija-dev/engine": "*",
     "@ouija-dev/plugin-sdk": "*",
     "@ouija-dev/plugin-agent-claude": "*",
-    "jose": "^5.0.0"
+    "jose": "^6.2.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
