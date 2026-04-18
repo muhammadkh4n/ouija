@@ -121,7 +121,7 @@ function toKanbanCard(
   const assignees = data.assignees ?? data.assignee_details ?? [];
 
   return {
-    id: cardId(data.id),
+    id: cardId(`${data.project}/${data.id}`),
     title: data.name,
     description: data.description_html,
     columnId: columnId(extractStateId(data.state)),
@@ -192,7 +192,7 @@ export function normalizeWebhook(
       const movedBy = actor?.email ?? actor?.display_name ?? actor?.id ?? 'unknown';
 
       const cardMovedPayload: KanbanCardMovedPayload = {
-        cardId: cardId(data.id),
+        cardId: cardId(`${data.project}/${data.id}`),
         fromColumnId: columnId(fromColumnId),
         toColumnId: columnId(toColumnId),
         movedBy,
@@ -220,7 +220,7 @@ export function normalizeWebhook(
       const assignedBy = actor?.email ?? actor?.display_name ?? actor?.id ?? 'unknown';
 
       const cardAssignedPayload: KanbanCardAssignedPayload = {
-        cardId: cardId(data.id),
+        cardId: cardId(`${data.project}/${data.id}`),
         assigneeId,
         assignedBy,
       };

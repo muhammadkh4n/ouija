@@ -11,6 +11,7 @@
 import type { WorkOrder } from '@ouija-dev/types';
 import { instanceId as makeInstanceId } from '@ouija-dev/types';
 import type { AgentDispatchJobData } from '@ouija-dev/bus';
+import { sanitize } from '@ouija-dev/engine';
 
 // ---- Agent profile shape ----
 
@@ -93,6 +94,21 @@ export async function assembleWorkOrder(
   // 3. Fetch card details from kanban plugin
   const card = await deps.getCardDetails(jobData.cardId);
 
+  // 3a. Sanitize the description before it flows into the WorkOrder and
+  // ultimately the agent prompt. The orchestrator's _fetchGuardContext runs
+  // the same sanitizer at trigger time (for guard evaluation); re-running it
+  // here is defense in depth — plus we need the HTML-stripped plain text for
+  // the prompt regardless. If the sanitizer blocks, throw so BullMQ records
+  // the failure rather than sending raw input to the subprocess.
+  const sanitized = sanitize(card.description);
+  if (sanitized.blocked) {
+    const categories = Array.from(new Set(sanitized.warnings.map((w) => w.type)));
+    throw new Error(
+      `Card description for ${jobData.cardId} blocked by sanitizer (categories: ${categories.join(', ')})`,
+    );
+  }
+  const safeDescription = sanitized.sanitized;
+
   // 4. Issue a JWT for callback authentication
   const jwt = await deps.issueJwt(jobData.instanceId, '', '');
 
@@ -111,7 +127,7 @@ export async function assembleWorkOrder(
     instanceId: makeInstanceId(jobData.instanceId),
     cardId: jobData.cardId,
     title: card.title,
-    description: card.description,
+    description: safeDescription,
     acceptanceCriteria: card.acceptanceCriteria,
     repoUrl,
     branch: `ouija/${jobData.instanceId}`,

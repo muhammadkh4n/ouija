@@ -56,7 +56,24 @@ export interface LocalAgentRunnerOptions {
 // Environment allowlist
 // ---------------------------------------------------------------------------
 
-/** Safe env vars forwarded to the claude subprocess. */
+/**
+ * Safe env vars forwarded to the claude subprocess.
+ *
+ * ⚠️  HOME risk — see SECURITY.md "HOME inheritance" section.
+ *
+ * Forwarding HOME gives the agent access to every dotfile the invoking user
+ * owns: `~/.ssh/`, `~/.gitconfig`, `~/.config/gh/`, `~/.aws/`, etc. For
+ * self-hosters on a single-user box this is usually acceptable, but on a
+ * shared host — or whenever you cannot fully trust card-write access — this
+ * is the attack surface. Follow-up work tracked in issue TBD will synthesize
+ * a minimal HOME containing only what the agent needs (~/.claude/ for
+ * subscription auth, a scoped .gitconfig, and a short-lived GH_TOKEN).
+ *
+ * The sanitizer in `@ouija-dev/engine` now blocks the common prompt-injection
+ * shapes (shell_metachar, workflow_file, secret_file, suspicious_url) by
+ * default, which raises the bar significantly — but defence in depth on HOME
+ * is still the correct next step.
+ */
 const ENV_ALLOWLIST = [
   'PATH',
   'HOME',

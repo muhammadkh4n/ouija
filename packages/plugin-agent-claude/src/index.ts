@@ -387,6 +387,25 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
 
       reporter.stopInterval();
 
+      // 4b. If the agent opened a PR via `gh pr create`, its URL is in stdout.
+      // Surface it as agent_pr_ready so the orchestrator can move the kanban
+      // card to Review before we mark the pipeline succeeded.
+      const prMatch = /https:\/\/github\.com\/[^\s"'<>()]+\/pull\/(\d+)/i.exec(
+        result.stdout,
+      );
+      if (prMatch !== null) {
+        const prUrl = prMatch[0]!;
+        const prId = prMatch[1]!;
+        try {
+          await reporter.reportPrReady(prUrl, prId);
+        } catch (e) {
+          this.logger.warn('reportPrReady failed', {
+            prUrl,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+
       // 5. Report result
       if (result.timedOut) {
         await reporter.reportFailed(

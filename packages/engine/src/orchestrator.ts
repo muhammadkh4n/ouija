@@ -83,6 +83,25 @@ interface ConfigCacheEntry {
 
 export const CONFIG_CACHE_TTL_MS = 30_000;
 
+/**
+ * Thrown by _fetchGuardContext when the card description fails sanitizer
+ * category checks (e.g. shell metacharacters, workflow-file references, secret
+ * file paths, suspicious URLs). Caught by _processTrigger which logs and drops
+ * the event — the pipeline is NOT created. This is the final enforcement point
+ * for the defense-in-depth layer against prompt injection.
+ */
+export class SanitizerBlockedError extends Error {
+  constructor(
+    public readonly cardId: string,
+    public readonly categories: string[],
+  ) {
+    super(
+      `Card description for ${cardId} blocked by sanitizer (categories: ${categories.join(', ')})`,
+    );
+    this.name = 'SanitizerBlockedError';
+  }
+}
+
 // ---- Orchestrator ----
 
 export class Orchestrator {
@@ -112,6 +131,11 @@ export class Orchestrator {
     try {
       await this._processTrigger(event);
     } catch (err) {
+      if (err instanceof SanitizerBlockedError) {
+        // Intentional drop — sanitizer already logged the categories.
+        // Webhook still returns 200 (don't leak blocked-status to attackers).
+        return;
+      }
       this.logger.error('Orchestrator.processTrigger failed', {
         eventId: event.id,
         topic: event.topic,
@@ -597,11 +621,21 @@ export class Orchestrator {
     const sanitizeResult = sanitize(card.description);
 
     if (sanitizeResult.blocked) {
-      this.logger.warn('Card description blocked by sanitizer', {
+      const categories = Array.from(
+        new Set(sanitizeResult.warnings.map((w) => w.type)),
+      );
+      this.logger.error('Card description blocked by sanitizer — dropping event', {
         cardId: String(cardId),
         warningCount: sanitizeResult.warnings.length,
+        categories,
+        warnings: sanitizeResult.warnings
+          .slice(0, 5)
+          .map((w) => `${w.type}: ${w.detail}`),
       });
-    } else if (sanitizeResult.warnings.length > 0) {
+      throw new SanitizerBlockedError(String(cardId), categories);
+    }
+
+    if (sanitizeResult.warnings.length > 0) {
       this.logger.warn('Card description sanitization warnings', {
         cardId: String(cardId),
         warnings: sanitizeResult.warnings.map((w) => `${w.type}: ${w.detail}`),

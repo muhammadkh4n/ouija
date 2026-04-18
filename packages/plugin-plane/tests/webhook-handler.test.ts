@@ -61,12 +61,14 @@ describe('normalizeWebhook: state change fixture', () => {
     }
   });
 
-  it('maps cardId to the issue id from data', () => {
+  it('maps cardId to <projectId>/<issueId> compound form', () => {
     const event = normalizeWebhook(stateChangeFixture);
 
     expect(event?.topic).toBe('kanban.card.moved');
     if (event?.topic === 'kanban.card.moved') {
-      expect(event.payload.cardId).toBe('aaaaaaaa-1111-1111-1111-111111111111');
+      expect(event.payload.cardId).toBe(
+        'bbbbbbbb-2222-2222-2222-222222222222/aaaaaaaa-1111-1111-1111-111111111111',
+      );
     }
   });
 
@@ -123,12 +125,14 @@ describe('normalizeWebhook: assignment fixture', () => {
     }
   });
 
-  it('maps cardId correctly', () => {
+  it('maps cardId to <projectId>/<issueId> compound form', () => {
     const event = normalizeWebhook(assignedFixture);
 
     expect(event?.topic).toBe('kanban.card.assigned');
     if (event?.topic === 'kanban.card.assigned') {
-      expect(event.payload.cardId).toBe('aaaaaaaa-1111-1111-1111-111111111112');
+      expect(event.payload.cardId).toBe(
+        'bbbbbbbb-2222-2222-2222-222222222222/aaaaaaaa-1111-1111-1111-111111111112',
+      );
     }
   });
 });

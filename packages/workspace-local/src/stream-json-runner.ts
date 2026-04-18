@@ -68,6 +68,12 @@ export interface StreamJsonAgentRunnerOptions {
 // Environment allowlist (identical to LocalAgentRunner)
 // ---------------------------------------------------------------------------
 
+/**
+ * ⚠️  HOME risk — see SECURITY.md. Forwarding HOME gives the subprocess
+ * access to the user's dotfiles (.ssh, .gitconfig, .config/gh, .aws, etc).
+ * Acceptable for single-user self-hosting; not acceptable for shared hosts.
+ * Follow-up work will synthesize a minimal HOME.
+ */
 const ENV_ALLOWLIST = [
   'PATH',
   'HOME',

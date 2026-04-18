@@ -51,10 +51,34 @@ export interface SanitizerConfig {
    * Default: github.com, gitlab.com, stackoverflow.com, docs.*.dev
    */
   urlAllowlist: string[];
-  /** If true, any warning results in blocked=true. Default: false. */
+  /**
+   * If true, ANY warning results in blocked=true. Default: false.
+   * Use `blockOnCategories` for fine-grained control; this is an all-or-nothing
+   * switch retained for callers that want "strict mode".
+   */
   blockOnWarnings: boolean;
+  /**
+   * Warning categories whose presence triggers blocked=true.
+   * Default: the high-severity set — shell_metachar, workflow_file, secret_file,
+   * suspicious_url. html_comment and content_too_large are handled separately
+   * (comments stripped in-place; oversize content always blocks).
+   *
+   * Set to [] to disable category-based blocking (e.g. single-user deployment
+   * where you trust every card author).
+   */
+  blockOnCategories: SanitizeWarningType[];
   /** If true, strip HTML comments from output. Default: true. */
   stripHtmlComments: boolean;
+  /**
+   * If true, strip HTML tags and decode common entities, producing plain text.
+   * Default: true. Prevents tags like `<script>`, `<img onerror>`, or stray
+   * attribute-bearing markup from flowing into agent prompts.
+   *
+   * Note: pattern detection still runs on the ORIGINAL input (before the strip),
+   * so obfuscation via HTML tags does not evade shell_metachar / secret_file /
+   * workflow_file scanning.
+   */
+  stripHtmlTags: boolean;
 }
 
 // ---- Defaults ----
@@ -68,7 +92,9 @@ const DEFAULT_CONFIG: SanitizerConfig = {
     '^docs\\.[a-z0-9-]+\\.dev$',
   ],
   blockOnWarnings: false,
+  blockOnCategories: ['shell_metachar', 'workflow_file', 'secret_file', 'suspicious_url'],
   stripHtmlComments: true,
+  stripHtmlTags: true,
 };
 
 // ---- Detection patterns ----
@@ -122,9 +148,13 @@ const SHELL_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   // by known dangerous commands.
   [/\|\s*(?:curl|wget|nc|bash|sh|tee|xargs|eval|exec|mail|sendmail)\b/gi, 'pipe to shell command'],
 
-  // Output redirection: > file, >> file
-  // Common in code examples, but dangerous if interpolated.
-  [/(?:^|[^-])>\s*[/~\w][^\s]*/gm, 'output redirection'],
+  // Output redirection: > file, >> file.
+  // Require whitespace (or start-of-line) before '>' so HTML attributes like
+  // `<a href="...">text</a>` don't trigger false positives post-tag-strip.
+  // We accept the false negative on `cmd>file` without the leading space;
+  // specific attack shapes like `$(cmd>file)` are still caught by the command
+  // substitution pattern.
+  [/(?:^|\s)>\s*[/~\w][^\s]*/gm, 'output redirection'],
 
   // Command chaining: && command, ; command
   [/(?:&&|;\s*(?=[a-z]))\s*(?:curl|wget|nc|bash|sh|eval|exec|rm\s|chmod|cat\s)/gi, 'chained shell command'],
@@ -319,10 +349,78 @@ export function sanitize(
     }
   }
 
+  // ---- Step 6: Strip HTML tags and decode common entities ----
+  // Runs AFTER pattern detection above so obfuscation inside tags is still
+  // scanned. The resulting plain text is what flows into the agent prompt.
+  if (cfg.stripHtmlTags) {
+    sanitized = stripHtmlToText(sanitized);
+  }
+
   // ---- Determine blocked status ----
-  const blocked = cfg.blockOnWarnings && warnings.length > 0;
+  const categoryHit = warnings.some((w) => cfg.blockOnCategories.includes(w.type));
+  const blocked = (cfg.blockOnWarnings && warnings.length > 0) || categoryHit;
 
   return { sanitized, warnings, blocked };
+}
+
+// ---- HTML → text (minimal, dependency-free) ----
+
+/**
+ * Strip HTML tags and decode common entities. Not a full HTML parser — just
+ * enough to defang the common kanban rich-text payload (Plane's description_html
+ * is basic <p>/<a>/<br>/<ul>/<li>/<code>/<strong>/<em>/<blockquote>).
+ *
+ * Strategy:
+ *   1. Replace block-level closing tags with newlines so paragraph structure
+ *      is preserved in plain text.
+ *   2. Replace <br>, <br/>, <br /> with a single newline.
+ *   3. Remove all remaining tags.
+ *   4. Decode the handful of entities a kanban editor emits.
+ *   5. Collapse run-away whitespace.
+ */
+function stripHtmlToText(input: string): string {
+  let out = input;
+
+  // Paragraph / block structure → newlines before stripping
+  out = out.replace(/<\/(p|div|li|h[1-6]|blockquote|pre)>/gi, '\n');
+  out = out.replace(/<br\s*\/?>/gi, '\n');
+
+  // Remove all remaining tags (including unknown ones with attributes)
+  out = out.replace(/<[^>]*>/g, '');
+
+  // Decode a conservative set of entities
+  const entities: Record<string, string> = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&#039;': "'",
+    '&apos;': "'",
+    '&nbsp;': ' ',
+  };
+  for (const [ent, ch] of Object.entries(entities)) {
+    out = out.split(ent).join(ch);
+  }
+
+  // Numeric entities: &#NNN; and &#xHHHH;
+  out = out.replace(/&#x([0-9a-f]+);/gi, (_, h) => {
+    const code = parseInt(h, 16);
+    return Number.isFinite(code) && code > 0 && code < 0x110000
+      ? String.fromCodePoint(code)
+      : '';
+  });
+  out = out.replace(/&#(\d+);/g, (_, d) => {
+    const code = parseInt(d, 10);
+    return Number.isFinite(code) && code > 0 && code < 0x110000
+      ? String.fromCodePoint(code)
+      : '';
+  });
+
+  // Collapse 3+ consecutive newlines to 2, trim trailing whitespace per line
+  out = out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+
+  return out;
 }
 
 // ---- Helpers ----
