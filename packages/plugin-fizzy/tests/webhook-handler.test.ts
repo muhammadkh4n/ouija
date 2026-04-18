@@ -271,3 +271,52 @@ describe('isWebhookFresh', () => {
     expect(isWebhookFresh(ts, now)).toBe(true);
   });
 });
+
+// ---- UUID compatibility (Fizzy main branch) ----
+
+describe('normalizeFizzyWebhook — ULID/UUID ids from fizzy:main', () => {
+  function uuidCardTriaged(): unknown {
+    return {
+      id: 'evt_01abcxyz123',
+      action: 'card_triaged',
+      created_at: '2026-04-19T03:00:00Z',
+      eventable: {
+        id: '03fyyf7i896v3p3pz0593fovk',
+        number: 11,
+        title: 'Add LICENSE.txt file',
+        column: { id: '03fyyez9ap9rzvq7huekq2iuh', name: 'In Progress' },
+        assignees: [{ id: '03fyyez7a34katupr09ysk839', name: 'Rex' }],
+        board: { id: '03fyyez87d0oiusw0hoq6qibu', name: 'Ouija Test Board' },
+      },
+      board: { id: '03fyyez87d0oiusw0hoq6qibu', name: 'Ouija Test Board' },
+      creator: { id: '03fyyez6e1b7bkv0c3ipm8u64', name: 'MK', email_address: 'mk@ouija.dev' },
+    };
+  }
+
+  it('accepts ULID card id (string) and maps it without String() coercion', () => {
+    const event = normalizeFizzyWebhook(uuidCardTriaged());
+    expect(event).not.toBeNull();
+    expect(event!.topic).toBe('kanban.card.moved');
+    // Prior to WS2.3 the normalizer required eventable.id to be a number,
+    // so a ULID string would hit the early-return null branch.
+    expect(event!.payload).toHaveProperty('cardId', '03fyyf7i896v3p3pz0593fovk');
+  });
+
+  it('accepts ULID column id and preserves it as-is', () => {
+    const event = normalizeFizzyWebhook(uuidCardTriaged());
+    expect(event!.payload).toHaveProperty(
+      'toColumnId',
+      '03fyyez9ap9rzvq7huekq2iuh',
+    );
+  });
+
+  it('still accepts integer ids (backwards compat with older Fizzy)', () => {
+    const payload = uuidCardTriaged() as Record<string, unknown>;
+    (payload['eventable'] as Record<string, unknown>)['id'] = 42;
+    ((payload['eventable'] as Record<string, unknown>)['column'] as Record<string, unknown>)['id'] = 5;
+    const event = normalizeFizzyWebhook(payload);
+    expect(event).not.toBeNull();
+    expect(event!.payload).toHaveProperty('cardId', '42');
+    expect(event!.payload).toHaveProperty('toColumnId', '5');
+  });
+});

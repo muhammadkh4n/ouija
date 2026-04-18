@@ -227,10 +227,27 @@ async function main(): Promise<void> {
     console.info('Wiring Fizzy kanban plugin');
     const { FizzyPlugin } = await import('@ouija-dev/plugin-fizzy');
     const fizzyPlugin = new FizzyPlugin();
-    const fizzyConfig = {
+
+    // Optional auto-webhook registration. If OUIJA_SERVER_URL is set and
+    // the ouija.config.yaml declares one or more Fizzy boards, FizzyPlugin
+    // will POST a webhook to each on start. Skip if OUIJA_SERVER_URL is
+    // missing — the self-hoster can still wire Fizzy's webhook manually.
+    const ouijaServerUrl = process.env['OUIJA_SERVER_URL'];
+    // When Fizzy is the configured backend, every declared board is assumed
+    // to live on that Fizzy instance — no `kanban:` discriminator yet.
+    const fizzyBoardIds = (ouijaConfig?.boards ?? [])
+      .map((b) => b.boardId ?? b.projectId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    const fizzyConfig: Record<string, unknown> = {
       baseUrl: fizzyBaseUrl!,
       accessToken: fizzyAccessToken!,
       webhookSecret: fizzyWebhookSecret!,
+      ...(ouijaServerUrl && fizzyBoardIds.length > 0
+        ? {
+            webhookUrl: `${ouijaServerUrl.replace(/\/$/, '')}/hooks/fizzy/${fizzyWebhookSecret!}`,
+            boardIds: fizzyBoardIds,
+          }
+        : {}),
     };
     await fizzyPlugin.init(
       makePluginContext('@ouija-dev/plugin-fizzy', fizzyConfig) as unknown as Parameters<typeof fizzyPlugin.init>[0],
