@@ -260,7 +260,9 @@ export class BullMQEventBus implements EventBus {
   ): Promise<Unsubscribe> {
     if (this.closed) throw new Error('BullMQEventBus is closed');
 
-    const key = `sub:${randomUUID()}`;
+    // BullMQ 5.74+ rejects queue names containing ':'. Keep the logical key
+    // (used for logging + map lookup) readable, but sanitise the queue name.
+    const key = `sub-${randomUUID()}`;
     const deliveryQueueName = `ouija.event-bus.delivery.${key}`;
 
     const deliveryQueue = new Queue(deliveryQueueName, {
