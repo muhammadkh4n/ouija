@@ -35,6 +35,12 @@ services:
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-20250514}
       OUIJA_WORKER_CONCURRENCY: ${OUIJA_WORKER_CONCURRENCY:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      # Subscription auth (optional). Self-hosters running runner: local or
+      # runner: stream-json bind-mount ~/.claude/ read-only so the bundled
+      # Claude CLI picks up their Pro/Max session. API-billed setups can
+      # omit this mount.
+      - ${HOME}/.claude:/home/node/.claude:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,9 +56,12 @@ services:
       resources:
         limits:
           memory: 512M
-    # /tmp must be writable even with read_only: true (Node.js temp files, BullMQ)
+    # /tmp + /home/node must be writable even with read_only: true
+    # (Node.js temp files, BullMQ, gh CLI scratch). The .claude bind mount
+    # above overlays inside /home/node; Docker handles the layering.
     tmpfs:
       - /tmp
+      - /home/node
     restart: unless-stopped
 
   postgres:

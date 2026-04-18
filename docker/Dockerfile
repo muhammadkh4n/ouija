@@ -7,17 +7,25 @@ WORKDIR /app
 # Copy package manifests first for layer-cache efficiency.
 # npm workspaces requires the root manifest + all package manifests before install.
 COPY package.json package-lock.json turbo.json tsconfig.base.json ./
-COPY packages/types/package.json       packages/types/
-COPY packages/bus/package.json         packages/bus/
-COPY packages/engine/package.json      packages/engine/
-COPY packages/plugin-sdk/package.json  packages/plugin-sdk/
-COPY packages/plugin-plane/package.json packages/plugin-plane/
-COPY packages/plugin-github/package.json packages/plugin-github/
-COPY packages/agent-worker/package.json packages/agent-worker/
-COPY packages/workspace-local/package.json packages/workspace-local/
-COPY packages/plugin-agent-claude/package.json packages/plugin-agent-claude/
+# Every package manifest must be copied for `npm ci` to resolve the
+# workspace. Missing entries silently break the build with cryptic tsc
+# errors. Keep this list in sync with `ls packages/`.
+COPY packages/agent-worker/package.json         packages/agent-worker/
+COPY packages/bus/package.json                  packages/bus/
+COPY packages/cli/package.json                  packages/cli/
+COPY packages/config/package.json               packages/config/
+COPY packages/dashboard/package.json            packages/dashboard/
+COPY packages/engine/package.json               packages/engine/
+COPY packages/plugin-agent-claude/package.json  packages/plugin-agent-claude/
+COPY packages/plugin-engram/package.json        packages/plugin-engram/
+COPY packages/plugin-fizzy/package.json         packages/plugin-fizzy/
+COPY packages/plugin-github/package.json        packages/plugin-github/
 COPY packages/plugin-notify-telegram/package.json packages/plugin-notify-telegram/
-COPY packages/server/package.json      packages/server/
+COPY packages/plugin-plane/package.json         packages/plugin-plane/
+COPY packages/plugin-sdk/package.json           packages/plugin-sdk/
+COPY packages/server/package.json               packages/server/
+COPY packages/types/package.json                packages/types/
+COPY packages/workspace-local/package.json      packages/workspace-local/
 
 # Install all dependencies (including devDependencies needed for the build).
 RUN npm ci
@@ -33,6 +41,27 @@ RUN npx turbo build
 FROM node:22-alpine AS production
 
 WORKDIR /app
+
+# Base tooling the agent subprocess needs at runtime:
+#   - git + openssh-client: LocalWorkspaceProvider clones the target repo,
+#     over HTTPS or SSH depending on the repo URL.
+#   - ca-certificates: HTTPS to github.com / anthropic.com.
+# Kept before the global npm install so the layer cache stays warm across
+# source-only rebuilds.
+RUN apk add --no-cache git openssh-client ca-certificates
+
+# Bundle the Claude Code CLI globally so self-hosters don't have to install
+# it separately on the host or mount a binary in. The LocalAgentRunner and
+# StreamJsonAgentRunner spawn `claude` at dispatch time; we resolve it
+# through $PATH inside the container.
+#
+# Subscription auth: the CLI reads credentials from $HOME/.claude/ — self-
+# hosters who want flat-rate Pro/Max billing must bind-mount their host
+# ~/.claude into the container (see docker-compose.yml). API-billed self-
+# hosters set ANTHROPIC_API_KEY via .env and don't need the mount.
+# shellcheck disable=SC2094
+RUN npm install -g @anthropic-ai/claude-code \
+ && claude --version
 
 # Use the existing node user (uid 1000) that ships with the node:alpine image.
 # This avoids UID conflicts and matches the compose user: "1000:1000" mapping.
