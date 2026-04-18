@@ -145,8 +145,11 @@ export class BullMQEventBus implements EventBus {
       correlationId: options.correlationId ?? randomUUID(),
     };
 
-    await this.dispatchQueue.add(`event:${topic}`, event, {
-      jobId: `event:${event.id}`,
+    // BullMQ 5.74+ rejects jobIds containing ':' unless they have exactly 3
+    // colon-separated segments (back-compat for repeatable jobs). `event:<uuid>`
+    // is only 2 segments → use '-' as the separator.
+    await this.dispatchQueue.add(`event-${topic}`, event, {
+      jobId: `event-${event.id}`,
     });
 
     return event.id;
