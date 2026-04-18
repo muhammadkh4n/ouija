@@ -15,16 +15,47 @@ import { generateHexSecret } from '../lib/secrets.js';
 import { applyEnvUpdates, type EnvUpdates } from '../lib/env-file.js';
 import { log, die } from '../lib/logger.js';
 
+export type PresetName = 'self-hosted-plane' | 'self-hosted-fizzy' | 'byo-kanban';
+
 export interface InitOptions {
   force: boolean;
   nonInteractive: boolean;
+  preset?: PresetName;
 }
 
+const VALID_PRESETS: ReadonlySet<PresetName> = new Set([
+  'self-hosted-plane',
+  'self-hosted-fizzy',
+  'byo-kanban',
+]);
+
 export function parseInitArgs(argv: readonly string[]): InitOptions {
-  return {
+  const opts: InitOptions = {
     force: argv.includes('--force') || argv.includes('-f'),
     nonInteractive: argv.includes('--non-interactive') || argv.includes('-y'),
   };
+
+  // --preset <name> or --preset=<name>
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]!;
+    let value: string | undefined;
+    if (arg === '--preset') value = argv[i + 1];
+    else if (arg.startsWith('--preset=')) value = arg.slice('--preset='.length);
+    if (value !== undefined) {
+      if (!VALID_PRESETS.has(value as PresetName)) {
+        throw new Error(
+          `Unknown preset: ${value}. Valid: ${[...VALID_PRESETS].join(', ')}`,
+        );
+      }
+      opts.preset = value as PresetName;
+      break;
+    }
+  }
+
+  // Presets imply non-interactive.
+  if (opts.preset) opts.nonInteractive = true;
+
+  return opts;
 }
 
 export async function runInit(options: InitOptions): Promise<number> {
@@ -57,11 +88,19 @@ export async function runInit(options: InitOptions): Promise<number> {
   const merged = applyEnvUpdates(envTemplate, { ...generated, ...userCreds });
   await writeFile(envPath, merged, 'utf8');
 
-  // 5. Copy ouija.config.example.yaml → ouija.config.yaml (if not present).
+  // 5. Copy the config template — preset-specific if --preset was given,
+  // otherwise the generic example.
   const configPath = projectPath('ouija.config.yaml');
+  const configSource =
+    options.preset && options.preset !== 'byo-kanban'
+      ? join(ASSETS_DIR, 'presets', `${options.preset}.yaml`)
+      : join(ASSETS_DIR, 'ouija.config.example.yaml');
   if (!existsSync(configPath) || options.force) {
-    await cp(join(ASSETS_DIR, 'ouija.config.example.yaml'), configPath);
-    log.success('ouija.config.yaml created (copy of example)');
+    await cp(configSource, configPath);
+    const label = options.preset && options.preset !== 'byo-kanban'
+      ? `preset ${options.preset}`
+      : 'copy of example';
+    log.success(`ouija.config.yaml created (${label})`);
   } else {
     log.dim('ouija.config.yaml already exists — leaving untouched');
   }
@@ -75,10 +114,28 @@ export async function runInit(options: InitOptions): Promise<number> {
   );
 
   log.step('Next steps');
-  console.log('  1. Edit ouija.config.yaml — set your repo URL and prompt');
-  console.log(`  2. Run ${log.code('ouija up')} to start the stack`);
-  console.log(`  3. Run ${log.code('ouija doctor')} to verify your setup`);
-  console.log(`  4. See ${log.code('docs/getting-started.md')} for the full walkthrough`);
+  if (options.preset === 'self-hosted-plane') {
+    console.log(`  1. Run ${log.code('ouija up')} — brings up Plane + Ouija on one Docker network`);
+    console.log(`  2. Open http://localhost:3333 — sign up, create workspace "ouija-dev", generate an API token`);
+    console.log(`  3. Paste the API token into .env's PLANE_API_TOKEN`);
+    console.log(`  4. Run ${log.code('ouija doctor')} — all 13 checks should pass`);
+    console.log(`  5. Drag a card on Plane → PR appears on muhammadkh4n/ouija-demo-template`);
+    console.log('');
+    console.log(`  Swap to your real repo in ouija.config.yaml when ready.`);
+  } else if (options.preset === 'self-hosted-fizzy') {
+    console.log(`  1. Run ${log.code('ouija up')} — brings up Fizzy + Ouija`);
+    console.log(`  2. Open http://localhost:3333 — create the admin user + workspace + board + bot user`);
+    console.log(`  3. Paste the bot user's ULID into ouija.config.yaml (agents[].kanbanUserId)`);
+    console.log(`  4. Paste the board ULID into ouija.config.yaml (boards[].boardId)`);
+    console.log(`  5. Paste the access token into .env's FIZZY_ACCESS_TOKEN`);
+    console.log(`  6. Restart with ${log.code('ouija down && ouija up')}`);
+    console.log(`  7. Drag a card → PR appears on muhammadkh4n/ouija-demo-template`);
+  } else {
+    console.log('  1. Edit ouija.config.yaml — set your repo URL and prompt');
+    console.log(`  2. Run ${log.code('ouija up')} to start the stack`);
+    console.log(`  3. Run ${log.code('ouija doctor')} to verify your setup`);
+    console.log(`  4. See ${log.code('docs/getting-started.md')} for the full walkthrough`);
+  }
   console.log('');
 
   return 0;
