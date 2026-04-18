@@ -34,6 +34,15 @@ services:
       PLANE_WORKSPACE_SLUG: ${PLANE_WORKSPACE_SLUG:-}
       PLANE_WEBHOOK_SECRET: ${PLANE_WEBHOOK_SECRET:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      # Subscription auth (optional). Self-hosters running `runner: local` or
+      # `runner: stream-json` who want to dispatch against their Claude Pro/
+      # Max subscription bind-mount ~/.claude/ read-only. API-billed setups
+      # (runner: sdk or ANTHROPIC_API_KEY set) can omit this mount.
+      #
+      # uid 1000 inside the container reads this; make sure your host user
+      # owns ~/.claude/ (the default on macOS/Linux).
+      - ${HOME}/.claude:/home/node/.claude:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,6 +62,10 @@ services:
           memory: 512M
     tmpfs:
       - /tmp
+      # gh CLI + git credential helper need a writable home for per-dispatch
+      # scratch (auth cache, short-lived tokens). /home/node maps to the
+      # non-root user; the .claude mount above lands here read-only.
+      - /home/node
     restart: unless-stopped
 
   # ---------- Database ----------
