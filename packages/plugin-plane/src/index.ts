@@ -22,6 +22,12 @@ import { planeConfigSchema } from './config.js';
 import type { PlaneConfig } from './config.js';
 import { PlaneApiClient } from './api-client.js';
 import { normalizeWebhook, verifyPlaneSignature, isWebhookFresh } from './webhook-handler.js';
+import {
+  bootstrapPlaneProjects,
+  logWebhookSetupHint,
+  type BoardSpec,
+  type BootstrapResult,
+} from './bootstrap.js';
 import type { PluginFactory } from '@ouija-dev/plugin-sdk';
 
 // ---- Plugin manifest (static — safe to read before init) ----
@@ -65,6 +71,52 @@ export class PlanePlugin implements KanbanPlugin<PlaneConfig> {
     // if the API is unreachable, which is the correct behaviour.
     await this.client.ping(this.config.workspaceSlug);
     this.context.logger.info('PlanePlugin started — API connectivity verified');
+
+    // Auto-bootstrap projects declared in config.boards. Self-hosters don't
+    // have to click through Plane's UI to create a project for each board —
+    // projects missing by UUID are created fresh, matches are preserved.
+    const boards = this.config.boards ?? [];
+    if (boards.length > 0) {
+      const result = await bootstrapPlaneProjects(
+        this.client,
+        {
+          workspaceSlug: this.config.workspaceSlug,
+          boards: boards as BoardSpec[],
+          projectNamePrefix: this.config.projectNamePrefix ?? 'Ouija',
+        },
+        this.context.logger,
+      );
+      this.lastBootstrapResult = result;
+      this.context.logger.info('Plane bootstrap complete', {
+        existingCount: result.existing.length,
+        createdCount: result.created.length,
+        failedCount: result.failed.length,
+      });
+    }
+
+    // Log the Plane webhook URL so self-hosters can paste it once. Plane's
+    // webhook admin requires session auth, which X-Api-Key can't do — this
+    // is the one remaining manual step.
+    if (this.config.ouijaServerUrl) {
+      logWebhookSetupHint(
+        this.context.logger,
+        this.config.ouijaServerUrl,
+        this.config.webhookSecret,
+        this.config.workspaceSlug,
+        this.config.baseUrl,
+      );
+    }
+  }
+
+  /**
+   * Latest bootstrap result from `start()`. Exposed for `ouija doctor` to
+   * surface next-step actions (e.g. "1 project created", "1 project needs
+   * a webhook still"). Undefined before first start.
+   */
+  private lastBootstrapResult?: BootstrapResult;
+
+  getLastBootstrapResult(): BootstrapResult | undefined {
+    return this.lastBootstrapResult;
   }
 
   async stop(): Promise<void> {
