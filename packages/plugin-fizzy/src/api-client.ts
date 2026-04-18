@@ -1,11 +1,18 @@
 // ---- Fizzy REST API client ----
 // All requests use Bearer token authentication.
 // Base URL: https://<fizzy-host>
+//
+// ID TYPES: Fizzy's current main branch uses ULID-backed string IDs (stored
+// as uuid in the DB). Earlier releases exposed sequential integer IDs, which
+// is why this client originally typed everything as `number`. We widened to
+// `string` in the 2026-04-19 WS2.3 work — integers coming back from older
+// Fizzy instances still round-trip fine because they serialize as strings
+// in JSON.
 
 // ---- Fizzy domain types (raw API shapes) ----
 
 export interface FizzyUser {
-  id: number;
+  id: string;
   name: string;
   email_address: string;
   role: string;
@@ -14,14 +21,14 @@ export interface FizzyUser {
 }
 
 export interface FizzyColumn {
-  id: number;
+  id: string;
   name: string;
   color: string;
   created_at: string;
 }
 
 export interface FizzyBoard {
-  id: number;
+  id: string;
   name: string;
   all_access: boolean;
   created_at: string;
@@ -29,15 +36,15 @@ export interface FizzyBoard {
 }
 
 export interface FizzyCard {
-  id: number;
+  id: string;
   number: number;
   title: string;
   status: 'drafted' | 'published' | 'closed' | 'postponed';
   description: string;
   description_html: string;
   tags: string[];
-  column: { id: number; name: string; color: string } | null;
-  board: { id: number; name: string };
+  column: { id: string; name: string; color: string } | null;
+  board: { id: string; name: string };
   creator: FizzyUser;
   assignees: FizzyUser[];
   created_at: string;
@@ -45,14 +52,14 @@ export interface FizzyCard {
 }
 
 export interface FizzyComment {
-  id: number;
+  id: string;
   body: { plain_text: string; html: string };
   creator: FizzyUser;
   created_at: string;
 }
 
 export interface FizzyWebhook {
-  id: number;
+  id: string;
   name: string;
   url: string;
   signing_secret: string;
@@ -154,19 +161,19 @@ export class FizzyApiClient {
     return this.get<FizzyBoard[]>('/boards');
   }
 
-  async getBoard(boardId: number): Promise<FizzyBoard> {
+  async getBoard(boardId: string): Promise<FizzyBoard> {
     return this.get<FizzyBoard>(`/boards/${boardId}`);
   }
 
   // ---- Column operations ----
 
-  async getColumns(boardId: number): Promise<FizzyColumn[]> {
+  async getColumns(boardId: string): Promise<FizzyColumn[]> {
     return this.get<FizzyColumn[]>(`/boards/${boardId}/columns`);
   }
 
   // ---- Card operations ----
 
-  async getCard(cardId: number): Promise<FizzyCard> {
+  async getCard(cardId: string): Promise<FizzyCard> {
     return this.get<FizzyCard>(`/cards/${cardId}`);
   }
 
@@ -174,19 +181,19 @@ export class FizzyApiClient {
    * Move a card to a column (triage).
    * POST /cards/:id/triages with { column_id }
    */
-  async triageCard(cardId: number, columnId: number): Promise<void> {
+  async triageCard(cardId: string, columnId: string): Promise<void> {
     await this.post<unknown>(`/cards/${cardId}/triages`, { column_id: columnId });
   }
 
-  async closeCard(cardId: number): Promise<void> {
+  async closeCard(cardId: string): Promise<void> {
     await this.post<unknown>(`/cards/${cardId}/closures`, {});
   }
 
-  async reopenCard(cardId: number): Promise<void> {
+  async reopenCard(cardId: string): Promise<void> {
     await this.delete<unknown>(`/cards/${cardId}/closures`);
   }
 
-  async addComment(cardId: number, body: string): Promise<FizzyComment> {
+  async addComment(cardId: string, body: string): Promise<FizzyComment> {
     return this.post<FizzyComment>(`/cards/${cardId}/comments`, { body });
   }
 
@@ -194,14 +201,18 @@ export class FizzyApiClient {
    * Toggle assignment for a user on a card.
    * POST /cards/:id/assignments with { assignee_id }
    */
-  async assignUser(cardId: number, assigneeId: number): Promise<void> {
+  async assignUser(cardId: string, assigneeId: string): Promise<void> {
     await this.post<unknown>(`/cards/${cardId}/assignments`, { assignee_id: assigneeId });
   }
 
   // ---- Webhook operations ----
 
+  async listWebhooks(boardId: string): Promise<FizzyWebhook[]> {
+    return this.get<FizzyWebhook[]>(`/boards/${boardId}/webhooks`);
+  }
+
   async createWebhook(
-    boardId: number,
+    boardId: string,
     name: string,
     url: string,
     subscribedActions: string[],
@@ -211,6 +222,26 @@ export class FizzyApiClient {
       url,
       subscribed_actions: subscribedActions,
     });
+  }
+
+  /**
+   * Ensure a webhook exists for the given board + URL. Idempotent: if a
+   * webhook with the target URL already exists on the board, returns it.
+   * Otherwise creates one with the provided name and subscribed actions.
+   *
+   * Self-hoster ergonomic win — callers don't have to click through Fizzy's
+   * settings UI to wire the kanban → ouija webhook.
+   */
+  async ensureWebhook(
+    boardId: string,
+    url: string,
+    name: string,
+    subscribedActions: string[],
+  ): Promise<FizzyWebhook> {
+    const existing = await this.listWebhooks(boardId);
+    const match = existing.find((w) => w.url === url);
+    if (match) return match;
+    return this.createWebhook(boardId, name, url, subscribedActions);
   }
 
   // ---- Connectivity check ----

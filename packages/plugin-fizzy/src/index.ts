@@ -60,6 +60,37 @@ export class FizzyPlugin implements KanbanPlugin<FizzyConfig> {
   async start(): Promise<void> {
     await this.client.ping();
     this.context.logger.info('FizzyPlugin started — API connectivity verified');
+
+    // Auto-register webhooks if the config provides a public URL and board
+    // IDs. Idempotent — ensureWebhook() skips boards that already have a
+    // webhook pointing at the same URL.
+    const webhookUrl = this.config.webhookUrl;
+    const boardIds = this.config.boardIds ?? [];
+    if (webhookUrl && boardIds.length > 0) {
+      const actions = [
+        'card_triaged',
+        'card_assigned',
+        'card_published',
+        'card_closed',
+        'card_sent_back_to_triage',
+      ];
+      for (const bid of boardIds) {
+        try {
+          const wh = await this.client.ensureWebhook(bid, webhookUrl, 'ouija', actions);
+          this.context.logger.info('Fizzy webhook ensured', {
+            boardId: bid,
+            webhookId: wh.id,
+            url: wh.url,
+            actions: wh.subscribed_actions,
+          });
+        } catch (err) {
+          this.context.logger.warn('Fizzy webhook registration failed', {
+            boardId: bid,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
   }
 
   async stop(): Promise<void> {
@@ -147,16 +178,16 @@ export class FizzyPlugin implements KanbanPlugin<FizzyConfig> {
   // ---- KanbanPlugin methods ----
 
   async getCard(id: CardId): Promise<KanbanCard> {
-    const fizzyCard = await this.client.getCard(parseInt(id as string, 10));
+    const fizzyCard = await this.client.getCard(id as string);
 
     return {
-      id: cardId(String(fizzyCard.id)),
+      id: cardId(fizzyCard.id),
       title: fizzyCard.title,
       description: fizzyCard.description_html,
-      columnId: columnId(fizzyCard.column ? String(fizzyCard.column.id) : '0'),
-      boardId: boardId(String(fizzyCard.board.id)),
+      columnId: columnId(fizzyCard.column ? fizzyCard.column.id : '0'),
+      boardId: boardId(fizzyCard.board.id),
       labels: fizzyCard.tags,
-      assignees: fizzyCard.assignees.map((a) => String(a.id)),
+      assignees: fizzyCard.assignees.map((a) => a.id),
       url: fizzyCard.url,
       createdAt: fizzyCard.created_at,
       updatedAt: fizzyCard.created_at,
@@ -164,28 +195,22 @@ export class FizzyPlugin implements KanbanPlugin<FizzyConfig> {
   }
 
   async moveCard(id: CardId, toColumnId: ColumnId): Promise<void> {
-    await this.client.triageCard(
-      parseInt(id as string, 10),
-      parseInt(toColumnId as string, 10),
-    );
+    await this.client.triageCard(id as string, toColumnId as string);
   }
 
   async addComment(id: CardId, body: string): Promise<void> {
-    await this.client.addComment(parseInt(id as string, 10), body);
+    await this.client.addComment(id as string, body);
   }
 
   async assignUser(id: CardId, userId: string): Promise<void> {
-    await this.client.assignUser(
-      parseInt(id as string, 10),
-      parseInt(userId, 10),
-    );
+    await this.client.assignUser(id as string, userId);
   }
 
   async getColumns(board: BoardId): Promise<KanbanColumn[]> {
-    const columns = await this.client.getColumns(parseInt(board as string, 10));
+    const columns = await this.client.getColumns(board as string);
 
     return columns.map((c, index) => ({
-      id: columnId(String(c.id)),
+      id: columnId(c.id),
       name: c.name,
       position: index,
     }));

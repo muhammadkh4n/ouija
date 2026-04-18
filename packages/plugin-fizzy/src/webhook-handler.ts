@@ -25,26 +25,32 @@ import type {
 } from '@ouija-dev/types';
 
 // ---- Raw Fizzy webhook shape ----
+// IDs widened from number → string | number to handle both older Fizzy
+// releases (sequential integer IDs) and current main (ULID-backed uuid
+// strings). Downstream we coerce via String() so callers always get a
+// string.
+
+type FizzyId = string | number;
 
 interface FizzyWebhookUser {
-  id: number;
+  id: FizzyId;
   name: string;
   email_address?: string;
 }
 
 interface FizzyWebhookColumn {
-  id: number;
+  id: FizzyId;
   name: string;
   color?: string;
 }
 
 interface FizzyWebhookCard {
-  id: number;
+  id: FizzyId;
   number: number;
   title: string;
   column: FizzyWebhookColumn | null;
   assignees: FizzyWebhookUser[];
-  board?: { id: number; name: string };
+  board?: { id: FizzyId; name: string };
   tags?: string[];
 }
 
@@ -53,7 +59,7 @@ interface FizzyWebhookPayload {
   action: string;
   created_at: string;
   eventable: FizzyWebhookCard;
-  board: { id: number; name: string };
+  board: { id: FizzyId; name: string };
   creator: FizzyWebhookUser;
 }
 
@@ -71,7 +77,10 @@ function isFizzyWebhookPayload(raw: unknown): raw is FizzyWebhookPayload {
   if (typeof p['creator'] !== 'object' || p['creator'] === null) return false;
 
   const eventable = p['eventable'] as Record<string, unknown>;
-  if (typeof eventable['id'] !== 'number') return false;
+  const eventableId = eventable['id'];
+  if (typeof eventableId !== 'number' && typeof eventableId !== 'string') {
+    return false;
+  }
 
   return true;
 }
