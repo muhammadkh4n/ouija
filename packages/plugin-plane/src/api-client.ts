@@ -39,6 +39,15 @@ export interface PlaneComment {
   created_at: string;
 }
 
+export interface PlaneProject {
+  id: string;
+  name: string;
+  identifier: string;
+  workspace: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---- Rate limit error ----
 
 export class PlaneRateLimitError extends Error {
@@ -262,5 +271,79 @@ export class PlaneApiClient {
     // /users/me/ is the lightest authenticated endpoint.
     // /workspaces/:slug/ requires session auth on some Plane versions.
     await this.get<unknown>(`/users/me/`);
+  }
+
+  // ---- Project operations (auto-bootstrap) ----
+
+  /**
+   * List all projects in a workspace.
+   * GET /api/v1/workspaces/:workspaceSlug/projects/
+   */
+  async listProjects(workspaceSlug: string): Promise<PlaneProject[]> {
+    const response = await this.get<{ results: PlaneProject[] } | PlaneProject[]>(
+      `/workspaces/${workspaceSlug}/projects/`,
+    );
+    if (Array.isArray(response)) return response;
+    return response.results;
+  }
+
+  /**
+   * Fetch a single project by ID. Returns null on 404 so callers can branch
+   * on existence without a try/catch dance.
+   */
+  async getProject(
+    workspaceSlug: string,
+    projectId: string,
+  ): Promise<PlaneProject | null> {
+    try {
+      return await this.get<PlaneProject>(
+        `/workspaces/${workspaceSlug}/projects/${projectId}/`,
+      );
+    } catch (err) {
+      if (err instanceof PlaneApiError && err.statusCode === 404) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Create a new project in a workspace.
+   * POST /api/v1/workspaces/:workspaceSlug/projects/
+   *
+   * The identifier must be 1-12 uppercase alphanumeric characters — Plane
+   * uses it as the issue sequence prefix (e.g. OUIJA-42).
+   */
+  async createProject(
+    workspaceSlug: string,
+    name: string,
+    identifier: string,
+  ): Promise<PlaneProject> {
+    return this.post<PlaneProject>(
+      `/workspaces/${workspaceSlug}/projects/`,
+      { name, identifier },
+    );
+  }
+
+  /**
+   * Ensure a project exists — if `projectId` resolves to a live project,
+   * return it. Otherwise create a new one with the given name + identifier
+   * and return that. Idempotent.
+   *
+   * Used by the Plane plugin bootstrap to auto-seed projects declared in
+   * `ouija.config.yaml boards:`. Self-hosters don't have to click through
+   * Plane's UI to create a project matching the config.
+   */
+  async ensureProject(
+    workspaceSlug: string,
+    projectId: string | undefined,
+    name: string,
+    identifier: string,
+  ): Promise<PlaneProject> {
+    if (projectId) {
+      const existing = await this.getProject(workspaceSlug, projectId);
+      if (existing) return existing;
+    }
+    return this.createProject(workspaceSlug, name, identifier);
   }
 }

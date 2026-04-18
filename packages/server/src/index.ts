@@ -210,11 +210,22 @@ async function main(): Promise<void> {
     console.info('Wiring Plane kanban plugin');
     const { PlanePlugin } = await import('@ouija-dev/plugin-plane');
     const planePlugin = new PlanePlugin();
-    const planeConfig = {
+
+    // Pass through config.boards so the plugin can auto-create Plane
+    // projects that reference a projectId which doesn't yet exist. Idempotent.
+    // The ouija server URL enables the startup log with the exact webhook
+    // URL for the self-hoster to paste into Plane's webhook admin.
+    const planeBoardsSpec = (ouijaConfig?.boards ?? []).map((b) => ({
+      ...(b.projectId ? { projectId: b.projectId } : {}),
+      ...(b.boardId ? { boardId: b.boardId } : {}),
+    }));
+    const planeConfig: Record<string, unknown> = {
       baseUrl: planeBaseUrl,
       apiToken: planeApiToken!,
       workspaceSlug: planeWorkspaceSlug!,
       webhookSecret: planeWebhookSecret!,
+      ...(planeBoardsSpec.length > 0 ? { boards: planeBoardsSpec } : {}),
+      ouijaServerUrl: serverUrl,
     };
     await planePlugin.init(
       makePluginContext('@ouija-dev/plugin-plane', planeConfig) as unknown as Parameters<typeof planePlugin.init>[0],
