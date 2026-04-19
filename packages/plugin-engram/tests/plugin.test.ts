@@ -75,7 +75,7 @@ describe('EngramNotifyPlugin.send', () => {
     expect(ingestOpts.source).toBe('ouija-pipeline');
     expect(ingestOpts.project).toBe('ouija');
     expect(ingestOpts.raw).toBe(true);
-    expect(timeoutMs).toBe(10_000);
+    expect(timeoutMs).toBe(30_000);
   });
 
   it('is idempotent on idempotencyKey within a process lifetime', async () => {
