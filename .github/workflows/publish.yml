@@ -39,55 +39,109 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      # Publish in dependency order: types → config → bus → plugin-sdk → engine → plugins → server
-      - run: npm publish --workspace=packages/types --provenance || true
+      # ---- Publish in topological (dependency) order ----
+      #
+      # Strategy: tolerate ONLY the "already published" error (exit 0 when the
+      # current version is a no-op re-publish) and surface every other failure.
+      #
+      # npm publishes in this order:
+      #   1. Leaf types/utilities  (types, config, bus, plugin-sdk)
+      #   2. Engine                (engine)
+      #   3. Runner + plugins      (workspace-local, plugins, agent-worker)
+      #   4. Consumers             (server, cli)
+      #
+      # @ouija-dev/dashboard is intentionally omitted — marked `private: true`;
+      # the compiled dashboard ships inside the server Docker image, not on npm.
+
+      - name: publish @ouija-dev/types
+        run: ./scripts/safe-publish.sh packages/types
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/config --provenance || true
+      - name: publish @ouija-dev/config
+        run: ./scripts/safe-publish.sh packages/config
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/bus --provenance || true
+      - name: publish @ouija-dev/bus
+        run: ./scripts/safe-publish.sh packages/bus
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-sdk --provenance || true
+      - name: publish @ouija-dev/plugin-sdk
+        run: ./scripts/safe-publish.sh packages/plugin-sdk
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/engine --provenance || true
+      - name: publish @ouija-dev/engine
+        run: ./scripts/safe-publish.sh packages/engine
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/workspace-local --provenance || true
+      - name: publish @ouija-dev/workspace-local
+        run: ./scripts/safe-publish.sh packages/workspace-local
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-plane --provenance || true
+      - name: publish @ouija-dev/plugin-plane
+        run: ./scripts/safe-publish.sh packages/plugin-plane
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-github --provenance || true
+      - name: publish @ouija-dev/plugin-github
+        run: ./scripts/safe-publish.sh packages/plugin-github
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-fizzy --provenance || true
+      - name: publish @ouija-dev/plugin-fizzy
+        run: ./scripts/safe-publish.sh packages/plugin-fizzy
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-agent-claude --provenance || true
+      - name: publish @ouija-dev/plugin-agent-claude
+        run: ./scripts/safe-publish.sh packages/plugin-agent-claude
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/plugin-notify-telegram --provenance || true
+      - name: publish @ouija-dev/plugin-notify-telegram
+        run: ./scripts/safe-publish.sh packages/plugin-notify-telegram
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/agent-worker --provenance || true
+      - name: publish @ouija-dev/plugin-engram
+        run: ./scripts/safe-publish.sh packages/plugin-engram
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - run: npm publish --workspace=packages/server --provenance || true
+      - name: publish @ouija-dev/agent-worker
+        run: ./scripts/safe-publish.sh packages/agent-worker
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: publish @ouija-dev/server
+        run: ./scripts/safe-publish.sh packages/server
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: publish @ouija-dev/cli
+        run: ./scripts/safe-publish.sh packages/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # ---- Summary ----
+      # Emit a GitHub Actions job summary with each package's final npm state.
+
+      - name: summary
+        if: always()
+        run: |
+          echo "## Publish summary (${GITHUB_REF_NAME})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Package | npm latest |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for pkg in types config bus plugin-sdk engine workspace-local \
+                     plugin-plane plugin-github plugin-fizzy \
+                     plugin-agent-claude plugin-notify-telegram plugin-engram \
+                     agent-worker server cli; do
+            latest=$(npm view "@ouija-dev/$pkg" version 2>/dev/null || echo "unpublished")
+            echo "| @ouija-dev/$pkg | $latest |" >> "$GITHUB_STEP_SUMMARY"
+          done
