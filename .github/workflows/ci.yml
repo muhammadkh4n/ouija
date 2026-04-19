@@ -19,3 +19,71 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npm run test
+
+  # Exercise the real self-hoster install path: `npx @ouija-dev/cli@<sha> init`
+  # in an empty directory, then `ouija up` boots the stack. Catches regressions
+  # in the packaged assets (wrong env_file path, stale image tag, missing
+  # compose files) that in-monorepo tests can't see.
+  #
+  # Runs against the CLI built from this PR (npm pack + npx <tarball>) rather
+  # than a published version so we test the change, not yesterday's release.
+  fresh-install-smoke:
+    runs-on: ubuntu-latest
+    needs: [check]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # Pack just the CLI. Its packaged assets include the compose files we
+      # need to validate.
+      - name: pack cli
+        id: pack
+        run: |
+          cd packages/cli
+          tarball=$(npm pack --silent)
+          echo "tarball=$(pwd)/$tarball" >> "$GITHUB_OUTPUT"
+
+      # Init in a fresh empty directory under runner temp. Mirrors what a
+      # self-hoster running `npx @ouija-dev/cli init` sees.
+      - name: fresh init + validate compose
+        run: |
+          set -euo pipefail
+          export CI_SMOKE_DIR="$RUNNER_TEMP/ouija-fresh"
+          mkdir -p "$CI_SMOKE_DIR"
+          cd "$CI_SMOKE_DIR"
+          npx --yes "${{ steps.pack.outputs.tarball }}" init --preset self-hosted-plane -y
+
+          # Files we expect the init to have created.
+          for f in .env ouija.config.yaml docker/docker-compose.ouija.yml docker/docker-compose.yml; do
+            if [ ! -f "$f" ]; then
+              echo "::error::expected file missing: $f"
+              exit 1
+            fi
+          done
+
+          # Docker Compose `config` normalises the file — fails loud on:
+          #  - wrong env_file paths
+          #  - unresolvable image references
+          #  - missing build contexts
+          # which were the two bugs that shipped in v0.3.0.
+          docker compose \
+            --project-directory "$CI_SMOKE_DIR" \
+            -f docker/docker-compose.ouija.yml \
+            config > /tmp/compose-rendered.yml
+
+          # Sanity: rendered output must reference our GHCR image, NOT a
+          # build context (which would imply monorepo source is required).
+          if grep -q '^\s*build:' /tmp/compose-rendered.yml; then
+            echo "::error::compose still uses build: instead of image: — self-hosters can't run this"
+            exit 1
+          fi
+          if ! grep -q 'ghcr.io/muhammadkh4n/ouija' /tmp/compose-rendered.yml; then
+            echo "::error::compose doesn't reference the prebuilt GHCR image"
+            exit 1
+          fi
+          echo "fresh-install compose validates ✓"

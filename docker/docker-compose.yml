@@ -19,6 +19,9 @@ services:
   # ---------- Ouija ----------
 
   ouija:
+    # Prebuilt image from GHCR for self-hosters who ran `npx @ouija-dev/cli init`.
+    # Dev override: `OUIJA_IMAGE=ouija:dev docker compose build && ... up`.
+    image: ${OUIJA_IMAGE:-ghcr.io/muhammadkh4n/ouija:0.3.1}
     build:
       context: ..
       dockerfile: docker/Dockerfile
