@@ -5,7 +5,9 @@ dist/
 .turbo/
 
 # Generated at CLI build time from repo-root sources
-packages/cli/assets/
+packages/cli/assets/*
+# Exceptions: preset templates are source-controlled, not generated.
+!packages/cli/assets/presets/
 # package-lock.json is committed for reproducible Docker builds
 
 # Debug/sensitive artifacts
