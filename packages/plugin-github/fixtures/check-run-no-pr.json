@@ -1,0 +1,19 @@
+{
+  "action": "completed",
+  "check_run": {
+    "id": 8800123458,
+    "name": "nightly-bench",
+    "head_sha": "cafebabefeed0000",
+    "status": "completed",
+    "conclusion": "failure",
+    "completed_at": "2026-04-21T09:12:34Z",
+    "html_url": "https://github.com/acme/backend/runs/8800123458",
+    "pull_requests": []
+  },
+  "repository": {
+    "full_name": "acme/backend",
+    "html_url": "https://github.com/acme/backend",
+    "name": "backend",
+    "owner": { "login": "acme" }
+  }
+}

@@ -67,6 +67,35 @@ export interface GitPrCommentPostedPayload {
   postedAt: string;
 }
 
+/**
+ * A failing CI signal attached to a PR — GitHub Actions (`check_run`,
+ * `workflow_run`) plus any third-party CI that pipes through the same
+ * webhook. Coalesces into the same bundle as review comments so a burst of
+ * (review + failing checks) produces one follow-up dispatch, not many.
+ */
+export interface GitCiFailedPayload {
+  prUrl: string;
+  prId: PrId;
+  /**
+   * Stable ID for dedupe: `{provider}:{runId}:{jobName}` so re-runs of the
+   * same job within a workflow replace the entry instead of appending.
+   */
+  checkId: string;
+  provider: 'github-actions' | 'other';
+  /** Parent workflow name (e.g. "CI" in `.github/workflows/ci.yml`). */
+  workflowName: string;
+  /** Individual job or check name within the workflow. */
+  jobName: string;
+  conclusion: 'failure' | 'timed_out' | 'action_required';
+  /** URL to the raw logs the agent can fetch when it has repo read access. */
+  logsUrl?: string;
+  /** Short human-readable summary pulled from GitHub's `check_run.output.summary`. */
+  summary?: string;
+  /** Head commit SHA this check ran against — for cross-referencing with git blame. */
+  headSha: string;
+  completedAt: string;
+}
+
 export interface AgentWorkProgressPayload {
   instanceId: InstanceId;
   dispatchId: DispatchId;
@@ -125,6 +154,7 @@ export interface OuijaEventMap {
   'git.pr.merged': GitPrMergedPayload;
   'git.pr.review.submitted': GitPrReviewSubmittedPayload;
   'git.pr.comment.posted': GitPrCommentPostedPayload;
+  'git.ci.failed': GitCiFailedPayload;
   'agent.work.progress': AgentWorkProgressPayload;
   'agent.work.pr_ready': AgentWorkPrReadyPayload;
   'agent.work.completed': AgentWorkCompletedPayload;

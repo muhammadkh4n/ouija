@@ -10,6 +10,7 @@ import type { EventBus, Unsubscribe } from '@ouija-dev/bus';
 import type {
   GitPrReviewSubmittedPayload,
   GitPrCommentPostedPayload,
+  GitCiFailedPayload,
 } from '@ouija-dev/types';
 import {
   ReviewBundler,
@@ -85,8 +86,28 @@ export async function registerReviewLoop(opts: ReviewLoopOptions): Promise<Revie
     }),
   );
 
+  // CI failure events coalesce into the same bundle. A burst of
+  // (review + 3 failing checks) flushes as a single dispatch, not four.
+  unsubs.push(
+    await opts.eventBus.subscribe('git.ci.failed', async (event) => {
+      const payload = event.payload as GitCiFailedPayload;
+      const failure: Parameters<typeof bundler.pushCiFailure>[2] = {
+        checkId: payload.checkId,
+        provider: payload.provider,
+        workflowName: payload.workflowName,
+        jobName: payload.jobName,
+        conclusion: payload.conclusion,
+        headSha: payload.headSha,
+        completedAt: payload.completedAt,
+      };
+      if (payload.logsUrl !== undefined) failure.logsUrl = payload.logsUrl;
+      if (payload.summary !== undefined) failure.summary = payload.summary;
+      await bundler.pushCiFailure(payload.prUrl, payload.prId, failure);
+    }),
+  );
+
   opts.logger.info('review-loop: registered', {
-    topics: ['git.pr.review.submitted', 'git.pr.comment.posted'],
+    topics: ['git.pr.review.submitted', 'git.pr.comment.posted', 'git.ci.failed'],
   });
 
   return {

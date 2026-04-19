@@ -48,9 +48,11 @@ export type PipelineTrigger =
   | { type: 'pr_review_received'; prUrl: string; prId: PrId; bundle: ReviewBundle };
 
 /**
- * Aggregated reviewer feedback on a single PR, flushed from the review bundler
- * (Redis-backed debounce) after a quiet window. Every review/comment that
- * landed during the window is here, deduped by its GitHub id.
+ * Aggregated PR feedback — reviews + comments + CI failures — flushed from the
+ * review bundler after a quiet window. Every signal that landed during the
+ * window is here, deduped by its GitHub id. Named ReviewBundle for historical
+ * compatibility; carries CI failures too (see #PR 2.5) so a burst of
+ * "reviewer comments + failing checks" coalesces into a single re-dispatch.
  */
 export interface ReviewBundle {
   prUrl: string;
@@ -72,8 +74,26 @@ export interface ReviewBundle {
     line?: number;
     postedAt: string;
   }>;
+  /**
+   * Failing CI runs against the PR's head commit (GitHub Actions + third-party
+   * check providers). Optional so pre-PR-2.5 consumers keep working; undefined
+   * is treated as an empty array by everything downstream.
+   */
+  ciFailures?: Array<BundleCiFailure>;
   /** When the bundler finished draining the window and emitted this trigger. */
   flushedAt: string;
+}
+
+export interface BundleCiFailure {
+  checkId: string;
+  provider: 'github-actions' | 'other';
+  workflowName: string;
+  jobName: string;
+  conclusion: 'failure' | 'timed_out' | 'action_required';
+  logsUrl?: string;
+  summary?: string;
+  headSha: string;
+  completedAt: string;
 }
 
 // Pre-fetched data for guard evaluation (gathered BEFORE calling transition)

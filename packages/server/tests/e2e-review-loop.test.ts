@@ -827,3 +827,119 @@ async function postCallback(app: FastifyInstance, jwt: string, body: CallbackBod
     throw new Error(`agent callback ${body.type} failed: ${response.statusCode} ${response.body}`);
   }
 }
+
+// ---- CI failure loop ----
+
+function checkRunFailureBody(jobName: string, runId: number): string {
+  return JSON.stringify({
+    action: 'completed',
+    check_run: {
+      id: runId,
+      name: jobName,
+      head_sha: 'abc123',
+      status: 'completed',
+      conclusion: 'failure',
+      completed_at: '2026-04-21T09:12:34Z',
+      html_url: `https://github.com/acme/backend/runs/${runId}`,
+      details_url: `https://github.com/acme/backend/actions/runs/${runId}`,
+      output: { title: null, summary: '3 tests failed' },
+      pull_requests: [
+        {
+          number: 42,
+          html_url: PR_URL,
+          head: { ref: 'ouija/inst-loop', sha: 'abc123' },
+          base: { ref: 'main' },
+        },
+      ],
+    },
+    repository: {
+      full_name: 'acme/backend',
+      html_url: 'https://github.com/acme/backend',
+      name: 'backend',
+      owner: { login: 'acme' },
+    },
+  });
+}
+
+describe('review loop — CI failure re-dispatch', () => {
+  it('a failing check_run on an awaiting_review pipeline triggers a re-dispatch with ciFailures in reviewContext', async () => {
+    const h = await buildHarness();
+    try {
+      const body = checkRunFailureBody('unit-tests', 9900001);
+      const resp = await h.app.inject({
+        method: 'POST',
+        url: `/hooks/github/${GITHUB_SECRET}`,
+        headers: {
+          'content-type': 'application/json',
+          'x-github-event': 'check_run',
+          'x-hub-signature-256': ghSignature(body, GITHUB_SECRET),
+          'x-github-delivery': 'ci-delivery-1',
+        },
+        payload: body,
+      });
+      expect(resp.statusCode).toBe(200);
+      await settle();
+      await h.reviewLoop.bundler.flushNow(PR_URL);
+      await settle();
+
+      const after = h.db._instances.get(h.instanceIdStr)!;
+      expect(after.state.status).toBe('dispatching');
+
+      const jobs = h.jobQueue.enqueued.filter((j) => j.queue === 'ouija.agent-dispatch');
+      expect(jobs).toHaveLength(1);
+      const jobData = jobs[0]!.data as AgentDispatchJobData;
+      expect(jobData.reviewContext?.bundle.ciFailures).toBeDefined();
+      expect(jobData.reviewContext?.bundle.ciFailures).toHaveLength(1);
+      expect(jobData.reviewContext?.bundle.ciFailures?.[0]?.jobName).toBe('unit-tests');
+      expect(jobData.reviewContext?.bundle.ciFailures?.[0]?.conclusion).toBe('failure');
+      // No reviews fired, so that array is empty.
+      expect(jobData.reviewContext?.bundle.reviews).toHaveLength(0);
+    } finally {
+      await h.reviewLoop.stop();
+      await h.app.close();
+    }
+  });
+
+  it('a failing check_run + a review in the same window coalesce into one dispatch', async () => {
+    const h = await buildHarness();
+    try {
+      // Review first
+      const reviewBody = reviewWebhookBody('CHANGES_REQUESTED', 555);
+      await h.app.inject({
+        method: 'POST',
+        url: `/hooks/github/${GITHUB_SECRET}`,
+        headers: {
+          'content-type': 'application/json',
+          'x-github-event': 'pull_request_review',
+          'x-hub-signature-256': ghSignature(reviewBody, GITHUB_SECRET),
+        },
+        payload: reviewBody,
+      });
+
+      // Then a failing check in the same debounce window
+      const ciBody = checkRunFailureBody('lint', 9900002);
+      await h.app.inject({
+        method: 'POST',
+        url: `/hooks/github/${GITHUB_SECRET}`,
+        headers: {
+          'content-type': 'application/json',
+          'x-github-event': 'check_run',
+          'x-hub-signature-256': ghSignature(ciBody, GITHUB_SECRET),
+        },
+        payload: ciBody,
+      });
+      await settle();
+      await h.reviewLoop.bundler.flushNow(PR_URL);
+      await settle();
+
+      const jobs = h.jobQueue.enqueued.filter((j) => j.queue === 'ouija.agent-dispatch');
+      expect(jobs).toHaveLength(1);
+      const jobData = jobs[0]!.data as AgentDispatchJobData;
+      expect(jobData.reviewContext?.bundle.reviews).toHaveLength(1);
+      expect(jobData.reviewContext?.bundle.ciFailures).toHaveLength(1);
+    } finally {
+      await h.reviewLoop.stop();
+      await h.app.close();
+    }
+  });
+});

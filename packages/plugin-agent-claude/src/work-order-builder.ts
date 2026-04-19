@@ -117,6 +117,24 @@ function renderReviewFeedback(
   ctx: NonNullable<WorkOrder['reviewContext']>,
   out: string[],
 ): void {
+  // CI failures first — broken tests block merge regardless of reviewer opinion.
+  const ciFailures = ctx.ciFailures ?? [];
+  if (ciFailures.length > 0) {
+    out.push('');
+    out.push('### ❌ Failing CI (fix these BEFORE re-running)');
+    for (const f of ciFailures) {
+      const header = `- **${f.workflowName} / ${f.jobName}** (${f.conclusion.replace('_', ' ')}) — ${f.completedAt}`;
+      out.push(header);
+      if (f.logsUrl !== undefined) {
+        out.push(`  logs: ${f.logsUrl}`);
+      }
+      if (f.summary !== undefined && f.summary.trim().length > 0) {
+        for (const line of f.summary.split('\n')) {
+          out.push(`  ${line}`);
+        }
+      }
+    }
+  }
   if (ctx.reviews.length > 0) {
     out.push('');
     out.push('### Reviews');

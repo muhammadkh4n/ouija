@@ -53,6 +53,10 @@ export interface WorkOrder {
  * Subset of the engine's ReviewBundle carried on the WorkOrder. Omits
  * wire-format details like flushedAt and the full ReviewBundle envelope —
  * the agent cares about prioritised feedback, not bundler plumbing.
+ *
+ * Named "review" context for historical reasons; in PR 2.5 it carries CI
+ * failures too. Renaming would churn every test + plugin; the field name is
+ * stable.
  */
 export interface ReviewWorkOrderContext {
   iteration: number;
@@ -70,6 +74,15 @@ export interface ReviewWorkOrderContext {
     path?: string;
     line?: number;
     postedAt: string;
+  }>;
+  /** Failing CI runs against the PR head SHA. Rendered above review feedback in the prompt since broken tests block merge regardless of reviewer opinion. */
+  ciFailures?: Array<{
+    workflowName: string;
+    jobName: string;
+    conclusion: 'failure' | 'timed_out' | 'action_required';
+    logsUrl?: string;
+    summary?: string;
+    completedAt: string;
   }>;
 }
 
