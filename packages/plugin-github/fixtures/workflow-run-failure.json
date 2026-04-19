@@ -1,0 +1,26 @@
+{
+  "action": "completed",
+  "workflow_run": {
+    "id": 7700999000,
+    "name": "CI",
+    "head_sha": "abc1234deadbeef5678",
+    "conclusion": "failure",
+    "html_url": "https://github.com/acme/backend/actions/runs/7700999000",
+    "logs_url": "https://api.github.com/repos/acme/backend/actions/runs/7700999000/logs",
+    "updated_at": "2026-04-21T09:15:00Z",
+    "pull_requests": [
+      {
+        "number": 42,
+        "html_url": "https://github.com/acme/backend/pull/42",
+        "head": { "ref": "ouija/inst-abc", "sha": "abc1234deadbeef5678" },
+        "base": { "ref": "main" }
+      }
+    ]
+  },
+  "repository": {
+    "full_name": "acme/backend",
+    "html_url": "https://github.com/acme/backend",
+    "name": "backend",
+    "owner": { "login": "acme" }
+  }
+}

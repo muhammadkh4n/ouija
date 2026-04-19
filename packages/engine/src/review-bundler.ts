@@ -16,7 +16,7 @@
  * retries never inflate the bundle.
  */
 
-import type { ReviewBundle, PrId } from '@ouija-dev/types';
+import type { ReviewBundle, PrId, BundleCiFailure } from '@ouija-dev/types';
 
 export const DEFAULT_REVIEW_DEBOUNCE_MS = 60_000;
 
@@ -37,6 +37,8 @@ export interface BundleComment {
   postedAt: string;
 }
 
+export type { BundleCiFailure };
+
 export type ReviewFlushHandler = (bundle: ReviewBundle) => Promise<void> | void;
 
 /**
@@ -48,15 +50,18 @@ export interface ReviewBundleStore {
   addReview(prUrl: string, prId: PrId, review: BundleReview): Promise<void>;
   /** Merge a comment into the bundle for a PR. Deduplicates by commentId. */
   addComment(prUrl: string, prId: PrId, comment: BundleComment): Promise<void>;
+  /** Merge a CI failure into the bundle. Deduplicates by checkId so re-runs of the same job replace the prior entry. */
+  addCiFailure(prUrl: string, prId: PrId, failure: BundleCiFailure): Promise<void>;
   /** Drain the bundle for a PR. Returns null if nothing is buffered. */
   drain(prUrl: string): Promise<ReviewBundle | null>;
-  /** How many items (reviews + comments) are currently buffered for a PR. */
+  /** How many items (reviews + comments + CI failures) are currently buffered for a PR. */
   size(prUrl: string): Promise<number>;
 }
 
 export class InMemoryReviewBundleStore implements ReviewBundleStore {
   private readonly reviewsByPr = new Map<string, Map<string, BundleReview>>();
   private readonly commentsByPr = new Map<string, Map<string, BundleComment>>();
+  private readonly ciFailuresByPr = new Map<string, Map<string, BundleCiFailure>>();
   private readonly prIdByPr = new Map<string, PrId>();
 
   async addReview(prUrl: string, prId: PrId, review: BundleReview): Promise<void> {
@@ -79,30 +84,51 @@ export class InMemoryReviewBundleStore implements ReviewBundleStore {
     this.prIdByPr.set(prUrl, prId);
   }
 
+  async addCiFailure(prUrl: string, prId: PrId, failure: BundleCiFailure): Promise<void> {
+    let failures = this.ciFailuresByPr.get(prUrl);
+    if (failures === undefined) {
+      failures = new Map<string, BundleCiFailure>();
+      this.ciFailuresByPr.set(prUrl, failures);
+    }
+    failures.set(failure.checkId, failure);
+    this.prIdByPr.set(prUrl, prId);
+  }
+
   async drain(prUrl: string): Promise<ReviewBundle | null> {
     const reviews = this.reviewsByPr.get(prUrl);
     const comments = this.commentsByPr.get(prUrl);
+    const ciFailures = this.ciFailuresByPr.get(prUrl);
     const prId = this.prIdByPr.get(prUrl);
     if (prId === undefined) return null;
-    if ((reviews === undefined || reviews.size === 0) && (comments === undefined || comments.size === 0)) {
-      return null;
-    }
+    const nothingBuffered =
+      (reviews === undefined || reviews.size === 0) &&
+      (comments === undefined || comments.size === 0) &&
+      (ciFailures === undefined || ciFailures.size === 0);
+    if (nothingBuffered) return null;
+
     this.reviewsByPr.delete(prUrl);
     this.commentsByPr.delete(prUrl);
+    this.ciFailuresByPr.delete(prUrl);
     this.prIdByPr.delete(prUrl);
-    return {
+
+    const bundle: ReviewBundle = {
       prUrl,
       prId,
       reviews: reviews === undefined ? [] : [...reviews.values()],
       comments: comments === undefined ? [] : [...comments.values()],
       flushedAt: new Date().toISOString(),
     };
+    if (ciFailures !== undefined && ciFailures.size > 0) {
+      bundle.ciFailures = [...ciFailures.values()];
+    }
+    return bundle;
   }
 
   async size(prUrl: string): Promise<number> {
     const r = this.reviewsByPr.get(prUrl)?.size ?? 0;
     const c = this.commentsByPr.get(prUrl)?.size ?? 0;
-    return r + c;
+    const ci = this.ciFailuresByPr.get(prUrl)?.size ?? 0;
+    return r + c + ci;
   }
 }
 
@@ -172,6 +198,20 @@ export class ReviewBundler {
       return;
     }
     await this.store.addReview(prUrl, prId, review);
+    this.scheduleFlush(prUrl);
+  }
+
+  async pushCiFailure(prUrl: string, prId: PrId, failure: BundleCiFailure): Promise<void> {
+    const currentSize = await this.store.size(prUrl);
+    if (currentSize >= this.maxBundleSize) {
+      this.logger.warn('review-bundler: dropped CI failure — bundle at cap', {
+        prUrl,
+        checkId: failure.checkId,
+        maxBundleSize: this.maxBundleSize,
+      });
+      return;
+    }
+    await this.store.addCiFailure(prUrl, prId, failure);
     this.scheduleFlush(prUrl);
   }
 

@@ -6,6 +6,7 @@ import type {
   GitPrMergedPayload,
   GitPrReviewSubmittedPayload,
   GitPrCommentPostedPayload,
+  GitCiFailedPayload,
 } from '@ouija-dev/types';
 import { prId, instanceId } from '@ouija-dev/types';
 import { encodePrId } from './api-client.js';
@@ -106,6 +107,60 @@ interface IssueCommentPayload {
   repository: GitHubRepo;
 }
 
+// ---- Check-run / workflow-run webhook shapes (CI failure loop) ----
+
+interface GitHubCheckRunPullRef {
+  number: number;
+  html_url: string;
+  head: { ref: string; sha: string };
+  base: { ref: string };
+}
+
+interface GitHubCheckRun {
+  id: number;
+  name: string;
+  head_sha: string;
+  status: string;
+  conclusion: string | null;
+  completed_at: string | null;
+  html_url: string;
+  details_url?: string;
+  output?: {
+    title?: string | null;
+    summary?: string | null;
+  };
+  check_suite?: {
+    id: number;
+    head_branch?: string | null;
+    head_sha?: string;
+    pull_requests?: GitHubCheckRunPullRef[];
+  };
+  pull_requests?: GitHubCheckRunPullRef[];
+}
+
+interface CheckRunPayload {
+  action: string;
+  check_run: GitHubCheckRun;
+  repository: GitHubRepo;
+}
+
+interface GitHubWorkflowRun {
+  id: number;
+  name: string;
+  head_sha: string;
+  conclusion: string | null;
+  html_url: string;
+  logs_url?: string;
+  updated_at: string;
+  pull_requests?: GitHubCheckRunPullRef[];
+}
+
+interface WorkflowRunPayload {
+  action: string;
+  workflow_run: GitHubWorkflowRun;
+  repository: GitHubRepo;
+}
+
 // ---- Signature verification ----
 
 /**
@@ -176,6 +231,8 @@ function normaliseReviewState(raw: GitHubReview['state']): ReviewState | null {
  *   pull_request_review / submitted         → git.pr.review.submitted
  *   pull_request_review_comment / created   → git.pr.comment.posted
  *   issue_comment / created (on a PR)       → git.pr.comment.posted
+ *   check_run / completed (failure-class)   → git.ci.failed
+ *   workflow_run / completed (failure-class)→ git.ci.failed
  *
  * All other events/actions return null (caller should 200 OK and discard).
  */
@@ -187,6 +244,7 @@ export function normalizeWebhook(
   | OuijaEvent<'git.pr.merged'>
   | OuijaEvent<'git.pr.review.submitted'>
   | OuijaEvent<'git.pr.comment.posted'>
+  | OuijaEvent<'git.ci.failed'>
   | null {
   switch (githubEvent) {
     case 'pull_request':
@@ -199,6 +257,10 @@ export function normalizeWebhook(
       );
     case 'issue_comment':
       return normaliseIssueCommentEvent(payload as IssueCommentPayload);
+    case 'check_run':
+      return normaliseCheckRunEvent(payload as CheckRunPayload);
+    case 'workflow_run':
+      return normaliseWorkflowRunEvent(payload as WorkflowRunPayload);
     default:
       return null;
   }
@@ -306,6 +368,112 @@ function normaliseIssueCommentEvent(
   return buildEvent('git.pr.comment.posted', payload);
 }
 
+// ---- CI failure normalisers ----
+
+type CiConclusion = GitCiFailedPayload['conclusion'];
+
+function mapCiConclusion(raw: string | null): CiConclusion | null {
+  switch (raw) {
+    case 'failure':
+      return 'failure';
+    case 'timed_out':
+      return 'timed_out';
+    case 'action_required':
+      return 'action_required';
+    // success / neutral / skipped / cancelled → no re-dispatch signal.
+    default:
+      return null;
+  }
+}
+
+function normaliseCheckRunEvent(
+  typed: CheckRunPayload,
+): OuijaEvent<'git.ci.failed'> | null {
+  if (typed.action !== 'completed') return null;
+
+  const conclusion = mapCiConclusion(typed.check_run.conclusion);
+  if (conclusion === null) return null;
+
+  const prRef = findPrRef(typed.check_run.pull_requests, typed.check_run.check_suite?.pull_requests);
+  if (prRef === null) {
+    // Cross-repo PR or orphan check — no PR to attach to.
+    return null;
+  }
+
+  const { repository: repo, check_run: run } = typed;
+  const encodedPrId = encodePrId(repo.owner.login, repo.name, prRef.number);
+  const workflowName = run.check_suite?.head_branch ? 'check_suite' : run.name;
+
+  const payload: GitCiFailedPayload = {
+    prUrl: prRef.html_url,
+    prId: encodedPrId,
+    checkId: `github-actions:${String(run.id)}:${run.name}`,
+    provider: 'github-actions',
+    workflowName,
+    jobName: run.name,
+    conclusion,
+    headSha: run.head_sha,
+    completedAt: run.completed_at ?? new Date().toISOString(),
+  };
+  if (run.details_url !== undefined) payload.logsUrl = run.details_url;
+  else if (run.html_url) payload.logsUrl = run.html_url;
+  if (run.output?.summary !== undefined && run.output.summary !== null && run.output.summary !== '') {
+    payload.summary = run.output.summary;
+  }
+  return buildEvent('git.ci.failed', payload);
+}
+
+function normaliseWorkflowRunEvent(
+  typed: WorkflowRunPayload,
+): OuijaEvent<'git.ci.failed'> | null {
+  if (typed.action !== 'completed') return null;
+
+  const conclusion = mapCiConclusion(typed.workflow_run.conclusion);
+  if (conclusion === null) return null;
+
+  const prRef = findPrRef(typed.workflow_run.pull_requests);
+  if (prRef === null) return null;
+
+  const { repository: repo, workflow_run: run } = typed;
+  const encodedPrId = encodePrId(repo.owner.login, repo.name, prRef.number);
+
+  const payload: GitCiFailedPayload = {
+    prUrl: prRef.html_url,
+    prId: encodedPrId,
+    // workflow_run IDs are distinct from check_run IDs; the namespace keeps
+    // the two channels from colliding in the bundler's dedupe map when both
+    // fire for the same job.
+    checkId: `github-actions:workflow:${String(run.id)}`,
+    provider: 'github-actions',
+    workflowName: run.name,
+    jobName: run.name,
+    conclusion,
+    headSha: run.head_sha,
+    completedAt: run.updated_at,
+  };
+  if (run.logs_url !== undefined) payload.logsUrl = run.logs_url;
+  else if (run.html_url) payload.logsUrl = run.html_url;
+  return buildEvent('git.ci.failed', payload);
+}
+
+/**
+ * Pick the first attached PR ref from the webhook. Accepts multiple arrays
+ * because check_run puts them under `check_run.pull_requests` but
+ * check_suite-style payloads use `check_run.check_suite.pull_requests`.
+ * Returns null when none are present (happens for forks + release-branch
+ * pushes that don't correspond to an open PR).
+ */
+function findPrRef(
+  ...arrays: Array<GitHubCheckRunPullRef[] | undefined>
+): GitHubCheckRunPullRef | null {
+  for (const arr of arrays) {
+    if (arr !== undefined && arr.length > 0 && arr[0] !== undefined) {
+      return arr[0];
+    }
+  }
+  return null;
+}
+
 /**
  * Build a StandardPR from a GitHub pull_request payload object.
  * Exported so the main plugin can use it when returning from openPR.
@@ -341,7 +509,8 @@ type GitHubTopic =
   | 'git.pr.opened'
   | 'git.pr.merged'
   | 'git.pr.review.submitted'
-  | 'git.pr.comment.posted';
+  | 'git.pr.comment.posted'
+  | 'git.ci.failed';
 
 type GitHubTopicPayload<T extends GitHubTopic> = T extends 'git.pr.opened'
   ? GitPrOpenedPayload
@@ -349,7 +518,9 @@ type GitHubTopicPayload<T extends GitHubTopic> = T extends 'git.pr.opened'
   ? GitPrMergedPayload
   : T extends 'git.pr.review.submitted'
   ? GitPrReviewSubmittedPayload
-  : GitPrCommentPostedPayload;
+  : T extends 'git.pr.comment.posted'
+  ? GitPrCommentPostedPayload
+  : GitCiFailedPayload;
 
 function buildEvent<T extends GitHubTopic>(
   topic: T,

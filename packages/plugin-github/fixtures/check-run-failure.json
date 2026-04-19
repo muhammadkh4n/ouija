@@ -1,0 +1,31 @@
+{
+  "action": "completed",
+  "check_run": {
+    "id": 8800123456,
+    "name": "unit-tests",
+    "head_sha": "abc1234deadbeef5678",
+    "status": "completed",
+    "conclusion": "failure",
+    "completed_at": "2026-04-21T09:12:34Z",
+    "html_url": "https://github.com/acme/backend/runs/8800123456",
+    "details_url": "https://github.com/acme/backend/actions/runs/9900/job/8800123456",
+    "output": {
+      "title": "3 tests failed",
+      "summary": "auth.test.ts: 2 failures\nvalidator.test.ts: 1 failure"
+    },
+    "pull_requests": [
+      {
+        "number": 42,
+        "html_url": "https://github.com/acme/backend/pull/42",
+        "head": { "ref": "ouija/inst-abc", "sha": "abc1234deadbeef5678" },
+        "base": { "ref": "main" }
+      }
+    ]
+  },
+  "repository": {
+    "full_name": "acme/backend",
+    "html_url": "https://github.com/acme/backend",
+    "name": "backend",
+    "owner": { "login": "acme" }
+  }
+}

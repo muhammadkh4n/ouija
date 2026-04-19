@@ -294,3 +294,107 @@ describe('ReviewBundler debounce', () => {
     expect(flushed).toHaveLength(0);
   });
 });
+
+// ---- CI failure handling ----
+
+describe('InMemoryReviewBundleStore — CI failures', () => {
+  function ciFailure(checkId: string, overrides: Partial<BundleCiFailure> = {}): BundleCiFailure {
+    return {
+      checkId,
+      provider: 'github-actions',
+      workflowName: 'CI',
+      jobName: 'unit-tests',
+      conclusion: 'failure',
+      headSha: 'abc123',
+      completedAt: '2026-04-21T09:12:34Z',
+      ...overrides,
+    };
+  }
+
+  it('dedupes CI failures by checkId (re-runs of the same job replace the prior entry)', async () => {
+    const store = new InMemoryReviewBundleStore();
+    await store.addCiFailure(PR_URL, PR_ID, ciFailure('gha:1:tests', { summary: 'first' }));
+    await store.addCiFailure(PR_URL, PR_ID, ciFailure('gha:1:tests', { summary: 'second' }));
+    const drained = await store.drain(PR_URL);
+    expect(drained?.ciFailures).toHaveLength(1);
+    expect(drained?.ciFailures?.[0]?.summary).toBe('second');
+  });
+
+  it('coalesces CI failures with reviews + comments into a single bundle', async () => {
+    const store = new InMemoryReviewBundleStore();
+    await store.addReview(PR_URL, PR_ID, review('r1'));
+    await store.addComment(PR_URL, PR_ID, comment('c1'));
+    await store.addCiFailure(PR_URL, PR_ID, ciFailure('gha:1:tests'));
+    await store.addCiFailure(PR_URL, PR_ID, ciFailure('gha:2:lint'));
+
+    const drained = await store.drain(PR_URL);
+    expect(drained?.reviews).toHaveLength(1);
+    expect(drained?.comments).toHaveLength(1);
+    expect(drained?.ciFailures).toHaveLength(2);
+  });
+
+  it('drain returns undefined ciFailures when none are buffered', async () => {
+    const store = new InMemoryReviewBundleStore();
+    await store.addReview(PR_URL, PR_ID, review('r1'));
+    const drained = await store.drain(PR_URL);
+    expect(drained?.ciFailures).toBeUndefined();
+  });
+
+  it('size includes CI failures', async () => {
+    const store = new InMemoryReviewBundleStore();
+    await store.addReview(PR_URL, PR_ID, review('r1'));
+    await store.addCiFailure(PR_URL, PR_ID, ciFailure('gha:1:tests'));
+    await store.addCiFailure(PR_URL, PR_ID, ciFailure('gha:2:lint'));
+    expect(await store.size(PR_URL)).toBe(3);
+  });
+});
+
+describe('ReviewBundler.pushCiFailure', () => {
+  function ciFailure(checkId: string): BundleCiFailure {
+    return {
+      checkId,
+      provider: 'github-actions',
+      workflowName: 'CI',
+      jobName: 'tests',
+      conclusion: 'failure',
+      headSha: 'abc',
+      completedAt: '2026-04-21T09:12:34Z',
+    };
+  }
+
+  it('a CI failure alone triggers the flush window', async () => {
+    const store = new InMemoryReviewBundleStore();
+    const flushed: ReviewBundle[] = [];
+    const clock = makeFakeTimers();
+    const bundler = new ReviewBundler(store, (b) => void flushed.push(b), {
+      debounceMs: 1_000,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    await bundler.pushCiFailure(PR_URL, PR_ID, ciFailure('gha:1:tests'));
+    await clock.advance(2_000);
+
+    expect(flushed).toHaveLength(1);
+    expect(flushed[0]?.ciFailures).toHaveLength(1);
+    expect(flushed[0]?.ciFailures?.[0]?.checkId).toBe('gha:1:tests');
+  });
+
+  it('drops new CI failures once the bundle hits maxBundleSize', async () => {
+    const store = new InMemoryReviewBundleStore();
+    const flushed: ReviewBundle[] = [];
+    const clock = makeFakeTimers();
+    const bundler = new ReviewBundler(store, (b) => void flushed.push(b), {
+      debounceMs: 1_000,
+      maxBundleSize: 2,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+
+    for (let i = 0; i < 5; i++) {
+      await bundler.pushCiFailure(PR_URL, PR_ID, ciFailure(`gha:${i}:tests`));
+    }
+    await clock.advance(2_000);
+    expect(flushed[0]?.ciFailures).toHaveLength(2);
+  });
+});

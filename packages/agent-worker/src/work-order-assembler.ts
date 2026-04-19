@@ -215,7 +215,8 @@ export async function assembleWorkOrder(
 
   // 6a. Attach review context when re-dispatching against an existing PR. The
   // plugin's prompt builder renders it into a prioritised TODO list for the
-  // agent to address.
+  // agent to address. Carries CI failures (PR 2.5) alongside reviews so a
+  // single dispatch can fix both at once.
   if (jobData.reviewContext !== undefined) {
     workOrder.reviewContext = {
       iteration: jobData.reviewContext.iteration,
@@ -240,6 +241,23 @@ export async function assembleWorkOrder(
         return entry;
       }),
     };
+    const ciFailures = jobData.reviewContext.bundle.ciFailures;
+    if (ciFailures !== undefined && ciFailures.length > 0) {
+      type CiFailureEntry = NonNullable<
+        NonNullable<WorkOrder['reviewContext']>['ciFailures']
+      >[number];
+      workOrder.reviewContext.ciFailures = ciFailures.map((f) => {
+        const entry: CiFailureEntry = {
+          workflowName: f.workflowName,
+          jobName: f.jobName,
+          conclusion: f.conclusion,
+          completedAt: f.completedAt,
+        };
+        if (f.logsUrl !== undefined) entry.logsUrl = f.logsUrl;
+        if (f.summary !== undefined) entry.summary = f.summary;
+        return entry;
+      });
+    }
   }
 
   return workOrder;

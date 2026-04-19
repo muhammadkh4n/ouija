@@ -225,7 +225,11 @@ async function handleGitHubWebhook(
   const ghEvent = request.headers['x-github-event'] as string | undefined;
   const event = normalizeGitHubWebhook(ghEvent ?? '', body);
   if (event) {
-    if (event.topic === 'git.pr.review.submitted' || event.topic === 'git.pr.comment.posted') {
+    if (
+      event.topic === 'git.pr.review.submitted' ||
+      event.topic === 'git.pr.comment.posted' ||
+      event.topic === 'git.ci.failed'
+    ) {
       if (opts.eventBus === undefined) {
         request.log.info(
           { ghEvent, externalEventId },

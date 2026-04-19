@@ -105,3 +105,90 @@ describe('buildPrompt — review loop iteration', () => {
     expect(prompt).not.toContain('open a pull request against the base branch');
   });
 });
+
+describe('buildPrompt — CI failures in reviewContext', () => {
+  const baseCtx = {
+    iteration: 2,
+    prUrl: 'https://github.com/acme/backend/pull/42',
+    prId: 'acme/backend#42',
+    reviews: [],
+    comments: [],
+  };
+
+  it('renders a CI failures section above reviews when ciFailures is populated', () => {
+    const wo: WorkOrder = {
+      ...baseWorkOrder(),
+      reviewContext: {
+        ...baseCtx,
+        ciFailures: [
+          {
+            workflowName: 'CI',
+            jobName: 'unit-tests',
+            conclusion: 'failure',
+            logsUrl: 'https://github.com/acme/backend/actions/runs/9900/job/8800',
+            summary: '3 tests failed in auth.test.ts',
+            completedAt: '2026-04-21T09:12:34Z',
+          },
+        ],
+      },
+    };
+    const prompt = buildPrompt(wo);
+    expect(prompt).toContain('### ❌ Failing CI (fix these BEFORE re-running)');
+    expect(prompt).toContain('**CI / unit-tests** (failure)');
+    expect(prompt).toContain('logs: https://github.com/acme/backend/actions');
+    expect(prompt).toContain('3 tests failed');
+  });
+
+  it('renders multiple CI failures as a bullet list', () => {
+    const wo: WorkOrder = {
+      ...baseWorkOrder(),
+      reviewContext: {
+        ...baseCtx,
+        ciFailures: [
+          { workflowName: 'CI', jobName: 'unit', conclusion: 'failure', completedAt: '2026-04-21T09:00:00Z' },
+          { workflowName: 'CI', jobName: 'lint', conclusion: 'timed_out', completedAt: '2026-04-21T09:05:00Z' },
+        ],
+      },
+    };
+    const prompt = buildPrompt(wo);
+    expect(prompt).toContain('**CI / unit** (failure)');
+    expect(prompt).toContain('**CI / lint** (timed out)');
+  });
+
+  it('omits the CI section when ciFailures is absent', () => {
+    const wo: WorkOrder = {
+      ...baseWorkOrder(),
+      reviewContext: {
+        ...baseCtx,
+        reviews: [
+          {
+            reviewerLogin: 'human',
+            state: 'changes_requested',
+            body: 'fix',
+            submittedAt: '2026-04-21T09:00:00Z',
+          },
+        ],
+      },
+    };
+    const prompt = buildPrompt(wo);
+    expect(prompt).not.toContain('Failing CI');
+    expect(prompt).toContain('**@human**');
+  });
+
+  it('renders CI failures even when reviews and comments are empty (CI-only re-dispatch)', () => {
+    const wo: WorkOrder = {
+      ...baseWorkOrder(),
+      reviewContext: {
+        ...baseCtx,
+        ciFailures: [
+          { workflowName: 'CI', jobName: 'unit', conclusion: 'failure', completedAt: '2026-04-21T09:00:00Z' },
+        ],
+      },
+    };
+    const prompt = buildPrompt(wo);
+    expect(prompt).toContain('Failing CI');
+    expect(prompt).toContain('Review feedback (iteration 2)');
+    expect(prompt).not.toContain('### Reviews');
+    expect(prompt).not.toContain('### Inline + conversation comments');
+  });
+});

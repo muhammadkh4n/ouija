@@ -375,3 +375,82 @@ describe('normalizeWebhook — review loop events', () => {
     });
   });
 });
+
+// ---- CI failure loop ----
+
+describe('normalizeWebhook — CI failure events', () => {
+  const checkRunFailure = loadFixture('check-run-failure.json');
+  const checkRunSuccess = loadFixture('check-run-success.json');
+  const checkRunNoPr = loadFixture('check-run-no-pr.json');
+  const workflowRunFailure = loadFixture('workflow-run-failure.json');
+
+  describe('check_run / completed', () => {
+    it('emits git.ci.failed on a failing check', () => {
+      const event = normalizeWebhook('check_run', checkRunFailure) as OuijaEvent<'git.ci.failed'>;
+      expect(event.topic).toBe('git.ci.failed');
+      expect(event.payload.prUrl).toBe('https://github.com/acme/backend/pull/42');
+      expect(event.payload.prId).toBe('acme/backend#42');
+      expect(event.payload.conclusion).toBe('failure');
+      expect(event.payload.jobName).toBe('unit-tests');
+      expect(event.payload.provider).toBe('github-actions');
+      expect(event.payload.headSha).toBe('abc1234deadbeef5678');
+      expect(event.payload.logsUrl).toContain('actions/runs');
+      expect(event.payload.summary).toContain('auth.test.ts');
+    });
+
+    it('uses a dedupe-friendly checkId built from the run id + job name', () => {
+      const event = normalizeWebhook('check_run', checkRunFailure) as OuijaEvent<'git.ci.failed'>;
+      expect(event.payload.checkId).toBe('github-actions:8800123456:unit-tests');
+    });
+
+    it('ignores successful runs', () => {
+      expect(normalizeWebhook('check_run', checkRunSuccess)).toBeNull();
+    });
+
+    it('ignores non-completed actions', () => {
+      const running = {
+        ...(checkRunFailure as Record<string, unknown>),
+        action: 'created',
+      };
+      expect(normalizeWebhook('check_run', running)).toBeNull();
+    });
+
+    it('drops check runs with no attached PR (fork pushes, cross-repo)', () => {
+      expect(normalizeWebhook('check_run', checkRunNoPr)).toBeNull();
+    });
+
+    it('maps timed_out and action_required conclusions through', () => {
+      for (const conclusion of ['timed_out', 'action_required'] as const) {
+        const patched = JSON.parse(JSON.stringify(checkRunFailure)) as Record<string, unknown>;
+        (patched['check_run'] as Record<string, unknown>)['conclusion'] = conclusion;
+        const event = normalizeWebhook('check_run', patched) as OuijaEvent<'git.ci.failed'>;
+        expect(event.payload.conclusion).toBe(conclusion);
+      }
+    });
+
+    it('drops neutral / skipped / cancelled conclusions (not a failure signal)', () => {
+      for (const conclusion of ['neutral', 'skipped', 'cancelled', 'stale']) {
+        const patched = JSON.parse(JSON.stringify(checkRunFailure)) as Record<string, unknown>;
+        (patched['check_run'] as Record<string, unknown>)['conclusion'] = conclusion;
+        expect(normalizeWebhook('check_run', patched)).toBeNull();
+      }
+    });
+  });
+
+  describe('workflow_run / completed', () => {
+    it('emits git.ci.failed on failing workflow runs', () => {
+      const event = normalizeWebhook('workflow_run', workflowRunFailure) as OuijaEvent<'git.ci.failed'>;
+      expect(event.topic).toBe('git.ci.failed');
+      expect(event.payload.workflowName).toBe('CI');
+      expect(event.payload.conclusion).toBe('failure');
+      expect(event.payload.logsUrl).toContain('/logs');
+      expect(event.payload.checkId).toBe('github-actions:workflow:7700999000');
+    });
+
+    it('ignores non-failure conclusions', () => {
+      const success = JSON.parse(JSON.stringify(workflowRunFailure)) as Record<string, unknown>;
+      (success['workflow_run'] as Record<string, unknown>)['conclusion'] = 'success';
+      expect(normalizeWebhook('workflow_run', success)).toBeNull();
+    });
+  });
+});
