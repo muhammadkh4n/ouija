@@ -10,7 +10,11 @@ export async function loadConfig(configPath: string): Promise<OuijaConfig> {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      throw new Error(`Config file not found: ${configPath}`);
+      // Preserve the `code` so callers (e.g. server/index.ts) can detect
+      // "config missing, fall back to env-var defaults" vs any other error.
+      const wrapped = new Error(`Config file not found: ${configPath}`);
+      (wrapped as NodeJS.ErrnoException).code = 'ENOENT';
+      throw wrapped;
     }
     throw err;
   }

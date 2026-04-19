@@ -92,6 +92,17 @@ COPY --from=build --chown=node:node /app/packages/plugin-agent-claude/dist ./pac
 COPY --from=build --chown=node:node /app/packages/plugin-agent-claude/package.json ./packages/plugin-agent-claude/package.json
 COPY --from=build --chown=node:node /app/packages/plugin-notify-telegram/dist ./packages/plugin-notify-telegram/dist/
 COPY --from=build --chown=node:node /app/packages/plugin-notify-telegram/package.json ./packages/plugin-notify-telegram/package.json
+# @ouija-dev/config is an import target of the server (validateAgentProfile,
+# loadConfig, resolveRepo). Without it, the server crashes on boot with
+# ERR_MODULE_NOT_FOUND from packages/server/dist/routes/agents.js.
+COPY --from=build --chown=node:node /app/packages/config/dist ./packages/config/dist/
+COPY --from=build --chown=node:node /app/packages/config/package.json ./packages/config/package.json
+# plugin-fizzy + plugin-engram are loaded dynamically at runtime when the
+# corresponding env vars are set. Missing = silent "plugin unavailable" path.
+COPY --from=build --chown=node:node /app/packages/plugin-fizzy/dist ./packages/plugin-fizzy/dist/
+COPY --from=build --chown=node:node /app/packages/plugin-fizzy/package.json ./packages/plugin-fizzy/package.json
+COPY --from=build --chown=node:node /app/packages/plugin-engram/dist ./packages/plugin-engram/dist/
+COPY --from=build --chown=node:node /app/packages/plugin-engram/package.json ./packages/plugin-engram/package.json
 COPY --from=build --chown=node:node /app/packages/server/dist  ./packages/server/dist/
 COPY --from=build --chown=node:node /app/packages/server/package.json ./packages/server/package.json
 

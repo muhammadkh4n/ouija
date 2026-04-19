@@ -105,3 +105,39 @@ jobs:
           print(f"services.ouija.image = {image}")
           print("fresh-install compose validates ✓")
           PY
+
+      # Actually boot the server container against Postgres + Redis and curl
+      # /healthz. Catches missing-package-in-image bugs that the config-only
+      # check above doesn't see (e.g. server imports @ouija-dev/config but
+      # Dockerfile forgot to COPY packages/config/ into the production stage).
+      - name: Build local image for boot smoke
+        run: docker build -t ouija:ci -f docker/Dockerfile .
+
+      - name: Boot server + hit /healthz
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/ouija-fresh"
+          # Point the compose at the locally-built image so we don't need
+          # a registry pull.
+          export OUIJA_IMAGE=ouija:ci
+          docker compose \
+            --project-directory . \
+            -f docker/docker-compose.ouija.yml \
+            up -d
+          # Give the container up to 60s to start + migrate. /healthz is
+          # served by the same Fastify app that handles dispatches, so a
+          # 200 here proves the entire import graph is resolvable.
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:4000/healthz >/dev/null 2>&1; then
+              echo "server healthy after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          if ! curl -sf http://localhost:4000/healthz; then
+            echo "::error::server failed to become healthy — dumping logs"
+            docker compose --project-directory . -f docker/docker-compose.ouija.yml logs ouija
+            exit 1
+          fi
+          echo ""
+          docker compose --project-directory . -f docker/docker-compose.ouija.yml down -v
