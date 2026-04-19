@@ -33,6 +33,7 @@ import type {
   BoardId,
   ColumnId,
   DispatchId,
+  ReviewBundle,
 } from '@ouija-dev/types';
 import {
   instanceId as makeInstanceId,
@@ -388,6 +389,15 @@ export class Orchestrator {
           workOrderDescription: String(effect.payload['workOrderDescription'] ?? ''),
           dispatchedAt: new Date().toISOString(),
         };
+        // On review-loop iterations, the transition handler attaches the
+        // aggregated reviewer feedback as `reviewContext` on the side effect.
+        // Forward it to the worker so the WorkOrder prompt includes it.
+        const reviewContext = effect.payload['reviewContext'] as
+          | AgentDispatchJobData['reviewContext']
+          | undefined;
+        if (reviewContext !== undefined) {
+          dispatchJobData.reviewContext = reviewContext;
+        }
         await this.jobQueue.enqueue(QUEUE_NAMES.agentDispatch, dispatchJobData, {
           jobId: effect.idempotencyKey,
         });
@@ -820,6 +830,129 @@ export class Orchestrator {
       outcome.sideEffects.map((effect) =>
         this._executeSideEffect(effect, instance).catch((err) => {
           this.logger.error('processStallDetected: side effect failed', {
+            effectType: effect.type,
+            instanceId: instanceIdStr,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }),
+      ),
+    );
+  }
+
+  /**
+   * Review loop entry point. Called by the server wiring when the bundler
+   * finishes draining its debounce window for a PR. Resolves the pipeline
+   * instance via pr_instance_index, then drives the pr_review_received
+   * trigger through the standard transition → persist → side-effect pipeline.
+   *
+   * Returns silently if:
+   *   - pr_instance_index has no mapping (pipeline opened its PR before
+   *     migration 004 was applied, or the mapping was manually cleared)
+   *   - the instance was deleted
+   *   - the pipeline is no longer in awaiting_review (the transition handler
+   *     rejects and we log the reason)
+   */
+  async processReviewBundle(bundle: ReviewBundle): Promise<void> {
+    if (this.db.prInstances === undefined) {
+      this.logger.info('processReviewBundle: pr_instance_index missing; review loop inert', {
+        prUrl: bundle.prUrl,
+      });
+      return;
+    }
+
+    const instanceIdStr = await this.db.prInstances.findInstanceByPrUrl(bundle.prUrl);
+    if (instanceIdStr === undefined) {
+      this.logger.info('processReviewBundle: no instance mapped to PR', { prUrl: bundle.prUrl });
+      return;
+    }
+
+    const instance = await this.db.pipelines.findById(makeInstanceId(instanceIdStr));
+    if (instance === undefined) {
+      this.logger.warn('processReviewBundle: instance vanished', {
+        instanceId: instanceIdStr,
+        prUrl: bundle.prUrl,
+      });
+      return;
+    }
+
+    const config = await this._getConfig(instance.boardId);
+    if (config === undefined) {
+      this.logger.warn('processReviewBundle: no pipeline config for board', {
+        boardId: instance.boardId,
+      });
+      return;
+    }
+
+    const trigger: PipelineTrigger = {
+      type: 'pr_review_received',
+      prUrl: bundle.prUrl,
+      prId: bundle.prId,
+      bundle,
+    };
+
+    const outcome = transition(instance.state, trigger, config);
+    if (outcome.rejected) {
+      this.logger.info('processReviewBundle: transition rejected', {
+        instanceId: instanceIdStr,
+        reason: outcome.reason,
+      });
+      return;
+    }
+
+    // ---- Persist state + append synth events ----
+    const existingEvents = await this.db.pipelineEvents.listByInstance(instance.id);
+    const seqBase = existingEvents.length;
+    const now = new Date().toISOString();
+    const updatedInstance: PipelineInstance = {
+      ...instance,
+      state: outcome.nextState,
+      updatedAt: now,
+    };
+
+    const eventRecords = outcome.events.map((e, i) => ({
+      id: randomUUID(),
+      instanceId: instance.id,
+      topic: e.topic,
+      payload: e.payload,
+      occurredAt: now,
+      sequence: seqBase + i,
+    }));
+
+    if (outcome.nextState.status !== instance.state.status) {
+      eventRecords.push({
+        id: randomUUID(),
+        instanceId: instance.id,
+        topic: 'pipeline.transitioned',
+        payload: {
+          instanceId: instance.id,
+          fromStatus: instance.state.status,
+          toStatus: outcome.nextState.status,
+          trigger: trigger.type,
+        },
+        occurredAt: now,
+        sequence: seqBase + eventRecords.length,
+      });
+    }
+
+    await this.db.transaction(async (uow) => {
+      await uow.pipelines.save(updatedInstance);
+      if (eventRecords.length > 0) {
+        await uow.pipelineEvents.appendMany(eventRecords);
+      }
+    });
+
+    this.logger.info('processReviewBundle: transition persisted', {
+      instanceId: instanceIdStr,
+      prevStatus: instance.state.status,
+      nextStatus: outcome.nextState.status,
+      reviews: bundle.reviews.length,
+      comments: bundle.comments.length,
+    });
+
+    await Promise.all(
+      outcome.sideEffects.map((effect) =>
+        this._executeSideEffect(effect, instance).catch((err) => {
+          this.logger.error('processReviewBundle: side effect failed', {
             effectType: effect.type,
             instanceId: instanceIdStr,
             error: err instanceof Error ? err.message : String(err),
