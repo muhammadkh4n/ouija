@@ -232,3 +232,146 @@ describe('verifySignature / computeSignature', () => {
     expect(verifySignature(secret, body, hexOnly)).toBe(false);
   });
 });
+
+// ---- Review loop: submitted reviews + PR comments ----
+
+describe('normalizeWebhook — review loop events', () => {
+  const reviewPayload = loadFixture('pr-review-submitted.json');
+  const reviewCommentPayload = loadFixture('pr-review-comment-created.json');
+  const issueCommentPrPayload = loadFixture('issue-comment-on-pr.json');
+  const issueCommentIssuePayload = loadFixture('issue-comment-on-issue.json');
+
+  describe('pull_request_review / submitted → git.pr.review.submitted', () => {
+    it('emits a git.pr.review.submitted event with normalised fields', () => {
+      const event = normalizeWebhook('pull_request_review', reviewPayload) as OuijaEvent<'git.pr.review.submitted'>;
+      expect(event).not.toBeNull();
+      expect(event.topic).toBe('git.pr.review.submitted');
+      expect(event.payload.prUrl).toBe('https://github.com/acme/backend/pull/42');
+      expect(event.payload.prId).toBe('acme/backend#42');
+      expect(event.payload.reviewId).toBe('2800123456');
+      expect(event.payload.state).toBe('changes_requested');
+      expect(event.payload.reviewerLogin).toBe('coderabbitai[bot]');
+      expect(event.payload.body).toContain('Two nitpicks');
+      expect(event.payload.submittedAt).toBe('2026-04-20T14:32:10Z');
+    });
+
+    it('drops PENDING reviews (not yet submitted)', () => {
+      const pending = {
+        ...(reviewPayload as Record<string, unknown>),
+        review: {
+          ...((reviewPayload as { review: Record<string, unknown> }).review),
+          state: 'PENDING',
+        },
+      };
+      expect(normalizeWebhook('pull_request_review', pending)).toBeNull();
+    });
+
+    it('drops DISMISSED reviews (retraction, not a new signal)', () => {
+      const dismissed = {
+        ...(reviewPayload as Record<string, unknown>),
+        review: {
+          ...((reviewPayload as { review: Record<string, unknown> }).review),
+          state: 'DISMISSED',
+        },
+      };
+      expect(normalizeWebhook('pull_request_review', dismissed)).toBeNull();
+    });
+
+    it('drops non-submitted actions (e.g. edited, dismissed)', () => {
+      const edited = {
+        ...(reviewPayload as Record<string, unknown>),
+        action: 'edited',
+      };
+      expect(normalizeWebhook('pull_request_review', edited)).toBeNull();
+    });
+
+    it('normalises all three valid states', () => {
+      for (const [raw, expected] of [
+        ['APPROVED', 'approved'],
+        ['COMMENTED', 'commented'],
+        ['CHANGES_REQUESTED', 'changes_requested'],
+      ] as const) {
+        const patched = {
+          ...(reviewPayload as Record<string, unknown>),
+          review: {
+            ...((reviewPayload as { review: Record<string, unknown> }).review),
+            state: raw,
+          },
+        };
+        const event = normalizeWebhook('pull_request_review', patched) as OuijaEvent<'git.pr.review.submitted'>;
+        expect(event.payload.state).toBe(expected);
+      }
+    });
+  });
+
+  describe('pull_request_review_comment / created → git.pr.comment.posted', () => {
+    it('emits git.pr.comment.posted with path + line for inline comments', () => {
+      const event = normalizeWebhook(
+        'pull_request_review_comment',
+        reviewCommentPayload,
+      ) as OuijaEvent<'git.pr.comment.posted'>;
+      expect(event.topic).toBe('git.pr.comment.posted');
+      expect(event.payload.commentId).toBe('1900987654');
+      expect(event.payload.path).toBe('src/auth/email-validator.ts');
+      expect(event.payload.line).toBe(23);
+      expect(event.payload.reviewerLogin).toBe('coderabbitai[bot]');
+      expect(event.payload.body).toContain('RFC 5321');
+    });
+
+    it('omits line when GitHub sends null (multi-line or file-level comment)', () => {
+      const nullLine = {
+        ...(reviewCommentPayload as Record<string, unknown>),
+        comment: {
+          ...((reviewCommentPayload as { comment: Record<string, unknown> }).comment),
+          line: null,
+        },
+      };
+      const event = normalizeWebhook(
+        'pull_request_review_comment',
+        nullLine,
+      ) as OuijaEvent<'git.pr.comment.posted'>;
+      expect(event.payload.line).toBeUndefined();
+      expect(event.payload.path).toBe('src/auth/email-validator.ts');
+    });
+
+    it('drops actions other than created', () => {
+      const edited = {
+        ...(reviewCommentPayload as Record<string, unknown>),
+        action: 'edited',
+      };
+      expect(normalizeWebhook('pull_request_review_comment', edited)).toBeNull();
+    });
+  });
+
+  describe('issue_comment / created (on PR) → git.pr.comment.posted', () => {
+    it('emits git.pr.comment.posted for PR-attached issue comments', () => {
+      const event = normalizeWebhook(
+        'issue_comment',
+        issueCommentPrPayload,
+      ) as OuijaEvent<'git.pr.comment.posted'>;
+      expect(event).not.toBeNull();
+      expect(event.topic).toBe('git.pr.comment.posted');
+      expect(event.payload.prUrl).toBe('https://github.com/acme/backend/pull/42');
+      expect(event.payload.prId).toBe('acme/backend#42');
+      expect(event.payload.reviewerLogin).toBe('muhammadkh4n');
+      expect(event.payload.body).toContain('@rex-coder');
+      // Top-level comment — no path/line
+      expect(event.payload.path).toBeUndefined();
+      expect(event.payload.line).toBeUndefined();
+    });
+
+    it('ignores comments on plain issues (no pull_request field)', () => {
+      expect(normalizeWebhook('issue_comment', issueCommentIssuePayload)).toBeNull();
+    });
+  });
+
+  describe('unsupported events', () => {
+    it('returns null for check_run events', () => {
+      expect(normalizeWebhook('check_run', {})).toBeNull();
+    });
+
+    it('returns null for star events', () => {
+      expect(normalizeWebhook('star', {})).toBeNull();
+    });
+  });
+});

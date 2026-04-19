@@ -37,6 +37,13 @@ export type CloneFn = (repoUrl: string, targetDir: string, baseBranch: string) =
 /** Injectable branch creation function — allows tests to avoid real git operations. */
 export type BranchFn = (dir: string, branchName: string) => Promise<void>;
 
+/**
+ * Injectable branch-reuse function. Distinct from BranchFn because "check out
+ * an existing remote branch" and "create a new local branch" use different
+ * git command sequences and we want tests to differentiate.
+ */
+export type ReuseBranchFn = (dir: string, branchName: string) => Promise<void>;
+
 /** Injectable worktree creation function — allows tests to avoid real git operations. */
 export type WorktreeFn = (repoPath: string, worktreeDir: string, branchName: string) => Promise<void>;
 
@@ -56,6 +63,11 @@ export interface LocalWorkspaceOptions {
    * Defaults to `git checkout -b`.
    */
   branchFn?: BranchFn;
+  /**
+   * Custom branch-reuse implementation — checks out an existing branch from
+   * the remote. Defaults to `git fetch` + `git checkout -B <branch> origin/<branch>`.
+   */
+  reuseBranchFn?: ReuseBranchFn;
   /**
    * Custom worktree creation implementation — useful for testing.
    * Defaults to `git worktree add`.
@@ -110,6 +122,31 @@ async function defaultBranchFn(dir: string, branchName: string): Promise<void> {
   );
 }
 
+/**
+ * Check out an existing remote branch in a workspace that was cloned on
+ * baseBranch. Used by the review loop to re-enter an open PR.
+ *
+ * Sequence: fetch the single branch shallowly, then check it out tracking the
+ * fetched ref. A subsequent `git push` on the agent side updates the PR.
+ * If the fetch fails (branch doesn't exist on remote, auth error, etc.) the
+ * caller logs and falls back to fresh-branch behaviour so the pipeline still
+ * makes progress.
+ */
+async function defaultReuseBranchFn(dir: string, branchName: string): Promise<void> {
+  // Fetch only the branch we want at depth 1 — keeps the operation fast even
+  // on monorepos.
+  await execFileAsync(
+    'git',
+    ['fetch', '--depth', '1', 'origin', branchName],
+    { cwd: dir, env: buildGitEnv() as NodeJS.ProcessEnv },
+  );
+  await execFileAsync(
+    'git',
+    ['checkout', '-B', branchName, `origin/${branchName}`],
+    { cwd: dir, env: buildGitEnv() as NodeJS.ProcessEnv },
+  );
+}
+
 async function defaultWorktreeFn(repoPath: string, worktreeDir: string, branchName: string): Promise<void> {
   await execFileAsync(
     'git',
@@ -136,6 +173,7 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
   private readonly baseDir: string;
   private readonly cloneFn: CloneFn;
   private readonly branchFn: BranchFn;
+  private readonly reuseBranchFn: ReuseBranchFn;
   private readonly worktreeFn: WorktreeFn;
   private readonly worktreeRemoveFn: WorktreeRemoveFn;
 
@@ -149,6 +187,7 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
     this.baseDir = options.baseDir ?? os.tmpdir();
     this.cloneFn = options.cloneFn ?? defaultCloneFn;
     this.branchFn = options.branchFn ?? defaultBranchFn;
+    this.reuseBranchFn = options.reuseBranchFn ?? defaultReuseBranchFn;
     this.worktreeFn = options.worktreeFn ?? defaultWorktreeFn;
     this.worktreeRemoveFn = options.worktreeRemoveFn ?? defaultWorktreeRemoveFn;
   }
@@ -174,7 +213,21 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
       } else {
         // Clone mode — shallow clone from a remote URL.
         await this.cloneFn(spec.repoUrl!, tempDir, spec.baseBranch);
-        await this.branchFn(tempDir, spec.featureBranch);
+        if (spec.reuseFeatureBranch === true) {
+          // Review-loop iteration: the featureBranch already exists on the
+          // remote (the agent pushed to it last time). Check it out so
+          // follow-up commits land on the same PR.
+          try {
+            await this.reuseBranchFn(tempDir, spec.featureBranch);
+          } catch {
+            // Fall back to creating the branch fresh if reuse fails — better
+            // to dispatch a new branch than stall the pipeline. The PR won't
+            // auto-update but the agent can still push a new branch.
+            await this.branchFn(tempDir, spec.featureBranch);
+          }
+        } else {
+          await this.branchFn(tempDir, spec.featureBranch);
+        }
       }
     } catch (err) {
       // Cleanup on failure — leave no dangling directories.

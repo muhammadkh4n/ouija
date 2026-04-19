@@ -186,6 +186,14 @@ export async function assembleWorkOrder(
   if (deps.claudeHome) metadata['claudeHome'] = deps.claudeHome;
   if (profile.runner) metadata['runner'] = profile.runner;
 
+  // 5a. Review-loop metadata — on follow-up iterations, record the iteration
+  // number and flag so the plugin's workspace provisioning checks out the
+  // existing branch rather than creating a fresh one.
+  if (jobData.reviewContext !== undefined) {
+    metadata['reviewIteration'] = String(jobData.reviewContext.iteration);
+    metadata['reuseBranch'] = '1';
+  }
+
   // 6. Construct the WorkOrder
   const workOrder: WorkOrder = {
     instanceId: makeInstanceId(jobData.instanceId),
@@ -204,6 +212,35 @@ export async function assembleWorkOrder(
     maxDurationMs: profile.maxDurationMs,
     metadata,
   };
+
+  // 6a. Attach review context when re-dispatching against an existing PR. The
+  // plugin's prompt builder renders it into a prioritised TODO list for the
+  // agent to address.
+  if (jobData.reviewContext !== undefined) {
+    workOrder.reviewContext = {
+      iteration: jobData.reviewContext.iteration,
+      prUrl: jobData.reviewContext.prUrl,
+      prId: String(jobData.reviewContext.prId),
+      reviews: jobData.reviewContext.bundle.reviews.map((r) => ({
+        reviewerLogin: r.reviewerLogin,
+        state: r.state,
+        body: r.body,
+        submittedAt: r.submittedAt,
+      })),
+      comments: jobData.reviewContext.bundle.comments.map((c) => {
+        const entry: WorkOrder['reviewContext'] extends infer T
+          ? T extends { comments: Array<infer C> } ? C : never
+          : never = {
+          reviewerLogin: c.reviewerLogin,
+          body: c.body,
+          postedAt: c.postedAt,
+        };
+        if (c.path !== undefined) entry.path = c.path;
+        if (c.line !== undefined) entry.line = c.line;
+        return entry;
+      }),
+    };
+  }
 
   return workOrder;
 }

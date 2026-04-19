@@ -40,6 +40,37 @@ export interface WorkOrder {
   maxDurationMs: number;
   /** Pass-through for plugin-specific data */
   metadata: Record<string, string>;
+  /**
+   * Review-loop context: present only on iterations 2+. When set, the agent
+   * should check out the existing branch rather than creating a fresh one,
+   * and the system prompt must include the reviewer comments as a
+   * prioritised TODO list.
+   */
+  reviewContext?: ReviewWorkOrderContext;
+}
+
+/**
+ * Subset of the engine's ReviewBundle carried on the WorkOrder. Omits
+ * wire-format details like flushedAt and the full ReviewBundle envelope —
+ * the agent cares about prioritised feedback, not bundler plumbing.
+ */
+export interface ReviewWorkOrderContext {
+  iteration: number;
+  prUrl: string;
+  prId: string;
+  reviews: Array<{
+    reviewerLogin: string;
+    state: 'approved' | 'changes_requested' | 'commented';
+    body: string;
+    submittedAt: string;
+  }>;
+  comments: Array<{
+    reviewerLogin: string;
+    body: string;
+    path?: string;
+    line?: number;
+    postedAt: string;
+  }>;
 }
 
 // ---- Agent status ----

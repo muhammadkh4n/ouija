@@ -21,6 +21,14 @@ export interface WorkspaceSpec {
   baseBranch: string;
   /** Pre-created feature branch the agent will commit to. */
   featureBranch: string;
+  /**
+   * When true, the provider should check out an EXISTING featureBranch from
+   * the remote (pulling latest) instead of creating a new one from baseBranch.
+   * Used by the review loop on iterations 2+ so the agent pushes follow-up
+   * commits to the same PR branch. Providers that can't honour it fall back
+   * to fresh-branch behaviour.
+   */
+  reuseFeatureBranch?: boolean;
   /** Optional resource hints — providers may ignore if unsupported. */
   resources?: {
     cpu?: number;

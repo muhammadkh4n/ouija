@@ -80,16 +80,72 @@ export function buildPrompt(workOrder: WorkOrder): string {
     });
   }
 
+  // Review-loop iteration — render feedback as a prioritised TODO list at the
+  // TOP of the prompt so the agent addresses it before re-reading the card.
+  if (workOrder.reviewContext !== undefined) {
+    sections.push('');
+    sections.push('## Review feedback (iteration ' + workOrder.reviewContext.iteration + ')');
+    sections.push('');
+    sections.push(
+      'A pull request for this task has already been opened at ' +
+        workOrder.reviewContext.prUrl +
+        '. Reviewers have left the feedback below. Your job on this iteration is to ADDRESS EACH POINT and push a follow-up commit to the existing branch. Do NOT open a new PR.',
+    );
+    renderReviewFeedback(workOrder.reviewContext, sections);
+  }
+
   sections.push('');
   sections.push('## Instructions');
-  sections.push(`- Work on branch: ${workOrder.branch}`);
-  sections.push(`- Base branch: ${workOrder.baseBranch}`);
-  sections.push('- Implement the changes described above');
+  if (workOrder.reviewContext !== undefined) {
+    sections.push(`- Check out existing branch: ${workOrder.branch} (pull latest first)`);
+    sections.push(`- Push follow-up commits to the same branch — the PR auto-updates`);
+    sections.push(`- Address each review comment above; reply inline where appropriate`);
+    sections.push(`- Do NOT open a new PR — reuse ${workOrder.reviewContext.prUrl}`);
+  } else {
+    sections.push(`- Work on branch: ${workOrder.branch}`);
+    sections.push(`- Base branch: ${workOrder.baseBranch}`);
+    sections.push('- Implement the changes described above');
+    sections.push('- Commit your changes with clear commit messages');
+    sections.push('- Push the branch and open a pull request against the base branch');
+  }
   sections.push('- Write tests for any new functionality');
-  sections.push('- Commit your changes with clear commit messages');
-  sections.push('- Push the branch and open a pull request against the base branch');
 
   return sections.join('\n');
+}
+
+function renderReviewFeedback(
+  ctx: NonNullable<WorkOrder['reviewContext']>,
+  out: string[],
+): void {
+  if (ctx.reviews.length > 0) {
+    out.push('');
+    out.push('### Reviews');
+    for (const review of ctx.reviews) {
+      const header = `- **@${review.reviewerLogin}** (${review.state.replace('_', ' ')}) — ${review.submittedAt}`;
+      out.push(header);
+      if (review.body.trim().length > 0) {
+        for (const line of review.body.split('\n')) {
+          out.push(`  ${line}`);
+        }
+      }
+    }
+  }
+  if (ctx.comments.length > 0) {
+    out.push('');
+    out.push('### Inline + conversation comments');
+    for (const c of ctx.comments) {
+      const location =
+        c.path !== undefined
+          ? c.line !== undefined
+            ? `${c.path}:${c.line}`
+            : c.path
+          : 'conversation';
+      out.push(`- **@${c.reviewerLogin}** (${location}) — ${c.postedAt}`);
+      for (const line of c.body.split('\n')) {
+        out.push(`  ${line}`);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
