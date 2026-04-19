@@ -15,7 +15,7 @@ services:
     # Prebuilt image from GHCR. Self-hosters who ran `npx @ouija-dev/cli init`
     # pull this; there's no source to build from. Devs with the monorepo can
     # override: `OUIJA_IMAGE=ouija:dev docker compose build && ... up`.
-    image: ${OUIJA_IMAGE:-ghcr.io/muhammadkh4n/ouija:0.3.1}
+    image: ${OUIJA_IMAGE:-ghcr.io/muhammadkh4n/ouija:0.3.2}
     # Keep the build stanza so `docker compose build` works in the monorepo.
     # It's ignored by `up` unless `--build` is passed.
     build:
