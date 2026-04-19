@@ -1,214 +1,207 @@
 # Ouija
 
-Your kanban board is the control plane. AI agents are the engineers.
+**Drag a kanban card. Get a pull request. Then watch the agent iterate on reviewer feedback until it's merged.**
+
+Self-hosted. Runs on your Claude Max subscription. No SaaS middleman.
 
 [![npm version](https://img.shields.io/npm/v/@ouija-dev/cli.svg?label=%40ouija-dev%2Fcli)](https://www.npmjs.com/package/@ouija-dev/cli)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](#)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript)](https://www.typescriptlang.org/)
-[![Tests Passing](https://img.shields.io/badge/tests-770%2B%20passing-green.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-840%2B%20passing-green.svg)](#)
 
-## What is Ouija?
+---
 
-Ouija is a pipeline automation engine that bridges AI agents and kanban boards. When a card is assigned to an agent and moved to "In Progress," the agent automatically clones your repo, writes code, opens a pull request, and advances the card through your workflow. The human stays in control—dragging cards, assigning agents, reviewing PRs—while AI handles the execution.
+## What makes Ouija different
 
-Unlike generic CI/CD systems or coding assistants, Ouija treats your kanban board as the source of truth for work dispatch. Cards are workflows. Columns are actions. Agents are team members.
+Most "AI coding agent" tools stop after the first pull request. A reviewer (CodeRabbit, Copilot, a human) leaves comments, and the loop is over — you have to re-prompt the agent by hand. Ouija keeps iterating:
 
-## How It Works
+1. You drag a card to **In Progress**. Agent clones the repo, writes code, opens a PR. Card moves to **Review**.
+2. A reviewer drops comments. GitHub Actions runs and fails a test. Both land as webhooks.
+3. Ouija **debounces** the bursts (60s window coalesces CodeRabbit's 12 nit-picks + your CI's 3 failures into one bundle), **filters** by per-agent reviewer allowlists, then **re-dispatches** the same agent on the same branch with the feedback rendered as a prioritised TODO list.
+4. Agent pushes follow-up commits. The PR auto-updates. Loop continues — up to a configurable cap — until a human merges.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Kanban Board (Plane / Fizzy)              │
-│  ┌──────────────┬──────────────┬──────────────┬──────────────┐ │
-│  │   Backlog    │  In Progress │  In Review   │     Done     │ │
-│  │              │              │              │              │ │
-│  │  [Card #42]  │  [Card #42]  │              │              │ │
-│  │  "Add login" │ ➔ Assigned   │              │              │ │
-│  │              │   to Rex     │              │              │ │
-│  └──────────────┴──────────────┴──────────────┴──────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-           ▲                          │
-           │                          │ Webhook: Card moved
-           │                          ▼
-           │              ┌──────────────────────┐
-           │              │  Ouija Pipeline      │
-           │              │  Engine              │
-           │              │                      │
-           │              │  1. Parse trigger    │
-           │              │  2. Load config      │
-           │              │  3. Route to agent   │
-           └──────────────┤  4. Dispatch work    │
-                          │                      │
-                          └──────────────────────┘
-                                   │
-                                   ▼
-                          ┌──────────────────────┐
-                          │  Agent Subprocess    │
-                          │  (Claude Code)       │
-                          │                      │
-                          │  1. Clone repo       │
-                          │  2. Write code       │
-                          │  3. Push branch      │
-                          │  4. Open PR          │
-                          │  5. Update card      │
-                          └──────────────────────┘
-```
+You stay in control (drag cards, assign agents, approve merges). The agent iterates until the PR is mergeable.
 
-## Quick Start
+## Why self-hosted
 
-### Prerequisites
+- **Your Claude Max subscription does the work** — no per-token API billing. The agent runs as a subprocess against your `~/.claude/` session.
+- **Your repo never leaves your network.** Ouija clones, pushes, and dispatches inside your infra.
+- **No vendor lock-in.** Swap the Claude runner for Bedrock/Vertex/Foundry/a custom proxy. Swap the kanban backend (Plane, Fizzy, more planned). Swap the storage (Postgres).
+- **Self-hoster ToS disclaimer:** running subscription auth against Claude Code is at your own risk per Anthropic's terms. If you're at scale, switch the runner to API-billed (`runner: sdk`).
 
-- Docker & Docker Compose (24+)
-- Node.js 20+ (only for running the CLI — the server itself builds inside Docker)
-- An Anthropic API key, or the `claude` CLI with an active session
+## How it differs from the alternatives
 
-### 30-second install (recommended)
+| Tool | Runs on | Source of truth | Iterates on reviews | Self-hosted | Licence |
+|---|---|---|---|---|---|
+| **Ouija** | Your Claude Max subscription (or API) | Your kanban board | ✅ (PR 2.5 loop) | ✅ | Apache 2.0 |
+| Devin | Cognition SaaS | Chat | Partial | ❌ | Closed |
+| Cursor Agents | Cursor SaaS | IDE | ❌ | ❌ | Closed |
+| OpenHands | Any LLM | Chat/CLI | ❌ | ✅ | MIT |
+| Copilot Workspace | GitHub SaaS | Issue | ❌ | ❌ | Closed |
+| Aider | Any LLM | CLI | ❌ | ✅ | Apache 2.0 |
 
-Use [`@ouija-dev/cli`](packages/cli/README.md) — no need to clone the repo.
+The niche: **kanban-native + self-hosted + iterative review loop.** Nothing else hits all three today.
+
+---
+
+## Quick start — under 15 minutes on a fresh machine
 
 ```bash
 mkdir my-ouija && cd my-ouija
-npx @ouija-dev/cli init      # generates secrets, copies docker/ + config
-$EDITOR ouija.config.yaml    # set your repo URL and prompt
-npx @ouija-dev/cli up        # starts Ouija + Postgres + Redis
-npx @ouija-dev/cli doctor    # preflight audit
+npx @ouija-dev/cli init --preset self-hosted-plane    # generates secrets, docker-compose, config
+npx @ouija-dev/cli up                                  # brings up Plane + Ouija + Postgres + Redis
+npx @ouija-dev/cli doctor                              # preflight audit (Claude CLI, webhook, auth)
 ```
 
-Ouija now listens on `http://localhost:4000`. The dashboard lives at
-[`http://localhost:4000/dashboard`](http://localhost:4000/dashboard) — paste
-your `OUIJA_API_KEY` on first visit to sign in.
+Open [`http://localhost:4000/dashboard`](http://localhost:4000/dashboard), paste the `OUIJA_API_KEY` the CLI printed, and you're in. Create your first agent via the **Agents** form — no YAML editing required.
 
-Point your Plane/Fizzy webhook at
-`http://<ouija-host>:4000/hooks/plane/$PLANE_WEBHOOK_SECRET` (use
-[Tailscale Funnel](https://tailscale.com/kb/1223/funnel) or
-[ngrok](https://ngrok.com/) to expose it if your kanban board lives in the cloud).
+Point your Plane (or Fizzy) webhook at `http://<ouija-host>:4000/hooks/plane/$PLANE_WEBHOOK_SECRET`. If your kanban is in the cloud, expose with [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) or [ngrok](https://ngrok.com/).
 
-CLI command reference:
+Drag a card to **In Progress** — the dashboard's live indicator turns green when the first webhook lands. Card moves to Review when the PR opens. Loop runs until you merge.
+
+### Presets
+
+| Preset | Use when |
+|---|---|
+| `self-hosted-plane` | You want the bundled Plane kanban (~5 GB RAM). |
+| `self-hosted-fizzy` | You prefer Fizzy (Basecamp fork, lighter). |
+| `byo-kanban` | You already have Plane/Fizzy running — point Ouija at it. |
+
+CLI reference:
 
 ```bash
-ouija init [-y]               # bootstrap a project
-ouija up [--stack S]          # start stack (S = ouija|full|fizzy)
-ouija down [-v]               # stop stack (-v also removes volumes)
-ouija logs [service]          # tail compose logs
-ouija status                  # docker compose ps
-ouija doctor                  # preflight audit
+ouija init [--preset P]      # bootstrap; P = self-hosted-plane | self-hosted-fizzy | byo-kanban
+ouija up [--stack S]         # start stack; S = ouija | full | fizzy
+ouija down [-v]              # stop; -v also removes volumes
+ouija logs [service]         # tail compose logs
+ouija status                 # docker compose ps
+ouija doctor                 # preflight audit
 ```
 
-### Alternative: Full stack with self-hosted Plane
+Full walkthrough: [docs/getting-started.md](docs/getting-started.md).
 
-If you don't already have a Plane workspace, start the bundled Plane.
-**Requires ~5GB RAM.**
+---
 
-```bash
-npx @ouija-dev/cli init
-npx @ouija-dev/cli up --stack full
-# Then open http://localhost:80, sign up, create a workspace,
-# generate an API token, paste it into .env, and:
-npx @ouija-dev/cli up --stack full    # restart picks up new .env
+## The review loop in detail
+
+This is the headline feature. What makes it different from "agent opens a PR and stops":
+
+**Signals it reacts to (all dedupes per GitHub ID, all debounce together):**
+
+- `pull_request_review` with state `changes_requested` | `commented` | `approved` — CodeRabbit, Copilot reviewer, Claude review action, human reviews.
+- `pull_request_review_comment` — inline code comments.
+- `issue_comment` on a PR — top-level thread replies, including `@agent-name` mentions.
+- `check_run` + `workflow_run` failures — GitHub Actions test/lint/build failures (failure / timed_out / action_required).
+
+**Controls, per agent:**
+
+- `enabled` — master switch (opt a single agent out entirely).
+- `triggerReviewers` — allowlist (only listed logins trigger the loop; useful to pin to `coderabbitai[bot]` + `copilot-pull-request-reviewer[bot]`).
+- `ignoreReviewers` — blocklist (drop dependabot, noisy-reviewer).
+- `ignoreWorkflows` — skip CI failures from specific workflow names (flaky nightly runs, perf benchmarks).
+- `maxIterations` — cap (default 5) before the pipeline transitions to `stalled` for human attention.
+
+**Safety defaults:**
+
+- The agent's own GitHub login is auto-ignored (prevents self-loops).
+- Human merge always ends the loop (`pull_request.closed` with `merged: true`).
+- `human_cancel` works from any state as an escape hatch.
+- Max-iteration cap guarantees bounded cost even under pathological reviewer behaviour.
+
+All configurable in the dashboard **Agents → Review loop** section. No YAML edits.
+
+---
+
+## Architecture
+
+Ouija is a TypeScript monorepo (Turborepo + npm workspaces).
+
+```
+  Card moved         agent.work.*          pull_request_review
+  webhook            callback              pull_request_review_comment
+     │                   │                 issue_comment
+     │                   │                 check_run / workflow_run
+     ▼                   ▼                      │
+┌─────────────────────────────────────────┐     │
+│            Fastify (REST + webhooks)    │     │
+│            │              │             │     │
+│            ▼              ▼             │     ▼
+│  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+│  │ Orchestrator │   │ Review loop  │   │ ReviewBundler│
+│  │  (pure SM)   │◄──┤  handler     │◄──┤  (60s debounce
+│  │              │   │              │   │   + dedupe)  │
+│  └──────────────┘   └──────────────┘   └──────────────┘
+│        │                                     ▲
+│        ▼                                     │
+│   state: PipelineState  (Postgres JSONB)     │
+│   awaiting_review ──pr_review_received──►    │
+│   dispatching  ──► running ──► awaiting_review
+└──────────────┬──────────────────────────────┘
+               ▼
+        BullMQ agent-dispatch queue
+               ▼
+        Claude Code CLI subprocess
+        (stream-json runner, subscription auth)
+               ▼
+        git push → PR auto-updates
 ```
 
-### Alternative: Clone for hacking
+The pipeline state machine is a pure function — zero I/O — so the full review-loop logic is unit-testable without mocks.
 
-If you want to contribute, modify the engine, or run without Docker:
+| Package | Purpose |
+|---|---|
+| **types** | Shared interfaces, event schemas, API contracts |
+| **engine** | Pipeline state machine + review bundler (pure, no I/O) |
+| **bus** | EventBus + JobQueue abstractions (BullMQ) |
+| **plugin-sdk** | BasePlugin, config validation, lifecycle |
+| **plugin-plane** | Plane CE kanban integration |
+| **plugin-fizzy** | Fizzy (Basecamp) kanban integration |
+| **plugin-github** | GitHub git ops + 6 webhook event types |
+| **plugin-agent-claude** | Claude Code dispatcher (local / stream-json / sdk runners) |
+| **plugin-notify-telegram** | Telegram notifications |
+| **plugin-engram** | Cross-run agent memory via [Engram](https://github.com/muhammadkh4n/engram) |
+| **agent-worker** | Agent subprocess driver |
+| **workspace-local** | Repo workspace management (clone + worktree + branch reuse) |
+| **config** | YAML config loading + ajv validation |
+| **server** | Fastify HTTP server, webhooks, REST API |
+| **cli** | `@ouija-dev/cli` (init, up, down, doctor, logs) |
+| **dashboard** | React SPA at `/dashboard` — pipeline monitoring + agent CRUD |
 
-```bash
-git clone https://github.com/muhammadkh4n/ouija.git
-cd ouija
-npm install
-npm run build
-bash infra/setup.sh
-# Bring your own Postgres + Redis (update OUIJA_DATABASE_URL / OUIJA_REDIS_URL in .env)
-node packages/server/dist/index.js
-```
+---
 
-See [docs/getting-started.md](docs/getting-started.md) for a full walkthrough
-from first clone to first dispatched PR, and
-[packages/cli/README.md](packages/cli/README.md) for the full CLI reference.
-
-## Supported Kanban Backends
-
-Ouija supports any kanban board via plugins:
+## Supported kanban backends
 
 | Backend | Plugin | Status | Notes |
-|---------|--------|--------|-------|
-| **Plane** | `plugin-plane` | Stable | Self-hosted CE, full webhook support |
+|---|---|---|---|
+| **Plane** | `plugin-plane` | Stable | Self-hosted CE, full webhook support, auto-bootstrap |
 | **Fizzy** | `plugin-fizzy` | Stable | Basecamp-powered, REST API based |
 | **Jira** | `plugin-jira` | Planned | REST API + webhooks |
 | **Linear** | `plugin-linear` | Planned | GraphQL API |
 
-### Environment Variables
+Write your own in ~200 lines implementing `KanbanPlugin`. See `packages/plugin-sdk/README.md`.
 
-```bash
-# Plane
-PLANE_BASE_URL=http://plane-aio:80
-PLANE_API_TOKEN=<your-token>
-PLANE_WORKSPACE_SLUG=my-workspace
+---
 
-# Fizzy
-FIZZY_BASE_URL=http://fizzy.local:3000
-FIZZY_API_KEY=<your-key>
+## Agent configuration
 
-# Ouija Core
-OUIJA_SECRET_KEY=<32+ chars>
-OUIJA_DATABASE_URL=postgres://user:pass@host:5432/ouija_db
-OUIJA_REDIS_URL=redis://host:6379
-```
-
-## Architecture
-
-Ouija is built as a TypeScript monorepo (Turborepo + npm workspaces):
-
-| Package | Purpose |
-|---------|---------|
-| **types** | Shared TypeScript interfaces, event schemas, API contracts |
-| **engine** | Pipeline state machine + transition execution (pure, no I/O) |
-| **bus** | EventBus + JobQueue abstractions (BullMQ implementation) |
-| **plugin-sdk** | BasePlugin, config validation, plugin lifecycle management |
-| **plugin-plane** | Kanban plugin for Plane CE |
-| **plugin-fizzy** | Kanban plugin for Fizzy |
-| **plugin-github** | Git plugin for GitHub (clone, push, PR creation) |
-| **plugin-agent-claude** | Agent dispatcher for Claude Code / Claude API |
-| **plugin-notify-telegram** | Notifications via Telegram |
-| **plugin-engram** | Forwards pipeline events into an Engram memory graph — enables cross-run agent memory |
-| **agent-worker** | Agent subprocess driver (spawns Claude Code CLI) |
-| **workspace-local** | Repo workspace management (git clone + worktree) |
-| **config** | Configuration loading + validation (ouija.config.yaml) |
-| **server** | HTTP server (Fastify), REST API, webhooks, dashboard static serving |
-| **cli** | `@ouija-dev/cli` — init, up, down, logs, doctor |
-| **dashboard** | React SPA served at `/dashboard` — pipeline monitoring |
-
-### Core Design Principles
-
-**Pure Transition Function:** The pipeline engine has a zero-I/O core:
-```typescript
-transition(state, trigger, config) → { instance, events, sideEffects }
-```
-
-All I/O (database writes, API calls, git operations) happens outside the transition. This makes the state machine fully testable without mocks and easy to reason about.
-
-**Plugin System:** Kanban, Git, Agent, and Notification backends are swappable plugins. Add support for a new board or agent with a simple interface.
-
-**Configuration-Driven:** Agents, repos, and board rules are defined in a single YAML file. No database migrations needed for basic setup.
-
-## Agent Configuration
-
-Agents are configured in `ouija.config.yaml`:
+Prefer the dashboard. The YAML form exists for IaC setups:
 
 ```yaml
 agents:
   - id: rex-coder
     name: Rex Coder
     email: rex@ouija.local
-    triggerMode: auto              # auto or manual
+    triggerMode: auto              # auto | manual
+    runner: stream-json            # stream-json (default) | local | sdk
     model: claude-sonnet-4-20250514
 
     systemPrompt: |
       You are an expert software engineer.
       Write clean, well-tested code.
-      Create a pull request when done.
 
     auth:
-      method: api-key              # api-key, bedrock, vertex, foundry, proxy
+      method: api-key              # api-key | bedrock | vertex | foundry | api-key-helper | proxy
       secretRef: env:ANTHROPIC_API_KEY
 
     repos:
@@ -217,66 +210,85 @@ agents:
         default: true
 
     limits:
-      maxDurationMs: 1800000         # 30 minutes
-      stallThresholdMs: 300000       # 5 minutes
+      maxDurationMs: 1800000       # 30 minutes per dispatch
+      stallThresholdMs: 300000     # 5 minutes with no heartbeat = stalled
+
+    reviewLoop:                    # optional; omit for defaults
+      enabled: true
+      triggerReviewers:
+        - coderabbitai[bot]
+        - copilot-pull-request-reviewer[bot]
+      ignoreWorkflows:
+        - nightly-bench
+      maxIterations: 5
 ```
 
-## Trigger Modes
+### Trigger modes
 
-| Mode | Behavior | Use Case |
-|------|----------|----------|
-| **auto** | Agent dispatches immediately when card is assigned | High-trust teams, fully autonomous workflows |
+| Mode | Behaviour | Use case |
+|---|---|---|
+| **auto** | Agent dispatches immediately when the card is assigned | High-trust teams, fully autonomous workflows |
 | **manual** | Agent waits for card to be moved to a dispatch column | Approval workflows, human-in-the-loop |
 
-## Authentication Methods
+### Runner choices
 
-Ouija supports multiple Claude API authentication methods:
-
-- **api-key:** Direct API key (set `ANTHROPIC_API_KEY` env var)
-- **bedrock:** AWS Bedrock via IAM role (for AWS environments)
-- **vertex:** Google Vertex AI via service account (for GCP environments)
-- **foundry:** Anthropic Foundry (enterprise usage-based billing)
-- **proxy:** Custom proxy (for air-gapped or regulated environments)
-
-See [docs/configuration.md](docs/configuration.md#auth-authconfig) for setup details.
-
-## Testing
-
-Ouija includes 604 integration and unit tests covering the engine, plugins, and API:
-
-```bash
-npm run test              # Run all tests once
-npm run test:watch       # Watch mode for development
-npm run build            # Compile TypeScript
-npm run lint             # Run linter
-npm run typecheck        # Type check without build
-```
-
-Tests use Vitest and run against real PostgreSQL (not mocks). This ensures the pipeline works with actual data.
-
-## Contributing
-
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
-- Development setup
-- Package structure overview
-- How to add a new kanban plugin
-- How to add a new agent plugin
-- Testing guidelines
-- Commit conventions
-- PR process
-
-## License
-
-Ouija is licensed under the **Apache License 2.0**. You can use, modify, and distribute it freely in open-source and commercial projects.
-
-See [LICENSE](LICENSE) for full terms.
-
-## Community & Support
-
-- **Issues:** [GitHub Issues](https://github.com/muhammadkh4n/ouija/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/muhammadkh4n/ouija/discussions)
-- **Security:** Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/muhammadkh4n/ouija/security/advisories/new)
+| Runner | Auth | Billing | Structured events |
+|---|---|---|---|
+| **stream-json** (default) | Claude subscription OR API key | Your subscription | ✅ |
+| **local** | Claude subscription | Your subscription | ❌ (text only) |
+| **sdk** | API key (Anthropic / Bedrock / Vertex / Foundry) | Per-token API | ✅ |
 
 ---
 
-Built with TypeScript, Fastify, PostgreSQL, BullMQ, and Claude AI.
+## Security
+
+Ouija treats kanban card descriptions as untrusted input (they flow into the agent's prompt). Defence layers:
+
+- **Sanitizer** blocks cards containing shell metacharacters, secret-file paths, `.github/workflows/` references, or suspicious URLs by default.
+- **Minimal `HOME`** synthesised per dispatch — agent subprocess can't read `~/.ssh`, `~/.gitconfig`, or `~/.claude/` unless explicitly bind-mounted.
+- **HMAC-verified webhooks** (`X-Plane-Signature`, `X-Hub-Signature-256`).
+- **AES-256-GCM vault** for per-agent credentials stored in the DB.
+- **JWT callbacks** — agents report back via short-lived JWTs with Redis denylist.
+
+See [SECURITY.md](SECURITY.md) for the full threat model and self-hoster checklist.
+
+---
+
+## Testing
+
+```bash
+npm run test            # full suite (no mocks — real Postgres via testcontainers)
+npm run test:watch      # dev loop
+npm run typecheck       # strict tsc --noEmit
+npm run build           # compile all packages
+```
+
+840+ tests across unit, integration, and end-to-end (webhook → bundler → dispatch closed-circuit).
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Dev setup
+- Adding a new kanban / git / agent / notification plugin
+- Commit conventions
+- PR process
+
+Issues, ideas, and show-us-your-setup posts all welcome in [Discussions](https://github.com/muhammadkh4n/ouija/discussions).
+
+---
+
+## Licence
+
+Apache 2.0. Use, fork, and distribute freely — commercial and non-commercial. See [LICENSE](LICENSE).
+
+---
+
+## Community
+
+- [GitHub Issues](https://github.com/muhammadkh4n/ouija/issues) — bugs, feature requests
+- [GitHub Discussions](https://github.com/muhammadkh4n/ouija/discussions) — show us your setup, ask questions
+- [Security advisories](https://github.com/muhammadkh4n/ouija/security/advisories/new) — responsible disclosure
+
+Built with TypeScript, Fastify, PostgreSQL, BullMQ, and Claude.
