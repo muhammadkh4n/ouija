@@ -27,7 +27,14 @@ export interface EngramConfig {
   source?: string;
 
   /**
-   * Max subprocess wall-clock time in milliseconds. Defaults to 10_000.
+   * Max subprocess wall-clock time in milliseconds. Defaults to 30_000.
+   *
+   * engram-ingest does three network round-trips per call: OpenAI embedding,
+   * Supabase insert, Neo4j upsert. Measured 10.3 s for a fresh ingest
+   * (2026-04-19, Neo4j on remote VPS); 10 s was too tight and SIGTERM'd the
+   * subprocess just as it completed. 30 s gives comfortable headroom without
+   * letting a real stall hold a notification.send job indefinitely. Matches
+   * engram-ingest's own --timeout default of 60 s with a 2× safety margin.
    */
   timeoutMs?: number;
 
@@ -57,7 +64,7 @@ export function applyDefaults(partial: EngramConfig): Required<EngramConfig> {
     binaryPath: partial.binaryPath ?? 'engram-ingest',
     project: partial.project ?? 'ouija',
     source: partial.source ?? 'ouija-pipeline',
-    timeoutMs: partial.timeoutMs ?? 10_000,
+    timeoutMs: partial.timeoutMs ?? 30_000,
     raw: partial.raw ?? true,
   };
 }
