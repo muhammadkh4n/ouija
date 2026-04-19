@@ -19,6 +19,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { Database, AgentRecord } from '@ouija-dev/types';
 import { ApiError } from '@ouija-dev/types';
 import { encryptSecrets, decryptSecrets } from '@ouija-dev/engine';
+import { validateAgentProfile } from '@ouija-dev/config';
 import { requireAuth } from '../middleware/auth.js';
 
 export interface AgentRouteOptions {
@@ -142,6 +143,20 @@ export async function agentRoutes(
     async (request, reply) => {
       const { id, config, secrets } = request.body;
 
+      // Runtime-validate config against the same ajv schema YAML uses, so bad
+      // payloads fail here rather than surprising the dispatcher at run time.
+      // The config payload must self-consistently carry the agent id too.
+      const configWithId = { ...config, id };
+      const validation = validateAgentProfile(configWithId);
+      if (!validation.valid) {
+        throw new ApiError(
+          'VALIDATION_ERROR',
+          `Agent config invalid: ${validation.errors.join('; ')}`,
+          400,
+          false,
+        );
+      }
+
       const existing = await agents.findById(id);
       if (existing && existing.active) {
         throw new ApiError(
@@ -206,6 +221,19 @@ export async function agentRoutes(
       }
 
       const { config, secrets, replaceSecrets, active } = request.body;
+
+      if (config !== undefined) {
+        const validation = validateAgentProfile({ ...config, id: existing.id });
+        if (!validation.valid) {
+          throw new ApiError(
+            'VALIDATION_ERROR',
+            `Agent config invalid: ${validation.errors.join('; ')}`,
+            400,
+            false,
+          );
+        }
+      }
+
       const masterKey = getMasterKey();
 
       // Merge-or-replace secrets. When merging, decrypt existing + apply updates + re-encrypt.

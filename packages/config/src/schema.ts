@@ -208,6 +208,54 @@ function semanticChecks(data: RawOuijaConfig): string[] {
   return errors;
 }
 
+// Standalone validator for a single AgentProfileConfig — used by the dashboard
+// agent CRUD routes (POST/PUT /api/v1/agents) to validate incoming config
+// JSON against the same schema as YAML-loaded configs. Mirrors the semantic
+// checks from `semanticChecks` for the agent-local rules (repo url-or-path,
+// exactly one default repo).
+const validateAgent = ajv.compile(agentProfileSchema);
+
+export type AgentValidationResult =
+  | { valid: true; config: AgentProfileConfig }
+  | { valid: false; errors: string[] };
+
+export function validateAgentProfile(data: unknown): AgentValidationResult {
+  if (!validateAgent(data)) {
+    const errors = (validateAgent.errors ?? []).map(
+      (e: ErrorObject) => `${e.instancePath || '/'}: ${e.message ?? 'unknown error'}`,
+    );
+    return { valid: false, errors };
+  }
+
+  const agent = data as AgentProfileConfig;
+  const errors: string[] = [];
+
+  for (let i = 0; i < agent.repos.length; i++) {
+    const repo = agent.repos[i]!;
+    const hasUrl = repo.url !== undefined && repo.url !== null;
+    const hasPath = repo.path !== undefined && repo.path !== null;
+    if (hasUrl && hasPath) {
+      errors.push(`repo[${i}]: must have url or path, not both`);
+    }
+    if (!hasUrl && !hasPath) {
+      errors.push(`repo[${i}]: must have either url or path`);
+    }
+  }
+
+  const defaultCount = agent.repos.filter((r) => r.default === true).length;
+  if (defaultCount === 0) {
+    errors.push('exactly one repo must be marked default');
+  } else if (defaultCount > 1) {
+    errors.push(`only one repo can be marked default, found ${defaultCount}`);
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors };
+  }
+
+  return { valid: true, config: agent };
+}
+
 export function validateConfig(data: unknown): ValidationResult {
   if (!validate(data)) {
     const errors = (validate.errors ?? []).map(

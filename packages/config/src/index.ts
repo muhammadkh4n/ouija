@@ -1,6 +1,6 @@
 export * from './types.js';
-export { validateConfig } from './schema.js';
-export type { ValidationResult } from './schema.js';
+export { validateConfig, validateAgentProfile } from './schema.js';
+export type { ValidationResult, AgentValidationResult } from './schema.js';
 export { loadConfig } from './loader.js';
 export { AgentMemberRegistry } from './agent-member-registry.js';
 export type { KanbanMemberClient, PlaneClient, RegistryLogger } from './agent-member-registry.js';
