@@ -46,9 +46,11 @@ WORKDIR /app
 #   - git + openssh-client: LocalWorkspaceProvider clones the target repo,
 #     over HTTPS or SSH depending on the repo URL.
 #   - ca-certificates: HTTPS to github.com / anthropic.com.
+#   - github-cli: the agent prompt tells Claude to `gh pr create`, so the
+#     binary must be present. GH_TOKEN is injected by plugin-agent-claude.
 # Kept before the global npm install so the layer cache stays warm across
 # source-only rebuilds.
-RUN apk add --no-cache git openssh-client ca-certificates
+RUN apk add --no-cache git openssh-client ca-certificates github-cli
 
 # Bundle the Claude Code CLI globally so self-hosters don't have to install
 # it separately on the host or mount a binary in. The LocalAgentRunner and

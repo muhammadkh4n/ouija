@@ -15,7 +15,7 @@ services:
     # Prebuilt image from GHCR. Self-hosters who ran `npx @ouija-dev/cli init`
     # pull this; there's no source to build from. Devs with the monorepo can
     # override: `OUIJA_IMAGE=ouija:dev docker compose build && ... up`.
-    image: ${OUIJA_IMAGE:-ghcr.io/muhammadkh4n/ouija:0.3.2}
+    image: ${OUIJA_IMAGE:-ghcr.io/muhammadkh4n/ouija:0.3.3}
     # Keep the build stanza so `docker compose build` works in the monorepo.
     # It's ignored by `up` unless `--build` is passed.
     build:
@@ -28,9 +28,16 @@ services:
     # path here would walk one level too high when --project-directory is set.
     environment:
       OUIJA_SECRET_KEY: ${OUIJA_SECRET_KEY}
+      # Admin API key — created by `ouija init`, used by the dashboard +
+      # curl-driven flows. Empty in the scaffold; self-hosters uncomment
+      # the OUIJA_API_KEY line in .env to enable REST API access.
+      OUIJA_API_KEY: ${OUIJA_API_KEY:-}
       OUIJA_DATABASE_URL: postgres://ouija:ouija@postgres:5432/ouija_db
       OUIJA_REDIS_URL: redis://ouija-redis:6379
       OUIJA_SERVER_URL: ${OUIJA_SERVER_URL:-http://localhost:4000}
+      # Forwarded to the agent subprocess so it can push commits and open PRs
+      # via the bundled `gh` CLI. Optional — omit for read-only dry runs.
+      GITHUB_PAT: ${GITHUB_PAT:-}
       PLANE_WEBHOOK_SECRET: ${PLANE_WEBHOOK_SECRET:-}
       PLANE_API_TOKEN: ${PLANE_API_TOKEN:-}
       PLANE_BASE_URL: ${PLANE_BASE_URL:-https://app.plane.so}

@@ -21,7 +21,7 @@ services:
   ouija:
     # Prebuilt image from GHCR for self-hosters who ran `npx @ouija-dev/cli init`.
     # Dev override: `OUIJA_IMAGE=ouija:dev docker compose build && ... up`.
-    image: ${OUIJA_IMAGE:-ghcr.io/muhammadkh4n/ouija:0.3.2}
+    image: ${OUIJA_IMAGE:-ghcr.io/muhammadkh4n/ouija:0.3.3}
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -29,8 +29,15 @@ services:
       - "4000:4000"
     environment:
       OUIJA_SECRET_KEY: ${OUIJA_SECRET_KEY}
+      # Admin API key — created by `ouija init`, used by the dashboard +
+      # curl-driven flows. Empty in the scaffold; self-hosters uncomment
+      # the OUIJA_API_KEY line in .env to enable REST API access.
+      OUIJA_API_KEY: ${OUIJA_API_KEY:-}
       OUIJA_DATABASE_URL: postgres://ouija:ouija@postgres:5432/ouija_db
       OUIJA_REDIS_URL: redis://ouija-redis:6379
+      # Forwarded to the agent subprocess so it can push commits and open PRs
+      # via the bundled `gh` CLI. Optional — omit for read-only dry runs.
+      GITHUB_PAT: ${GITHUB_PAT:-}
       # Plane plugin configuration
       PLANE_BASE_URL: http://plane-aio:80
       PLANE_API_TOKEN: ${PLANE_API_TOKEN:-}
