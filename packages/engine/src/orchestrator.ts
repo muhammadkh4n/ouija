@@ -306,6 +306,25 @@ export class Orchestrator {
       sequence: seqBase + i,
     }));
 
+    // Synthesize a pipeline.transitioned event when status actually changes, so the audit log is
+    // populated even for transitions whose pure handler returns `events: []`. Without this the
+    // pipeline_events table stays empty for real runs and the dashboard timeline is blank.
+    if (outcome.nextState.status !== instance.state.status) {
+      eventRecords.push({
+        id: randomUUID(),
+        instanceId: instance.id,
+        topic: 'pipeline.transitioned',
+        payload: {
+          instanceId: instance.id,
+          fromStatus: instance.state.status,
+          toStatus: outcome.nextState.status,
+          trigger: trigger.type,
+        },
+        occurredAt: now,
+        sequence: seqBase + eventRecords.length,
+      });
+    }
+
     await this.db.transaction(async (uow) => {
       await uow.pipelines.save(updatedInstance);
       if (eventRecords.length > 0) {

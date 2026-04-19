@@ -350,7 +350,7 @@ function handleAgentPrReady(
 
   return {
     rejected: false,
-    nextState: { ...state },
+    nextState: { ...state, prUrl: trigger.prUrl, prId: trigger.prId },
     events: [],
     sideEffects,
   };
@@ -369,12 +369,15 @@ function handleAgentCompleted(
 
   const now = new Date().toISOString();
 
-  // Build succeeded state — optional fields only set when present to satisfy exactOptionalPropertyTypes
+  // Build succeeded state — optional fields only set when present to satisfy exactOptionalPropertyTypes.
+  // Carry prUrl forward from running state (set when agent_pr_ready fired) so the completed pipeline
+  // row has a non-null PR link even when the agent_completed trigger didn't re-send it.
   const nextState: PipelineState = {
     status: 'succeeded',
     dispatchId: state.dispatchId,
     agentId: state.agentId,
     completedAt: now,
+    ...(state.prUrl !== undefined ? { prUrl: state.prUrl } : {}),
     ...(trigger.cost !== undefined ? { cost: trigger.cost } : {}),
     ...(trigger.tokensUsed !== undefined ? { tokensUsed: trigger.tokensUsed } : {}),
   };

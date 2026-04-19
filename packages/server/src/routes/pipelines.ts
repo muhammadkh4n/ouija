@@ -123,6 +123,7 @@ export async function pipelineRoutes(
         timeline: timeline.map((e) => ({
           id: e.id,
           topic: e.topic,
+          payload: e.payload,
           occurredAt: e.occurredAt,
           sequence: e.sequence,
         })),

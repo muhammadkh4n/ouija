@@ -447,6 +447,12 @@ describe('Orchestrator', () => {
 
     // Stall check should be cancelled
     expect(jobQueue.cancelled.length).toBeGreaterThan(0);
+
+    // A pipeline.transitioned event is appended so the audit log reflects running → succeeded.
+    const transitionEvents = db._events.filter((e) => e.topic === 'pipeline.transitioned');
+    expect(transitionEvents.length).toBeGreaterThan(0);
+    const last = transitionEvents[transitionEvents.length - 1]!;
+    expect((last.payload as { toStatus: string }).toStatus).toBe('succeeded');
   });
 
   // ---- Test 4: card_moved with failing guards → pipeline stays idle, notification sent ----
