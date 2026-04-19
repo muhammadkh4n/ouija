@@ -15,6 +15,8 @@ import type {
   PipelineEventRepository,
   BoardConfigRepository,
   DeduplicationRepository,
+  AgentRepository,
+  AgentRecord,
   UnitOfWork,
   Database,
   CursorPage,
@@ -450,17 +452,97 @@ export class PostgresDeduplicationRepository implements DeduplicationRepository 
   }
 }
 
+// ---- PostgresAgentRepository ----
+
+interface AgentRow {
+  id: string;
+  config_json: Record<string, unknown>;
+  secrets_vault: AgentRecord['secretsVault'];
+  active: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function rowToAgent(row: AgentRow): AgentRecord {
+  return {
+    id: row.id,
+    config: row.config_json,
+    secretsVault: row.secrets_vault,
+    active: row.active,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
+export class PostgresAgentRepository implements AgentRepository {
+  constructor(private readonly client: Pool | PoolClient) {}
+
+  async findById(id: string): Promise<AgentRecord | undefined> {
+    const result = await this.client.query<AgentRow>(
+      `SELECT id, config_json, secrets_vault, active, created_at, updated_at
+         FROM agents WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    return row !== undefined ? rowToAgent(row) : undefined;
+  }
+
+  async listAll(activeOnly = true): Promise<AgentRecord[]> {
+    const result = activeOnly
+      ? await this.client.query<AgentRow>(
+          `SELECT id, config_json, secrets_vault, active, created_at, updated_at
+             FROM agents WHERE active = true
+             ORDER BY created_at ASC`,
+        )
+      : await this.client.query<AgentRow>(
+          `SELECT id, config_json, secrets_vault, active, created_at, updated_at
+             FROM agents
+             ORDER BY created_at ASC`,
+        );
+    return result.rows.map(rowToAgent);
+  }
+
+  async save(record: AgentRecord): Promise<void> {
+    await this.client.query(
+      `INSERT INTO agents (id, config_json, secrets_vault, active, created_at, updated_at)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4, $5::timestamptz, $6::timestamptz)
+       ON CONFLICT (id) DO UPDATE SET
+         config_json   = EXCLUDED.config_json,
+         secrets_vault = EXCLUDED.secrets_vault,
+         active        = EXCLUDED.active,
+         updated_at    = EXCLUDED.updated_at`,
+      [
+        record.id,
+        JSON.stringify(record.config),
+        record.secretsVault !== null ? JSON.stringify(record.secretsVault) : null,
+        record.active,
+        record.createdAt,
+        record.updatedAt,
+      ],
+    );
+  }
+
+  async softDelete(id: string): Promise<void> {
+    await this.client.query(
+      `UPDATE agents SET active = false, updated_at = now() WHERE id = $1`,
+      [id],
+    );
+  }
+}
+
 // ---- Transactional UnitOfWork ----
 
 class TransactionalUnitOfWork implements UnitOfWork {
   readonly pipelines: PostgresPipelineRepository;
   readonly pipelineEvents: PostgresPipelineEventRepository;
   readonly boardConfigs: PostgresBoardConfigRepository;
+  readonly agents: PostgresAgentRepository;
 
   constructor(client: PoolClient) {
     this.pipelines = new PostgresPipelineRepository(client);
     this.pipelineEvents = new PostgresPipelineEventRepository(client);
     this.boardConfigs = new PostgresBoardConfigRepository(client);
+    this.agents = new PostgresAgentRepository(client);
   }
 }
 
@@ -471,12 +553,14 @@ export class PostgresDatabase implements Database {
   readonly pipelineEvents: PostgresPipelineEventRepository;
   readonly boardConfigs: PostgresBoardConfigRepository;
   readonly deduplication: PostgresDeduplicationRepository;
+  readonly agents: PostgresAgentRepository;
 
   constructor(private readonly pool: Pool) {
     this.pipelines = new PostgresPipelineRepository(pool);
     this.pipelineEvents = new PostgresPipelineEventRepository(pool);
     this.boardConfigs = new PostgresBoardConfigRepository(pool);
     this.deduplication = new PostgresDeduplicationRepository(pool);
+    this.agents = new PostgresAgentRepository(pool);
   }
 
   async transaction<T>(fn: (uow: UnitOfWork) => Promise<T>): Promise<T> {

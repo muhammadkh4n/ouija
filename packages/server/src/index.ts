@@ -97,24 +97,26 @@ async function main(): Promise<void> {
     );
   }
 
-  // Auto-run migrations
-  const { readFileSync } = await import('node:fs');
+  // Auto-run migrations in filename-sort order (001, 002, 003, ...).
+  // Each file is CREATE TABLE IF NOT EXISTS / ALTER ADD COLUMN IF NOT EXISTS
+  // so re-running is safe — no migrations table needed at this scale.
+  const { readFileSync, readdirSync } = await import('node:fs');
   const { join, dirname } = await import('node:path');
   const { fileURLToPath } = await import('node:url');
   try {
     const engineDir = dirname(fileURLToPath(import.meta.resolve('@ouija-dev/engine')));
-    const migrationPath = join(
-      engineDir,
-      '..',
-      'src',
-      'migrations',
-      '001-initial-schema.sql',
-    );
-    const migrationSql = readFileSync(migrationPath, 'utf-8');
+    const migrationsDir = join(engineDir, '..', 'src', 'migrations');
+    const migrations = readdirSync(migrationsDir)
+      .filter((f) => f.endsWith('.sql'))
+      .sort();
     const client = await pool.connect();
     try {
-      await client.query(migrationSql);
-      console.info('Database migrations applied successfully');
+      for (const filename of migrations) {
+        const migrationSql = readFileSync(join(migrationsDir, filename), 'utf-8');
+        await client.query(migrationSql);
+        console.info(`Applied migration: ${filename}`);
+      }
+      console.info(`Database migrations applied successfully (${migrations.length} files)`);
     } finally {
       client.release();
     }
