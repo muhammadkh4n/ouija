@@ -50,6 +50,29 @@ import { buildPrompt } from './work-order-builder.js';
 import { HeartbeatReporter } from './heartbeat.js';
 import { buildAuthEnv } from './auth-env.js';
 
+/**
+ * Embed a GitHub PAT as the HTTPS basic-auth username on a clone URL so the
+ * initial `git clone` authenticates, and so the `origin` remote the agent
+ * inherits already carries the token for follow-up `git push` calls.
+ *
+ * Returns the URL unchanged when no PAT is available, when the URL is SSH
+ * (handled by host keys), or when it already has user info. `x-access-token`
+ * is the conventional username GitHub accepts with a PAT — the real PAT is
+ * the password.
+ */
+export function embedGithubPat(repoUrl: string, pat: string | undefined): string {
+  if (!pat || !repoUrl.startsWith('https://')) return repoUrl;
+  try {
+    const u = new URL(repoUrl);
+    if (u.username || u.password) return repoUrl;
+    u.username = 'x-access-token';
+    u.password = pat;
+    return u.toString();
+  } catch {
+    return repoUrl;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Internal state shape per dispatch
 // ---------------------------------------------------------------------------
@@ -325,9 +348,17 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
       // checks out the existing PR branch instead of creating a fresh one.
       const reuseFeatureBranch =
         workOrder.metadata['reuseBranch'] === '1' || workOrder.reviewContext !== undefined;
+
+      // Embed GITHUB_PAT as HTTPS basic-auth username so `git clone` works on
+      // private repos and `git push` can write back. Without this, self-
+      // hosters using HTTPS URLs hit auth failures even on public repos
+      // (push requires creds). SSH URLs are left alone — those use keys.
+      const githubPat = process.env['GITHUB_PAT'];
+      const authedRepoUrl = embedGithubPat(workOrder.repoUrl, githubPat);
+
       const workspace = await this.workspaceProvider.provision({
         type: this.workspaceProvider.type,
-        ...(repoPath ? { repoPath } : { repoUrl: workOrder.repoUrl }),
+        ...(repoPath ? { repoPath } : { repoUrl: authedRepoUrl }),
         baseBranch: workOrder.baseBranch,
         featureBranch: workOrder.branch,
         ...(reuseFeatureBranch ? { reuseFeatureBranch: true } : {}),
@@ -364,6 +395,15 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
         workOrder.secretRef,
       );
       const agentEnv: Record<string, string> = { ...authEnv };
+
+      // Forward GitHub creds so the agent subprocess can push commits and
+      // open PRs via the `gh` CLI (bundled in the runtime image as of
+      // v0.3.3). Both names cover git's credential helper and gh's auth.
+      if (githubPat) {
+        agentEnv['GITHUB_PAT'] = githubPat;
+        agentEnv['GH_TOKEN'] = githubPat;
+        agentEnv['GITHUB_TOKEN'] = githubPat;
+      }
 
       // Override HOME if claudeHome is configured (controls where ~/.claude/ resolves)
       const claudeHome = workOrder.metadata['claudeHome'];
