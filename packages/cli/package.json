@@ -1,9 +1,16 @@
 {
   "name": "@ouija-dev/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Command-line interface for the Ouija pipeline engine — init, up, down, logs, doctor.",
-  "keywords": ["ouija", "ai", "agents", "kanban", "claude", "automation"],
+  "keywords": [
+    "ouija",
+    "ai",
+    "agents",
+    "kanban",
+    "claude",
+    "automation"
+  ],
   "license": "Apache-2.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

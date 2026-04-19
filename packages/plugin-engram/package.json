@@ -1,14 +1,25 @@
 {
   "name": "@ouija-dev/plugin-engram",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Ouija notification plugin that ingests pipeline events into an Engram memory instance. Gives Ouija-dispatched agents durable cross-run memory via Engram's MCP recall tools.",
-  "keywords": ["ouija", "engram", "memory", "ai", "agents"],
+  "keywords": [
+    "ouija",
+    "engram",
+    "memory",
+    "ai",
+    "agents"
+  ],
   "license": "Apache-2.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist/", "README.md"],
-  "publishConfig": { "access": "public" },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/muhammadkh4n/ouija.git",
