@@ -114,11 +114,14 @@ function AgentTable({ agents }: { agents: AgentRecord[] }) {
   const del = useMutation({
     mutationFn: (id: string) => deleteAgent(id),
     onSuccess: () => {
-      toast('Agent deactivated');
+      toast.push({ kind: 'success', message: 'Agent deactivated' });
       qc.invalidateQueries({ queryKey: ['agents'] });
     },
     onError: (err) => {
-      toast(`Delete failed: ${err instanceof Error ? err.message : String(err)}`);
+      toast.push({
+        kind: 'error',
+        message: `Delete failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
     },
   });
 

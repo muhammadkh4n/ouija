@@ -85,18 +85,21 @@ function configToForm(config: AgentProfileConfig): FormState {
 }
 
 function formToConfig(form: FormState): AgentProfileConfig {
-  return {
+  // `exactOptionalPropertyTypes: true` forbids explicit `undefined` on optional
+  // fields — spread the key only when the value is meaningful.
+  const base: AgentProfileConfig = {
     id: form.id,
     name: form.name,
     email: form.email,
     model: form.model,
     triggerMode: form.triggerMode,
     runner: form.runner,
-    systemPrompt: form.systemPrompt || undefined,
     auth: { method: form.authMethod, secretRef: form.secretRef },
     repos: form.repos,
     limits: { maxDurationMs: form.maxDurationMin * 60_000 },
   };
+  if (form.systemPrompt) base.systemPrompt = form.systemPrompt;
+  return base;
 }
 
 export function AgentForm() {
@@ -124,14 +127,17 @@ export function AgentForm() {
   }, [isEdit, agentQuery.data]);
 
   const createMut = useMutation({
-    mutationFn: () =>
-      createAgent({
+    mutationFn: () => {
+      const body: Parameters<typeof createAgent>[0] = {
         id: form.id,
         config: formToConfig(form),
-        ...(form.secretValue ? { secrets: secretsFromForm(form) } : {}),
-      }),
+      };
+      const secrets = secretsFromForm(form);
+      if (secrets) body.secrets = secrets;
+      return createAgent(body);
+    },
     onSuccess: () => {
-      toast('Agent created');
+      toast.push({ kind: 'success', message: 'Agent created' });
       qc.invalidateQueries({ queryKey: ['agents'] });
       navigate('/agents');
     },
@@ -141,13 +147,16 @@ export function AgentForm() {
   });
 
   const updateMut = useMutation({
-    mutationFn: () =>
-      updateAgent(editId!, {
+    mutationFn: () => {
+      const body: Parameters<typeof updateAgent>[1] = {
         config: formToConfig(form),
-        ...(form.secretValue ? { secrets: secretsFromForm(form) } : {}),
-      }),
+      };
+      const secrets = secretsFromForm(form);
+      if (secrets) body.secrets = secrets;
+      return updateAgent(editId!, body);
+    },
     onSuccess: () => {
-      toast('Agent updated');
+      toast.push({ kind: 'success', message: 'Agent updated' });
       qc.invalidateQueries({ queryKey: ['agents'] });
       navigate('/agents');
     },
@@ -344,29 +353,29 @@ export function AgentForm() {
           </Section>
 
           <Section title="repos">
-            {form.repos.map((repo, i) => (
-              <RepoRow
-                key={i}
-                repo={repo}
-                onChange={(patch) =>
+            {form.repos.map((repo, i) => {
+              // `exactOptionalPropertyTypes` forbids explicit `undefined` on an
+              // optional prop. Build the prop object conditionally so onRemove
+              // is omitted entirely when there's only one repo.
+              const rowProps: RepoRowProps = {
+                repo,
+                onChange: (patch) =>
                   setForm({
                     ...form,
                     repos: form.repos.map((r, j) => (i === j ? { ...r, ...patch } : r)),
-                  })
-                }
-                onRemove={
-                  form.repos.length > 1
-                    ? () => setForm({ ...form, repos: form.repos.filter((_, j) => j !== i) })
-                    : undefined
-                }
-                onMakeDefault={() =>
+                  }),
+                onMakeDefault: () =>
                   setForm({
                     ...form,
                     repos: form.repos.map((r, j) => ({ ...r, default: i === j })),
-                  })
-                }
-              />
-            ))}
+                  }),
+              };
+              if (form.repos.length > 1) {
+                rowProps.onRemove = () =>
+                  setForm({ ...form, repos: form.repos.filter((_, j) => j !== i) });
+              }
+              return <RepoRow key={i} {...rowProps} />;
+            })}
             <button
               type="button"
               onClick={() =>
@@ -494,17 +503,14 @@ function Field({
   );
 }
 
-function RepoRow({
-  repo,
-  onChange,
-  onRemove,
-  onMakeDefault,
-}: {
+interface RepoRowProps {
   repo: AgentRepoConfig;
   onChange: (patch: Partial<AgentRepoConfig>) => void;
   onRemove?: () => void;
   onMakeDefault: () => void;
-}) {
+}
+
+function RepoRow({ repo, onChange, onRemove, onMakeDefault }: RepoRowProps) {
   return (
     <div
       className="flex flex-col"
@@ -546,7 +552,7 @@ function RepoRow({
         <input
           type="text"
           value={repo.url ?? ''}
-          onChange={(e) => onChange({ url: e.target.value || undefined })}
+          onChange={(e) => onChange(optionalPatch('url', e.target.value))}
           placeholder="https://github.com/org/repo.git"
           style={inputStyle(false)}
         />
@@ -555,7 +561,7 @@ function RepoRow({
         <input
           type="text"
           value={repo.path ?? ''}
-          onChange={(e) => onChange({ path: e.target.value || undefined })}
+          onChange={(e) => onChange(optionalPatch('path', e.target.value))}
           placeholder="/opt/repo"
           style={inputStyle(false)}
         />
@@ -573,12 +579,25 @@ function RepoRow({
         <input
           type="text"
           value={repo.projectId ?? ''}
-          onChange={(e) => onChange({ projectId: e.target.value || undefined })}
+          onChange={(e) => onChange(optionalPatch('projectId', e.target.value))}
           style={inputStyle(false)}
         />
       </Field>
     </div>
   );
+}
+
+/**
+ * Build a single-field patch for AgentRepoConfig that either carries the value
+ * or is an empty object. Keeps us compatible with `exactOptionalPropertyTypes:
+ * true` which forbids explicit `undefined` on optional properties like
+ * `url?: string`.
+ */
+function optionalPatch<K extends 'url' | 'path' | 'projectId'>(
+  key: K,
+  value: string,
+): Partial<AgentRepoConfig> {
+  return value ? ({ [key]: value } as Partial<AgentRepoConfig>) : {};
 }
 
 function inputStyle(disabled: boolean): React.CSSProperties {
