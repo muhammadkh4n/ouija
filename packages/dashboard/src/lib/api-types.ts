@@ -128,3 +128,10 @@ export interface AgentListResponse {
   items: AgentRecord[];
   total: number;
 }
+
+// ---- Webhook activity indicator ----
+
+export interface WebhookActivitySnapshot {
+  last: { source: 'plane' | 'github' | 'fizzy'; receivedAt: string } | null;
+  perSource: Record<string, string>;
+}
