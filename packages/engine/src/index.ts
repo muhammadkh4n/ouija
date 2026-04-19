@@ -26,12 +26,15 @@ export {
   ReviewBundler,
   InMemoryReviewBundleStore,
   DEFAULT_REVIEW_DEBOUNCE_MS,
+  filterReviewBundle,
 } from './review-bundler.js';
 export type {
   BundleReview,
   BundleComment,
+  BundleCiFailure,
   ReviewBundleStore,
   ReviewBundlerOptions,
   ReviewBundlerLogger,
   ReviewFlushHandler,
+  ReviewLoopFilterConfig,
 } from './review-bundler.js';

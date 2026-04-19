@@ -20,6 +20,68 @@ import type { ReviewBundle, PrId, BundleCiFailure } from '@ouija-dev/types';
 
 export const DEFAULT_REVIEW_DEBOUNCE_MS = 60_000;
 
+/**
+ * Per-agent gates applied to a flushed ReviewBundle before it reaches the
+ * orchestrator. Null fields default to permissive: enabled, no reviewer
+ * filtering, no workflow filtering.
+ */
+export interface ReviewLoopFilterConfig {
+  enabled?: boolean;
+  /** Case-insensitive reviewer logins to drop. */
+  ignoreReviewers?: string[];
+  /** When non-empty, ONLY these logins are accepted (case-insensitive). */
+  triggerReviewers?: string[];
+  /** Case-sensitive workflow names to drop from ciFailures. */
+  ignoreWorkflows?: string[];
+}
+
+/**
+ * Filter a ReviewBundle against per-agent review-loop gates. Returns:
+ *   - null when the loop is disabled, or when no signal survives the filter
+ *     (the caller should skip dispatching).
+ *   - a new ReviewBundle with filtered arrays otherwise.
+ *
+ * Pure function — no side effects. Belongs at the server/bundler boundary
+ * so the orchestrator can stay agent-config-agnostic.
+ */
+export function filterReviewBundle(
+  bundle: ReviewBundle,
+  config: ReviewLoopFilterConfig | undefined,
+): ReviewBundle | null {
+  if (config?.enabled === false) return null;
+
+  const ignoreSet = new Set((config?.ignoreReviewers ?? []).map((s) => s.toLowerCase()));
+  const triggerSet = new Set((config?.triggerReviewers ?? []).map((s) => s.toLowerCase()));
+  const ignoreWorkflows = new Set(config?.ignoreWorkflows ?? []);
+
+  const keepReviewer = (login: string): boolean => {
+    const lower = login.toLowerCase();
+    if (ignoreSet.has(lower)) return false;
+    if (triggerSet.size > 0 && !triggerSet.has(lower)) return false;
+    return true;
+  };
+
+  const reviews = bundle.reviews.filter((r) => keepReviewer(r.reviewerLogin));
+  const comments = bundle.comments.filter((c) => keepReviewer(c.reviewerLogin));
+  const ciFailures = (bundle.ciFailures ?? []).filter(
+    (f) => !ignoreWorkflows.has(f.workflowName),
+  );
+
+  if (reviews.length === 0 && comments.length === 0 && ciFailures.length === 0) {
+    return null;
+  }
+
+  const next: ReviewBundle = {
+    prUrl: bundle.prUrl,
+    prId: bundle.prId,
+    reviews,
+    comments,
+    flushedAt: bundle.flushedAt,
+  };
+  if (ciFailures.length > 0) next.ciFailures = ciFailures;
+  return next;
+}
+
 export interface BundleReview {
   reviewId: string;
   reviewerLogin: string;

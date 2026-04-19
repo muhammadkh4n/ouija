@@ -12,6 +12,7 @@ export type PipelineStatus =
   | 'provisioning'
   | 'dispatching'
   | 'running'
+  | 'awaiting_review'
   | 'succeeded'
   | 'failed'
   | 'stalled'
@@ -29,6 +30,8 @@ export interface PipelineSummary {
   prUrl?: string | null;
   cost?: number | null;
   tokensUsed?: number | null;
+  /** Review-loop iteration counter — present on dispatching/running/awaiting_review post-PR-1. */
+  iteration?: number | null;
   createdAt: string;
   updatedAt: string;
   allowedActions: PipelineAction[];
@@ -99,6 +102,14 @@ export interface AgentLimitsConfig {
   stallThresholdMs?: number;
 }
 
+export interface ReviewLoopConfig {
+  enabled?: boolean;
+  ignoreReviewers?: string[];
+  triggerReviewers?: string[];
+  ignoreWorkflows?: string[];
+  maxIterations?: number;
+}
+
 export interface AgentProfileConfig {
   id: string;
   name: string;
@@ -113,6 +124,7 @@ export interface AgentProfileConfig {
   auth: { method: AuthMethod; secretRef: string };
   repos: AgentRepoConfig[];
   limits: AgentLimitsConfig;
+  reviewLoop?: ReviewLoopConfig;
 }
 
 export interface AgentRecord {

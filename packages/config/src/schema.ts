@@ -82,6 +82,30 @@ const agentProfileSchema = {
       required: ['maxDurationMs'],
       additionalProperties: false,
     },
+    reviewLoop: {
+      type: 'object',
+      nullable: true,
+      properties: {
+        enabled: { type: 'boolean', nullable: true },
+        ignoreReviewers: {
+          type: 'array',
+          nullable: true,
+          items: { type: 'string', minLength: 1 },
+        },
+        triggerReviewers: {
+          type: 'array',
+          nullable: true,
+          items: { type: 'string', minLength: 1 },
+        },
+        ignoreWorkflows: {
+          type: 'array',
+          nullable: true,
+          items: { type: 'string', minLength: 1 },
+        },
+        maxIterations: { type: 'number', minimum: 1, maximum: 20, nullable: true },
+      },
+      additionalProperties: false,
+    },
   },
   required: [
     'id', 'name', 'email', 'model', 'triggerMode', 'auth', 'repos', 'limits',

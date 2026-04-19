@@ -30,3 +30,8 @@ export function shortId(id: string): string {
 export function isInFlight(status: string): boolean {
   return status === 'provisioning' || status === 'dispatching' || status === 'running';
 }
+
+/** True when the pipeline is sitting in the review loop awaiting human or CI signal. */
+export function isAwaitingReview(status: string): boolean {
+  return status === 'awaiting_review';
+}

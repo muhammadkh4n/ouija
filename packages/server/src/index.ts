@@ -409,17 +409,25 @@ async function main(): Promise<void> {
   // processReviewBundle becomes a no-op — the loop stays dormant but the
   // server keeps running.
   const { registerReviewLoop } = await import('./review-loop.js');
-  const reviewLoop = await registerReviewLoop({
+  // Build review-loop options with conditional properties (exactOptionalPropertyTypes).
+  const reviewLoopOpts: Parameters<typeof registerReviewLoop>[0] = {
     eventBus,
     orchestrator,
-    // Boot-time logger — Fastify's app.log isn't ready yet. Bundler log volume
-    // is low (one line per pushed event + one per flush) so console is fine.
+    db,
     logger: {
       debug: (msg, ctx) => console.debug(msg, ctx ?? {}),
       info: (msg, ctx) => console.info(msg, ctx ?? {}),
       warn: (msg, ctx) => console.warn(msg, ctx ?? {}),
       error: (msg, ctx) => console.error(msg, ctx ?? {}),
     },
+  };
+  if (ouijaConfig !== undefined) {
+    const yamlAgents = ouijaConfig.agents;
+    reviewLoopOpts.getAgentReviewLoop = (agentId) =>
+      yamlAgents.find((a) => a.id === agentId)?.reviewLoop;
+  }
+  const reviewLoop = await registerReviewLoop({
+    ...reviewLoopOpts,
     ...(process.env['OUIJA_REVIEW_DEBOUNCE_MS']
       ? { debounceMs: parseInt(process.env['OUIJA_REVIEW_DEBOUNCE_MS'], 10) }
       : {}),

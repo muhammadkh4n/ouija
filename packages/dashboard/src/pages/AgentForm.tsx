@@ -48,6 +48,13 @@ interface FormState {
   secretValue: string; // only sent when non-empty
   repos: AgentRepoConfig[];
   maxDurationMin: number;
+  /** Review loop toggles — see packages/config/src/types.ts ReviewLoopConfig. */
+  reviewLoopEnabled: boolean;
+  /** Comma-separated list, trimmed on submit. Empty string → undefined. */
+  ignoreReviewers: string;
+  triggerReviewers: string;
+  ignoreWorkflows: string;
+  maxReviewIterations: number;
 }
 
 function emptyForm(): FormState {
@@ -64,10 +71,23 @@ function emptyForm(): FormState {
     secretValue: '',
     repos: [{ url: '', baseBranch: 'main', default: true }],
     maxDurationMin: 30,
+    reviewLoopEnabled: true,
+    ignoreReviewers: '',
+    triggerReviewers: '',
+    ignoreWorkflows: '',
+    maxReviewIterations: 5,
   };
 }
 
+function csvToList(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 function configToForm(config: AgentProfileConfig): FormState {
+  const rl = config.reviewLoop;
   return {
     id: config.id,
     name: config.name,
@@ -81,6 +101,11 @@ function configToForm(config: AgentProfileConfig): FormState {
     secretValue: '',
     repos: config.repos.map((r) => ({ ...r })),
     maxDurationMin: Math.round(config.limits.maxDurationMs / 60_000),
+    reviewLoopEnabled: rl?.enabled ?? true,
+    ignoreReviewers: (rl?.ignoreReviewers ?? []).join(', '),
+    triggerReviewers: (rl?.triggerReviewers ?? []).join(', '),
+    ignoreWorkflows: (rl?.ignoreWorkflows ?? []).join(', '),
+    maxReviewIterations: rl?.maxIterations ?? 5,
   };
 }
 
@@ -99,6 +124,29 @@ function formToConfig(form: FormState): AgentProfileConfig {
     limits: { maxDurationMs: form.maxDurationMin * 60_000 },
   };
   if (form.systemPrompt) base.systemPrompt = form.systemPrompt;
+
+  // Only attach reviewLoop when the user customised it (disabled, listed
+  // reviewers, or non-default iteration cap). Omitting means "defaults" on
+  // the server side — same behaviour as never setting it.
+  const ignoreR = csvToList(form.ignoreReviewers);
+  const triggerR = csvToList(form.triggerReviewers);
+  const ignoreW = csvToList(form.ignoreWorkflows);
+  const customised =
+    !form.reviewLoopEnabled ||
+    ignoreR.length > 0 ||
+    triggerR.length > 0 ||
+    ignoreW.length > 0 ||
+    form.maxReviewIterations !== 5;
+  if (customised) {
+    const rl: NonNullable<AgentProfileConfig['reviewLoop']> = {
+      enabled: form.reviewLoopEnabled,
+    };
+    if (ignoreR.length > 0) rl.ignoreReviewers = ignoreR;
+    if (triggerR.length > 0) rl.triggerReviewers = triggerR;
+    if (ignoreW.length > 0) rl.ignoreWorkflows = ignoreW;
+    if (form.maxReviewIterations !== 5) rl.maxIterations = form.maxReviewIterations;
+    base.reviewLoop = rl;
+  }
   return base;
 }
 
@@ -408,6 +456,82 @@ export function AgentForm() {
                 value={form.maxDurationMin}
                 onChange={(e) => setForm({ ...form, maxDurationMin: parseInt(e.target.value, 10) || 30 })}
                 style={inputStyle(false)}
+              />
+            </Field>
+          </Section>
+
+          <Section title="review loop">
+            <Field
+              label="enabled"
+              hint="When off, reviewer comments and CI failures on this agent's PRs are ignored — no follow-up dispatches."
+            >
+              <label className="flex items-center gap-2" style={{ fontSize: 'var(--text-sm)' }}>
+                <input
+                  type="checkbox"
+                  checked={form.reviewLoopEnabled}
+                  onChange={(e) => setForm({ ...form, reviewLoopEnabled: e.target.checked })}
+                />
+                <span className="mono dim" style={{ fontSize: 'var(--text-xs)' }}>
+                  iterate on reviewer feedback + CI failures
+                </span>
+              </label>
+            </Field>
+            <Field
+              label="max iterations"
+              hint="Cap on follow-up dispatches per PR before the pipeline stalls for human attention."
+            >
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={form.maxReviewIterations}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    maxReviewIterations: parseInt(e.target.value, 10) || 5,
+                  })
+                }
+                style={inputStyle(!form.reviewLoopEnabled)}
+                disabled={!form.reviewLoopEnabled}
+              />
+            </Field>
+            <Field
+              label="ignore reviewers"
+              hint="Comma-separated GitHub logins (case-insensitive). Their reviews/comments don't trigger re-dispatch."
+            >
+              <input
+                type="text"
+                value={form.ignoreReviewers}
+                onChange={(e) => setForm({ ...form, ignoreReviewers: e.target.value })}
+                placeholder="dependabot[bot], noisy-reviewer"
+                style={inputStyle(!form.reviewLoopEnabled)}
+                disabled={!form.reviewLoopEnabled}
+              />
+            </Field>
+            <Field
+              label="trigger reviewers (allowlist)"
+              hint="When non-empty, ONLY these logins trigger the loop. Leave blank to accept any reviewer."
+            >
+              <input
+                type="text"
+                value={form.triggerReviewers}
+                onChange={(e) => setForm({ ...form, triggerReviewers: e.target.value })}
+                placeholder="coderabbitai[bot], copilot-pull-request-reviewer[bot]"
+                style={inputStyle(!form.reviewLoopEnabled)}
+                disabled={!form.reviewLoopEnabled}
+              />
+            </Field>
+            <Field
+              label="ignore workflows"
+              hint="Comma-separated GitHub Actions workflow names (case-sensitive) whose CI failures shouldn't trigger re-dispatch."
+            >
+              <input
+                type="text"
+                value={form.ignoreWorkflows}
+                onChange={(e) => setForm({ ...form, ignoreWorkflows: e.target.value })}
+                placeholder="nightly-bench, deploy-preview"
+                style={inputStyle(!form.reviewLoopEnabled)}
+                disabled={!form.reviewLoopEnabled}
               />
             </Field>
           </Section>

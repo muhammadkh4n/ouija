@@ -33,6 +33,37 @@ export interface RepoConfig {
 
 export type TriggerMode = 'auto' | 'manual';
 
+/**
+ * Review-loop controls — per-agent gates that decide whether reviewer
+ * feedback or CI failures on an open PR trigger a follow-up dispatch.
+ * Absent means defaults: enabled=true, no reviewer allowlist, no workflow
+ * exclusions. Set `enabled: false` to opt a single agent out entirely.
+ */
+export interface ReviewLoopConfig {
+  /** Master switch. When false, the orchestrator drops review bundles for this agent's PRs. */
+  enabled?: boolean;
+  /**
+   * Reviewer logins whose reviews/comments should never trigger a re-dispatch.
+   * Matched case-insensitively. The agent's own GitHub login is automatically
+   * ignored at orchestration time even when not listed here.
+   */
+  ignoreReviewers?: string[];
+  /**
+   * Allowlist — when non-empty, ONLY reviews from these logins trigger a
+   * re-dispatch. Useful to accept only CodeRabbit + human-with-@-mention,
+   * or only Copilot's suggestions. Case-insensitive.
+   */
+  triggerReviewers?: string[];
+  /**
+   * Workflow names whose CI failures should be ignored (flaky nightly runs,
+   * perf benchmarks that fail on branch pushes by design). Matched against
+   * GitHub Actions workflow name. Case-sensitive.
+   */
+  ignoreWorkflows?: string[];
+  /** Cap on review-loop iterations before the pipeline stalls. Default 5. */
+  maxIterations?: number;
+}
+
 export interface AgentProfileConfig {
   id: string;
   name: string;
@@ -55,6 +86,8 @@ export interface AgentProfileConfig {
     maxDurationMs: number;
     stallThresholdMs?: number;
   };
+  /** Review-loop controls. Absent → defaults (enabled, no filtering). */
+  reviewLoop?: ReviewLoopConfig;
 }
 
 export interface BoardColumnConfig {
