@@ -69,6 +69,23 @@ interface PipelineInstanceRow {
   updated_at: Date;
 }
 
+// Extract scalar fields (prUrl, cost, tokensUsed) from the state JSONB so the scalar DB columns
+// always mirror state — eliminating the dual-source-of-truth bug where a running pipeline had
+// state.prUrl but pipeline_instances.pr_url stayed NULL. State is the only writer; columns are a
+// denormalised projection for SQL tooling.
+function scalarsFromState(state: PipelineState): {
+  prUrl: string | null;
+  cost: number | null;
+  tokensUsed: number | null;
+} {
+  const s = state as Partial<{ prUrl: string; cost: number; tokensUsed: number }>;
+  return {
+    prUrl: s.prUrl ?? null,
+    cost: s.cost ?? null,
+    tokensUsed: s.tokensUsed ?? null,
+  };
+}
+
 function rowToInstance(row: PipelineInstanceRow): PipelineInstance {
   const base: PipelineInstance = {
     id: makeInstanceId(row.id),
@@ -80,11 +97,13 @@ function rowToInstance(row: PipelineInstanceRow): PipelineInstance {
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
-  // exactOptionalPropertyTypes: omit keys instead of assigning undefined
+  // Scalar fields (prUrl, cost, tokensUsed) are derived from state JSONB rather than read from
+  // the scalar columns — guarantees reads match writes without depending on DB-level sync.
   if (row.assigned_agent_id !== null) base.assignedAgentId = row.assigned_agent_id;
-  if (row.pr_url !== null) base.prUrl = row.pr_url;
-  if (row.cost !== null) base.cost = parseFloat(row.cost);
-  if (row.tokens_used !== null) base.tokensUsed = row.tokens_used;
+  const scalars = scalarsFromState(row.state);
+  if (scalars.prUrl !== null) base.prUrl = scalars.prUrl;
+  if (scalars.cost !== null) base.cost = scalars.cost;
+  if (scalars.tokensUsed !== null) base.tokensUsed = scalars.tokensUsed;
   return base;
 }
 
@@ -190,6 +209,9 @@ export class PostgresPipelineRepository implements PipelineRepository {
 
   async save(instance: PipelineInstance): Promise<void> {
     const status = instance.state.status;
+    // Scalar columns derived from state — never from instance.prUrl/cost/tokensUsed. This
+    // collapses dual-source-of-truth: state JSONB is the only writer.
+    const scalars = scalarsFromState(instance.state);
     await this.client.query(
       `INSERT INTO pipeline_instances
              (id, card_id, board_id, project_id, state, status, attempt,
@@ -214,9 +236,9 @@ export class PostgresPipelineRepository implements PipelineRepository {
         status,
         instance.attempt,
         instance.assignedAgentId ?? null,
-        instance.prUrl ?? null,
-        instance.cost ?? null,
-        instance.tokensUsed ?? null,
+        scalars.prUrl,
+        scalars.cost,
+        scalars.tokensUsed,
         instance.createdAt,
         instance.updatedAt,
       ],

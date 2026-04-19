@@ -597,6 +597,25 @@ describe('agent_pr_ready → move card to review + comment', () => {
     const result = transition(dispatching, trigger, testConfig);
     expect(result.rejected).toBe(true);
   });
+
+  it('persists prUrl + prId on running state so downstream transitions can propagate them', () => {
+    const trigger: PipelineTrigger = {
+      type: 'agent_pr_ready',
+      dispatchId: dispatchId('d-1'),
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prId: prId('pr-42'),
+    };
+
+    const result = transition(running, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('running');
+    if (result.nextState.status === 'running') {
+      expect(result.nextState.prUrl).toBe('https://github.com/org/repo/pull/42');
+      expect(result.nextState.prId).toBe(prId('pr-42'));
+    }
+  });
 });
 
 // ---- agent_completed ----
@@ -661,6 +680,28 @@ describe('agent_completed → succeeded + move card to done', () => {
 
     const result = transition(dispatching, trigger, testConfig);
     expect(result.rejected).toBe(true);
+  });
+
+  it('propagates prUrl from running state into succeeded state', () => {
+    const runningWithPr = {
+      ...running,
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prId: prId('pr-42'),
+    };
+    const trigger: PipelineTrigger = {
+      type: 'agent_completed',
+      dispatchId: dispatchId('d-1'),
+      cost: 0.42,
+    };
+
+    const result = transition(runningWithPr, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('succeeded');
+    if (result.nextState.status === 'succeeded') {
+      expect(result.nextState.prUrl).toBe('https://github.com/org/repo/pull/42');
+    }
   });
 });
 

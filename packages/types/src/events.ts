@@ -58,6 +58,13 @@ export interface AgentWorkFailedPayload {
   retryable: boolean;
 }
 
+export interface PipelineTransitionedPayload {
+  instanceId: InstanceId;
+  fromStatus: string;
+  toStatus: string;
+  trigger: string;
+}
+
 export interface NotificationSendPayload {
   /** Short notification heading */
   title: string;
@@ -84,6 +91,7 @@ export interface OuijaEventMap {
   'agent.work.completed': AgentWorkCompletedPayload;
   'agent.work.failed': AgentWorkFailedPayload;
   'notification.send': NotificationSendPayload;
+  'pipeline.transitioned': PipelineTransitionedPayload;
 }
 
 export type OuijaTopic = keyof OuijaEventMap;
