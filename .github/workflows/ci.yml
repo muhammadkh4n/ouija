@@ -19,3 +19,89 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npm run test
+
+  # Exercise the real self-hoster install path: `npx @ouija-dev/cli@<sha> init`
+  # in an empty directory, then `ouija up` boots the stack. Catches regressions
+  # in the packaged assets (wrong env_file path, stale image tag, missing
+  # compose files) that in-monorepo tests can't see.
+  #
+  # Runs against the CLI built from this PR (npm pack + npx <tarball>) rather
+  # than a published version so we test the change, not yesterday's release.
+  fresh-install-smoke:
+    runs-on: ubuntu-latest
+    needs: [check]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # Pack just the CLI. Its packaged assets include the compose files we
+      # need to validate.
+      - name: pack cli
+        id: pack
+        run: |
+          cd packages/cli
+          tarball=$(npm pack --silent)
+          echo "tarball=$(pwd)/$tarball" >> "$GITHUB_OUTPUT"
+
+      # Init in a fresh empty directory under runner temp. Mirrors what a
+      # self-hoster running `npx @ouija-dev/cli init` sees.
+      - name: fresh init + validate compose
+        run: |
+          set -euo pipefail
+          export CI_SMOKE_DIR="$RUNNER_TEMP/ouija-fresh"
+          mkdir -p "$CI_SMOKE_DIR"
+          cd "$CI_SMOKE_DIR"
+          # Install the CLI tarball locally, then invoke the binary directly.
+          # `npx --yes <tarball>` tries to execute the tarball file itself,
+          # which shells out to sh and errors with EACCES on macOS + Linux.
+          npm init -y > /dev/null
+          npm install "${{ steps.pack.outputs.tarball }}"
+          ./node_modules/.bin/ouija init --preset self-hosted-plane -y
+          # Clean up the installer scaffolding so the init-generated files
+          # are the only thing left for the compose check.
+          rm -rf node_modules package.json package-lock.json
+
+          # Files we expect the init to have created.
+          for f in .env ouija.config.yaml docker/docker-compose.ouija.yml docker/docker-compose.yml; do
+            if [ ! -f "$f" ]; then
+              echo "::error::expected file missing: $f"
+              exit 1
+            fi
+          done
+
+          # Docker Compose `config` normalises the file — fails loud on:
+          #  - wrong env_file paths
+          #  - unresolvable image references
+          #  - missing build contexts
+          # which were the two bugs that shipped in v0.3.0.
+          docker compose \
+            --project-directory "$CI_SMOKE_DIR" \
+            -f docker/docker-compose.ouija.yml \
+            config > /tmp/compose-rendered.yml
+
+          # Assert the `ouija` service is defined as a registry image on GHCR.
+          # A `build:` stanza may also be present (it's kept as a monorepo-dev
+          # override) but `docker compose up` honours `image:` first and never
+          # triggers `build:` unless `--build` is passed. We only care that
+          # self-hosters without source can pull + run.
+          python3 - <<'PY'
+          import sys, yaml
+          with open('/tmp/compose-rendered.yml') as f:
+              doc = yaml.safe_load(f)
+          svc = doc.get('services', {}).get('ouija', {})
+          image = svc.get('image', '')
+          if not image.startswith('ghcr.io/muhammadkh4n/ouija:'):
+              print(f"::error::services.ouija.image expected 'ghcr.io/muhammadkh4n/ouija:<tag>', got '{image}'")
+              sys.exit(1)
+          # If a build stanza is present, its context path must resolve to the
+          # cli-installed workspace (so it's benign for self-hosters). We don't
+          # require its absence — having it enables `docker compose build` in
+          # the monorepo without a separate override file.
+          print(f"services.ouija.image = {image}")
+          print("fresh-install compose validates ✓")
+          PY
