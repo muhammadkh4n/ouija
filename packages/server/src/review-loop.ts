@@ -11,11 +11,15 @@ import type {
   GitPrReviewSubmittedPayload,
   GitPrCommentPostedPayload,
   GitCiFailedPayload,
+  Database,
+  ReviewBundle,
 } from '@ouija-dev/types';
 import {
   ReviewBundler,
   InMemoryReviewBundleStore,
+  filterReviewBundle,
   type ReviewBundlerLogger,
+  type ReviewLoopFilterConfig,
 } from '@ouija-dev/engine';
 import type { Orchestrator } from '@ouija-dev/engine';
 
@@ -25,6 +29,21 @@ export interface ReviewLoopOptions {
   logger: ReviewBundlerLogger;
   /** Override the default 60s debounce (used in tests). */
   debounceMs?: number;
+  /**
+   * Optional db for pr_instance_index + agents lookups. When present, the
+   * flush handler resolves the owning agent for each PR and applies its
+   * `reviewLoop` config (enabled toggle, ignoreReviewers, triggerReviewers,
+   * ignoreWorkflows). When absent, all bundles pass through unfiltered —
+   * older deployments keep working.
+   */
+  db?: Database;
+  /**
+   * Optional fallback lookup for agent reviewLoop config. Called only when
+   * `db.agents` is missing — YAML-only deployments should wire this so
+   * configuration from ouija.config.yaml still gates the loop. Accepts the
+   * agentId and returns the config or undefined.
+   */
+  getAgentReviewLoop?: (agentId: string) => ReviewLoopFilterConfig | undefined;
 }
 
 export interface ReviewLoopHandle {
@@ -42,7 +61,14 @@ export async function registerReviewLoop(opts: ReviewLoopOptions): Promise<Revie
     store,
     async (bundle) => {
       try {
-        await opts.orchestrator.processReviewBundle(bundle);
+        const filtered = await applyReviewLoopFilter(bundle, opts);
+        if (filtered === null) {
+          opts.logger.info('review-loop: bundle filtered out (disabled or no matching signals)', {
+            prUrl: bundle.prUrl,
+          });
+          return;
+        }
+        await opts.orchestrator.processReviewBundle(filtered);
       } catch (err) {
         opts.logger.error('review-loop: processReviewBundle threw', {
           prUrl: bundle.prUrl,
@@ -122,4 +148,60 @@ export async function registerReviewLoop(opts: ReviewLoopOptions): Promise<Revie
       }
     },
   };
+}
+
+/**
+ * Resolve the owning agent for a PR and apply its reviewLoop config to a
+ * flushed bundle. Order of resolution:
+ *   1. db.agents (dashboard-managed, encrypted vault) when migration 003 is
+ *      applied and the agent exists.
+ *   2. getAgentReviewLoop callback (YAML / legacy) when provided.
+ *   3. Permissive default (loop enabled, no filtering).
+ *
+ * Silently returns the bundle unfiltered when the instance can't be resolved
+ * — that's a different failure mode (PR index missing) which the orchestrator
+ * logs when processReviewBundle runs.
+ */
+async function applyReviewLoopFilter(
+  bundle: ReviewBundle,
+  opts: ReviewLoopOptions,
+): Promise<ReviewBundle | null> {
+  const db = opts.db;
+  if (db === undefined || db.prInstances === undefined) {
+    // Can't look up the agent — pass through unchanged; orchestrator may
+    // still reject when it can't find the instance either.
+    return bundle;
+  }
+
+  const instanceIdStr = await db.prInstances.findInstanceByPrUrl(bundle.prUrl);
+  if (instanceIdStr === undefined) return bundle;
+
+  const instance = await db.pipelines.findById(
+    (await import('@ouija-dev/types')).instanceId(instanceIdStr),
+  );
+  if (instance === undefined) return bundle;
+
+  // Only awaiting_review pipelines carry an agentId in state. Others fall
+  // through — if the orchestrator rejects the transition, no dispatch fires.
+  const state = instance.state;
+  if (!('agentId' in state) || typeof state.agentId !== 'string') {
+    return bundle;
+  }
+  const agentIdStr = String(state.agentId);
+
+  let reviewLoop: ReviewLoopFilterConfig | undefined;
+  if (db.agents !== undefined) {
+    try {
+      const record = await db.agents.findById(agentIdStr);
+      const config = record?.config as { reviewLoop?: ReviewLoopFilterConfig } | undefined;
+      reviewLoop = config?.reviewLoop;
+    } catch {
+      // Agent lookup failed — fall through to YAML callback / defaults.
+    }
+  }
+  if (reviewLoop === undefined && opts.getAgentReviewLoop !== undefined) {
+    reviewLoop = opts.getAgentReviewLoop(agentIdStr);
+  }
+
+  return filterReviewBundle(bundle, reviewLoop);
 }

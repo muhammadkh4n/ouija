@@ -89,6 +89,7 @@ a:hover {
 .status-dot[data-status='provisioning'] { background: var(--color-status-provisioning); box-shadow: 0 0 12px var(--color-status-provisioning); }
 .status-dot[data-status='dispatching']  { background: var(--color-status-dispatching); box-shadow: 0 0 12px var(--color-status-dispatching); }
 .status-dot[data-status='running']      { background: var(--color-status-running); box-shadow: 0 0 14px var(--color-status-running); }
+.status-dot[data-status='awaiting_review'] { background: var(--color-status-review, #b48ead); box-shadow: 0 0 10px var(--color-status-review, #b48ead); }
 .status-dot[data-status='succeeded']    { background: var(--color-status-succeeded); }
 .status-dot[data-status='failed']       { background: var(--color-status-failed); box-shadow: 0 0 12px var(--color-status-failed); }
 .status-dot[data-status='stalled']      { background: var(--color-status-stalled); }

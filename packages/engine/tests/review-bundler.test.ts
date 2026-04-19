@@ -17,8 +17,10 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   ReviewBundler,
   InMemoryReviewBundleStore,
+  filterReviewBundle,
   type BundleReview,
   type BundleComment,
+  type BundleCiFailure,
 } from '../src/review-bundler.js';
 import type { ReviewBundle } from '@ouija-dev/types';
 import { prId } from '@ouija-dev/types';
@@ -396,5 +398,98 @@ describe('ReviewBundler.pushCiFailure', () => {
     }
     await clock.advance(2_000);
     expect(flushed[0]?.ciFailures).toHaveLength(2);
+  });
+});
+
+// ---- filterReviewBundle (per-agent gates) ----
+
+describe('filterReviewBundle', () => {
+  function bundle(overrides: Partial<ReviewBundle> = {}): ReviewBundle {
+    return {
+      prUrl: PR_URL,
+      prId: PR_ID,
+      reviews: [
+        { reviewId: 'r1', reviewerLogin: 'coderabbitai[bot]', state: 'changes_requested', body: 'fix', submittedAt: '2026' },
+        { reviewId: 'r2', reviewerLogin: 'muhammadkh4n', state: 'commented', body: 'lgtm', submittedAt: '2026' },
+      ],
+      comments: [
+        { commentId: 'c1', reviewerLogin: 'copilot-pull-request-reviewer[bot]', body: 'nit', postedAt: '2026' },
+      ],
+      ciFailures: [
+        { checkId: 'gha:1:unit', provider: 'github-actions', workflowName: 'CI', jobName: 'unit', conclusion: 'failure', headSha: 'abc', completedAt: '2026' },
+        { checkId: 'gha:2:bench', provider: 'github-actions', workflowName: 'nightly-bench', jobName: 'perf', conclusion: 'failure', headSha: 'abc', completedAt: '2026' },
+      ],
+      flushedAt: '2026',
+      ...overrides,
+    };
+  }
+
+  it('returns bundle unchanged when config is undefined (default permissive)', () => {
+    const b = bundle();
+    const result = filterReviewBundle(b, undefined);
+    expect(result?.reviews).toHaveLength(2);
+    expect(result?.ciFailures).toHaveLength(2);
+  });
+
+  it('returns null when enabled is explicitly false (agent opted out)', () => {
+    expect(filterReviewBundle(bundle(), { enabled: false })).toBeNull();
+  });
+
+  it('filters out reviewers in ignoreReviewers (case-insensitive)', () => {
+    const result = filterReviewBundle(bundle(), {
+      ignoreReviewers: ['CodeRabbitAI[bot]'],
+    });
+    expect(result?.reviews).toHaveLength(1);
+    expect(result?.reviews[0]?.reviewerLogin).toBe('muhammadkh4n');
+    expect(result?.comments).toHaveLength(1);
+  });
+
+  it('triggerReviewers allowlist drops anyone not on it', () => {
+    const result = filterReviewBundle(bundle(), {
+      triggerReviewers: ['coderabbitai[bot]'],
+    });
+    expect(result?.reviews).toHaveLength(1);
+    expect(result?.reviews[0]?.reviewerLogin).toBe('coderabbitai[bot]');
+    expect(result?.comments).toHaveLength(0); // Copilot dropped
+  });
+
+  it('filters out CI failures from ignored workflows', () => {
+    const result = filterReviewBundle(bundle(), {
+      ignoreWorkflows: ['nightly-bench'],
+    });
+    expect(result?.ciFailures).toHaveLength(1);
+    expect(result?.ciFailures?.[0]?.workflowName).toBe('CI');
+  });
+
+  it('returns null when all signals are filtered out (no dispatch)', () => {
+    const result = filterReviewBundle(
+      {
+        prUrl: PR_URL,
+        prId: PR_ID,
+        reviews: [{ reviewId: 'r', reviewerLogin: 'bot', state: 'changes_requested', body: '', submittedAt: '2026' }],
+        comments: [],
+        flushedAt: '2026',
+      },
+      { ignoreReviewers: ['bot'] },
+    );
+    expect(result).toBeNull();
+  });
+
+  it('drops ciFailures key entirely when zero survive filtering', () => {
+    const result = filterReviewBundle(bundle(), {
+      ignoreWorkflows: ['CI', 'nightly-bench'],
+    });
+    // Still has reviews/comments so result is non-null, but ciFailures should be absent
+    expect(result).not.toBeNull();
+    expect(result?.ciFailures).toBeUndefined();
+  });
+
+  it('combines ignoreReviewers + ignoreWorkflows independently', () => {
+    const result = filterReviewBundle(bundle(), {
+      ignoreReviewers: ['coderabbitai[bot]'],
+      ignoreWorkflows: ['nightly-bench'],
+    });
+    expect(result?.reviews).toHaveLength(1);
+    expect(result?.ciFailures).toHaveLength(1);
   });
 });

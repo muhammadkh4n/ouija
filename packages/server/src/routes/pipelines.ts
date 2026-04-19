@@ -33,9 +33,13 @@ function serializePipeline(instance: import('@ouija-dev/types').PipelineInstance
   if (state.status === 'failed' || state.status === 'stalled') {
     allowedActions.push('retry');
   }
-  if (state.status === 'dispatching' || state.status === 'running') {
+  if (state.status === 'dispatching' || state.status === 'running' || state.status === 'awaiting_review') {
     allowedActions.push('cancel');
   }
+
+  // Review-loop iteration lives on state for dispatching/running/awaiting_review.
+  const iteration =
+    'iteration' in state && typeof state.iteration === 'number' ? state.iteration : null;
 
   return {
     id: String(instance.id),
@@ -47,6 +51,7 @@ function serializePipeline(instance: import('@ouija-dev/types').PipelineInstance
     prUrl: instance.prUrl,
     cost: instance.cost,
     tokensUsed: instance.tokensUsed,
+    iteration,
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
     allowedActions,

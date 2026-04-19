@@ -206,6 +206,22 @@ function DetailHeader({
         <span className="faint mono" style={{ fontSize: 'var(--text-xs)' }}>
           attempt {pipeline.attempt}
         </span>
+        {pipeline.iteration !== undefined && pipeline.iteration !== null && pipeline.iteration > 1 && (
+          <span
+            className="mono"
+            style={{
+              fontSize: 'var(--text-xs)',
+              padding: '2px var(--space-2)',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--color-status-review, rgba(180, 142, 173, 0.15))',
+              color: 'var(--color-status-review, #b48ead)',
+              border: '1px solid var(--color-status-review, #b48ead)',
+            }}
+            title="Review-loop iteration count (reviewer feedback or CI failures have triggered follow-up dispatches)"
+          >
+            iter {pipeline.iteration}
+          </span>
+        )}
         {showLiveBadge && <LiveBadge />}
       </div>
 
