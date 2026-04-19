@@ -55,6 +55,8 @@ export function transition(
       return handleHumanCancel(state, trigger);
     case 'pr_merged':
       return handlePrMerged(state, trigger);
+    case 'pr_review_received':
+      return handlePrReviewReceived(state, trigger, config);
     default: {
       const _exhaustive: never = trigger;
       return {
@@ -329,7 +331,9 @@ function handleAgentPrReady(
     };
   }
 
-  // State stays running — the PR has been opened but agent work continues until completed
+  // State stays running — the PR has been opened but agent work continues until
+  // completed. We also emit a record_pr_mapping side effect so a later review
+  // webhook carrying just a PR URL can resolve back to this instance.
   const sideEffects: SideEffect[] = [
     {
       type: 'move_card',
@@ -346,11 +350,23 @@ function handleAgentPrReady(
       payload: { prUrl: trigger.prUrl, prId: trigger.prId },
       idempotencyKey: `notify-pr-ready-${trigger.dispatchId}`,
     },
+    {
+      type: 'record_pr_mapping',
+      payload: { prUrl: trigger.prUrl },
+      idempotencyKey: `record-pr-${trigger.prUrl}`,
+    },
   ];
 
   return {
     rejected: false,
-    nextState: { ...state, prUrl: trigger.prUrl, prId: trigger.prId },
+    nextState: {
+      ...state,
+      prUrl: trigger.prUrl,
+      prId: trigger.prId,
+      // Carry the iteration counter through so handleAgentCompleted can preserve
+      // it when transitioning to awaiting_review. Default 1 on the first PR.
+      iteration: state.iteration ?? 1,
+    },
     events: [],
     sideEffects,
   };
@@ -369,15 +385,40 @@ function handleAgentCompleted(
 
   const now = new Date().toISOString();
 
-  // Build succeeded state — optional fields only set when present to satisfy exactOptionalPropertyTypes.
-  // Carry prUrl forward from running state (set when agent_pr_ready fired) so the completed pipeline
-  // row has a non-null PR link even when the agent_completed trigger didn't re-send it.
+  // If the agent opened a PR, transition to awaiting_review and wait for
+  // reviewer feedback. The card stays in Review; a later pr_review_received
+  // trigger (from the review bundler) re-dispatches with iteration++.
+  //
+  // If no PR was opened (rare — most paths that reach running → completed do
+  // open one) we fall through to the legacy succeeded transition so nothing
+  // hangs indefinitely.
+  if (state.prUrl !== undefined && state.prId !== undefined) {
+    const nextState: PipelineState = {
+      status: 'awaiting_review',
+      dispatchId: state.dispatchId,
+      agentId: state.agentId,
+      prUrl: state.prUrl,
+      prId: state.prId,
+      iteration: state.iteration ?? 1,
+      enteredAt: now,
+    };
+    const sideEffects: SideEffect[] = [
+      {
+        type: 'cancel_stall_check',
+        payload: { dispatchId: state.dispatchId },
+        idempotencyKey: `cancel-stall-complete-${trigger.dispatchId}`,
+      },
+    ];
+    return { rejected: false, nextState, events: [], sideEffects };
+  }
+
+  // No PR — treat as legacy completion. Preserves the close_and_notify and
+  // any "agent did work without opening a PR" paths.
   const nextState: PipelineState = {
     status: 'succeeded',
     dispatchId: state.dispatchId,
     agentId: state.agentId,
     completedAt: now,
-    ...(state.prUrl !== undefined ? { prUrl: state.prUrl } : {}),
     ...(trigger.cost !== undefined ? { cost: trigger.cost } : {}),
     ...(trigger.tokensUsed !== undefined ? { tokensUsed: trigger.tokensUsed } : {}),
   };
@@ -599,23 +640,39 @@ function handlePrMerged(
   state: PipelineState,
   trigger: Extract<PipelineTrigger, { type: 'pr_merged' }>,
 ): TransitionOutcome {
-  // PR merged is valid from running (agent still active) or succeeded (agent finished, PR was pending merge)
-  if (state.status !== 'running' && state.status !== 'succeeded') {
+  // PR merged is valid from running / awaiting_review / succeeded. In the
+  // review-loop flow, awaiting_review is the usual terminator: human merges
+  // the PR → we transition to succeeded.
+  if (
+    state.status !== 'running' &&
+    state.status !== 'awaiting_review' &&
+    state.status !== 'succeeded'
+  ) {
     return {
       rejected: true,
-      reason: `Cannot process PR merge: pipeline is in state "${state.status}", expected "running" or "succeeded"`,
+      reason: `Cannot process PR merge: pipeline is in state "${state.status}", expected "running", "awaiting_review", or "succeeded"`,
     };
   }
 
   // Preserve cost/tokens from the existing succeeded state if present
   const cost = state.status === 'succeeded' ? state.cost : undefined;
   const tokensUsed = state.status === 'succeeded' ? state.tokensUsed : undefined;
+  // Carry the PR URL forward into the succeeded state so the dashboard + denorm
+  // projection keep it visible post-merge. awaiting_review always has it;
+  // running may or may not; succeeded passes through its own.
+  const prUrl =
+    state.status === 'awaiting_review'
+      ? state.prUrl
+      : state.status === 'running'
+      ? state.prUrl
+      : state.prUrl;
 
   const nextState: PipelineState = {
     status: 'succeeded',
     dispatchId: state.dispatchId,
     agentId: state.agentId,
     completedAt: trigger.mergedAt,
+    ...(prUrl !== undefined ? { prUrl } : {}),
     ...(cost !== undefined ? { cost } : {}),
     ...(tokensUsed !== undefined ? { tokensUsed } : {}),
   };
@@ -638,6 +695,113 @@ function handlePrMerged(
     nextState,
     events: [],
     sideEffects,
+  };
+}
+
+/**
+ * Default cap when PipelineConfig.maxReviewIterations is not set. 5 is plenty
+ * for the common "CodeRabbit complains → agent fixes → approval" flow without
+ * running up the Claude subscription bill on a runaway loop.
+ */
+export const DEFAULT_MAX_REVIEW_ITERATIONS = 5;
+
+function handlePrReviewReceived(
+  state: PipelineState,
+  trigger: Extract<PipelineTrigger, { type: 'pr_review_received' }>,
+  config: PipelineConfig,
+): TransitionOutcome {
+  if (state.status !== 'awaiting_review') {
+    return {
+      rejected: true,
+      reason: `Cannot process PR review: pipeline is in state "${state.status}", expected "awaiting_review"`,
+    };
+  }
+
+  // Sanity check — reviews for a different PR than the one this pipeline
+  // opened. Can happen if pr_instance_index gets out of sync; we silently
+  // drop rather than re-dispatching on the wrong branch.
+  if (state.prUrl !== trigger.prUrl) {
+    return {
+      rejected: true,
+      reason: `PR review targets "${trigger.prUrl}" but pipeline owns "${state.prUrl}"`,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const nextIteration = state.iteration + 1;
+  const maxIterations = config.maxReviewIterations ?? DEFAULT_MAX_REVIEW_ITERATIONS;
+
+  // Max-iteration guard — runaway loop protection. Transitions to stalled with
+  // a notification so a human can take over.
+  if (nextIteration > maxIterations) {
+    const stalledState: PipelineState = {
+      status: 'stalled',
+      dispatchId: state.dispatchId,
+      agentId: state.agentId,
+      stalledAt: now,
+      lastHeartbeatAt: state.enteredAt,
+      reason: `max_review_iterations_exceeded (${maxIterations})`,
+    };
+    return {
+      rejected: false,
+      nextState: stalledState,
+      events: [],
+      sideEffects: [
+        {
+          type: 'send_notification',
+          payload: {
+            prUrl: state.prUrl,
+            prId: state.prId,
+            iteration: state.iteration,
+            message: `Review loop exceeded ${maxIterations} iterations — human attention required on ${state.prUrl}`,
+          },
+          idempotencyKey: `max-iter-${state.prUrl}-${state.iteration}`,
+        },
+      ],
+    };
+  }
+
+  // Fresh dispatchId for the follow-up dispatch so stall-check, heartbeats,
+  // and idempotency keys don't collide with the previous iteration.
+  const newDispatchId = makeDispatchId(randomUUID());
+
+  const nextState: PipelineState = {
+    status: 'dispatching',
+    dispatchId: newDispatchId,
+    agentId: state.agentId,
+    dispatchedAt: now,
+    iteration: nextIteration,
+  };
+
+  return {
+    rejected: false,
+    nextState,
+    events: [],
+    sideEffects: [
+      {
+        type: 'dispatch_agent',
+        payload: {
+          dispatchId: String(newDispatchId),
+          agentId: String(state.agentId),
+          iteration: nextIteration,
+          // The orchestrator forwards reviewContext into AgentDispatchJobData
+          // so the work-order assembler can render the review comments into
+          // the agent's prompt.
+          reviewContext: {
+            iteration: nextIteration,
+            prUrl: trigger.prUrl,
+            prId: trigger.prId,
+            bundle: trigger.bundle,
+          },
+        },
+        idempotencyKey: `dispatch-review-${state.prUrl}-${nextIteration}`,
+      },
+      {
+        type: 'enqueue_stall_check',
+        payload: { dispatchId: String(newDispatchId) },
+        idempotencyKey: `stall-review-${String(newDispatchId)}`,
+      },
+    ],
   };
 }
 

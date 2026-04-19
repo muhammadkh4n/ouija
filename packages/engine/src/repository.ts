@@ -17,6 +17,7 @@ import type {
   DeduplicationRepository,
   AgentRepository,
   AgentRecord,
+  PrInstanceRepository,
   UnitOfWork,
   Database,
   CursorPage,
@@ -530,6 +531,29 @@ export class PostgresAgentRepository implements AgentRepository {
   }
 }
 
+// ---- PostgresPrInstanceRepository ----
+
+export class PostgresPrInstanceRepository implements PrInstanceRepository {
+  constructor(private readonly client: Pool | PoolClient) {}
+
+  async record(prUrl: string, instanceId: string): Promise<void> {
+    await this.client.query(
+      `INSERT INTO pr_instance_index (pr_url, instance_id)
+       VALUES ($1, $2)
+       ON CONFLICT (pr_url) DO UPDATE SET instance_id = EXCLUDED.instance_id`,
+      [prUrl, instanceId],
+    );
+  }
+
+  async findInstanceByPrUrl(prUrl: string): Promise<string | undefined> {
+    const result = await this.client.query<{ instance_id: string }>(
+      `SELECT instance_id FROM pr_instance_index WHERE pr_url = $1`,
+      [prUrl],
+    );
+    return result.rows[0]?.instance_id;
+  }
+}
+
 // ---- Transactional UnitOfWork ----
 
 class TransactionalUnitOfWork implements UnitOfWork {
@@ -537,12 +561,14 @@ class TransactionalUnitOfWork implements UnitOfWork {
   readonly pipelineEvents: PostgresPipelineEventRepository;
   readonly boardConfigs: PostgresBoardConfigRepository;
   readonly agents: PostgresAgentRepository;
+  readonly prInstances: PostgresPrInstanceRepository;
 
   constructor(client: PoolClient) {
     this.pipelines = new PostgresPipelineRepository(client);
     this.pipelineEvents = new PostgresPipelineEventRepository(client);
     this.boardConfigs = new PostgresBoardConfigRepository(client);
     this.agents = new PostgresAgentRepository(client);
+    this.prInstances = new PostgresPrInstanceRepository(client);
   }
 }
 
@@ -554,6 +580,7 @@ export class PostgresDatabase implements Database {
   readonly boardConfigs: PostgresBoardConfigRepository;
   readonly deduplication: PostgresDeduplicationRepository;
   readonly agents: PostgresAgentRepository;
+  readonly prInstances: PostgresPrInstanceRepository;
 
   constructor(private readonly pool: Pool) {
     this.pipelines = new PostgresPipelineRepository(pool);
@@ -561,6 +588,7 @@ export class PostgresDatabase implements Database {
     this.boardConfigs = new PostgresBoardConfigRepository(pool);
     this.deduplication = new PostgresDeduplicationRepository(pool);
     this.agents = new PostgresAgentRepository(pool);
+    this.prInstances = new PostgresPrInstanceRepository(pool);
   }
 
   async transaction<T>(fn: (uow: UnitOfWork) => Promise<T>): Promise<T> {

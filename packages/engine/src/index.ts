@@ -13,6 +13,7 @@ export {
   PostgresBoardConfigRepository,
   PostgresDeduplicationRepository,
   PostgresAgentRepository,
+  PostgresPrInstanceRepository,
   createDatabase,
 } from './repository.js';
 export {
