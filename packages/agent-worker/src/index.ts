@@ -27,6 +27,7 @@ import { AgentDispatchWorker } from './worker.js';
 import type { AssemblerDeps, AgentProfile } from './work-order-assembler.js';
 
 export type { AgentProfile } from './work-order-assembler.js';
+export { agentConfigToProfile } from './work-order-assembler.js';
 import { issueAgentJWT } from './jwt-helper.js';
 
 // ---- Logger (structured JSON to stdout) ----
@@ -67,6 +68,13 @@ export interface StartWorkerOptions {
   }>;
   /** Agent profiles from ouija.config.yaml — replaces hardcoded profile. */
   agentProfiles?: Map<string, import('./work-order-assembler.js').AgentProfile>;
+  /**
+   * Optional async lookup used before the YAML-backed agentProfiles map. Returns
+   * an AgentProfile if the agent exists in the DB (agents table), otherwise
+   * undefined to fall back to YAML. Injected by the server when the agents repo
+   * is available so dashboard-created agents dispatch without YAML edits.
+   */
+  getAgentProfileFromDb?: (agentId: string) => Promise<import('./work-order-assembler.js').AgentProfile | undefined>;
   /** Global claudeHome setting from ouija.config.yaml */
   claudeHome?: string | null;
 }
@@ -106,13 +114,24 @@ export async function startAgentWorker(options: StartWorkerOptions): Promise<Wor
   });
   await claudePlugin.start();
 
-  // 3. Assembler deps
+  // 3. Assembler deps — DB first, YAML map second, hardcoded stub last. That
+  // order means dashboard-created agents override any YAML entry with the same
+  // id, which is the expected UX: edits in the dashboard win.
   const assemblerDeps: AssemblerDeps = options.assemblerDeps ?? {
     getAgentProfile: async (agentId: string) => {
-      if (options.agentProfiles) {
+      if (options.getAgentProfileFromDb) {
+        const dbProfile = await options.getAgentProfileFromDb(agentId);
+        if (dbProfile) {
+          logger.info('Agent profile resolved from DB', { agentId });
+          return dbProfile;
+        }
+      }
+      if (options.agentProfiles && options.agentProfiles.has(agentId)) {
+        logger.info('Agent profile resolved from YAML', { agentId });
         return options.agentProfiles.get(agentId);
       }
       // Fallback: single hardcoded profile for backwards compatibility
+      logger.warn('Agent profile falling back to env-based default', { agentId });
       return {
         id: 'rex-coder',
         name: 'Rex Coder',

@@ -117,7 +117,7 @@ const SAMPLE_CONFIG = {
   model: 'claude-sonnet-4-20250514',
   triggerMode: 'auto' as const,
   auth: { method: 'api-key', secretRef: 'env:ANTHROPIC_API_KEY' },
-  repos: [{ url: 'https://github.com/test/repo.git', baseBranch: 'main' }],
+  repos: [{ url: 'https://github.com/test/repo.git', baseBranch: 'main', default: true }],
   limits: { maxDurationMs: 1_800_000 },
 };
 
@@ -218,6 +218,41 @@ describe('POST /api/v1/agents', () => {
       payload: JSON.stringify({ id: 'InvalidId', config: SAMPLE_CONFIG }),
     });
     expect(response.statusCode).toBe(400);
+  });
+
+  it('rejects a config missing required fields (ajv schema violation)', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agents',
+      headers: authHeaders(),
+      payload: JSON.stringify({
+        id: 'rex-coder',
+        // missing name, email, model, triggerMode, auth, repos, limits
+        config: { id: 'rex-coder' },
+      }),
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('rejects a config with two default repos (semantic check)', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/agents',
+      headers: authHeaders(),
+      payload: JSON.stringify({
+        id: 'rex-coder',
+        config: {
+          ...SAMPLE_CONFIG,
+          repos: [
+            { url: 'https://github.com/a/b.git', baseBranch: 'main', default: true },
+            { url: 'https://github.com/c/d.git', baseBranch: 'main', default: true },
+          ],
+        },
+      }),
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.message).toContain('only one repo can be marked default');
   });
 });
 

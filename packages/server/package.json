@@ -28,6 +28,7 @@
     "@fastify/static": "^9.1.1",
     "@ouija-dev/agent-worker": "*",
     "@ouija-dev/bus": "*",
+    "@ouija-dev/config": "*",
     "@ouija-dev/engine": "*",
     "@ouija-dev/plugin-agent-claude": "*",
     "@ouija-dev/plugin-engram": "*",

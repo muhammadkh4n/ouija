@@ -601,6 +601,26 @@ async function main(): Promise<void> {
     if (agentProfiles) {
       workerOpts.agentProfiles = agentProfiles;
     }
+    // DB-first lookup: dashboard-created agents override any YAML entry. When
+    // migration 003 hasn't been applied (db.agents is undefined), this is a
+    // no-op and the YAML-backed map serves alone.
+    if (db.agents !== undefined) {
+      const agentsRepo = db.agents;
+      const { agentConfigToProfile } = await import('@ouija-dev/agent-worker');
+      workerOpts.getAgentProfileFromDb = async (agentId: string) => {
+        const record = await agentsRepo.findById(agentId);
+        if (record === undefined || !record.active) return undefined;
+        try {
+          return agentConfigToProfile(record.config);
+        } catch (err) {
+          app.log.error(
+            { err, agentId },
+            'agentConfigToProfile failed — DB row has invalid shape, falling back to YAML',
+          );
+          return undefined;
+        }
+      };
+    }
     if (ouijaConfig?.claudeHome) {
       workerOpts.claudeHome = ouijaConfig.claudeHome;
     }

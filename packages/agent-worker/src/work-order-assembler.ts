@@ -38,6 +38,70 @@ export interface AgentProfile {
   repos?: Array<{ url?: string | undefined; path?: string | undefined; baseBranch: string; projectId?: string | undefined; default?: boolean | undefined }>;
 }
 
+/**
+ * Convert an agents-table config row (validated AgentProfileConfig JSONB) into
+ * the AgentProfile shape the work-order assembler expects. Used by the server
+ * wiring to make DB-stored agents dispatchable alongside YAML-defined ones.
+ */
+export function agentConfigToProfile(config: Record<string, unknown>): AgentProfile {
+  // Shape is validated at write time by @ouija-dev/config#validateAgentProfile,
+  // so we trust the structural invariants here. Surfaced as structured access
+  // rather than unsafe casting so that missing required fields throw on read.
+  const getString = (key: string, optional = false): string => {
+    const v = config[key];
+    if (typeof v === 'string') return v;
+    if (optional) return '';
+    throw new Error(`AgentRecord config missing required string field: ${key}`);
+  };
+  const getNumber = (key: string): number => {
+    const v = config[key];
+    if (typeof v === 'number') return v;
+    throw new Error(`AgentRecord config missing required number field: ${key}`);
+  };
+
+  const auth = config['auth'] as { method?: string; secretRef?: string } | undefined;
+  const limits = config['limits'] as { maxDurationMs?: number } | undefined;
+  const repos = (config['repos'] as Array<{
+    url?: string;
+    path?: string;
+    baseBranch: string;
+    projectId?: string;
+    default?: boolean;
+  }>);
+  const defaultRepo = repos.find((r) => r.default === true) ?? repos[0]!;
+
+  const profile: AgentProfile = {
+    id: getString('id'),
+    name: getString('name'),
+    systemPrompt: typeof config['systemPrompt'] === 'string' ? config['systemPrompt'] : '',
+    secretRef: auth?.secretRef ?? '',
+    model: getString('model'),
+    maxDurationMs: limits?.maxDurationMs ?? getNumber('maxDurationMs'),
+    baseBranch: defaultRepo.baseBranch,
+    triggerMode: (config['triggerMode'] as 'auto' | 'manual') ?? 'auto',
+    repos: repos.map((r) => ({
+      url: r.url,
+      path: r.path,
+      baseBranch: r.baseBranch,
+      projectId: r.projectId,
+      default: r.default,
+    })),
+  };
+
+  if (defaultRepo.url) profile.repoUrl = defaultRepo.url;
+  if (defaultRepo.path) profile.repoPath = defaultRepo.path;
+  if (typeof config['configDir'] === 'string') profile.configDir = config['configDir'];
+  if (auth?.method) profile.authMethod = auth.method;
+  if (
+    typeof config['runner'] === 'string' &&
+    (config['runner'] === 'local' || config['runner'] === 'stream-json' || config['runner'] === 'sdk')
+  ) {
+    profile.runner = config['runner'];
+  }
+
+  return profile;
+}
+
 // ---- Assembler dependencies (injectable for testing) ----
 
 export interface AssemblerDeps {
