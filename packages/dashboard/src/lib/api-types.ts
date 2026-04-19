@@ -79,3 +79,52 @@ export interface ApiErrorBody {
     details?: unknown;
   };
 }
+
+// ---- Agents ----
+
+export type TriggerMode = 'auto' | 'manual';
+export type RunnerType = 'local' | 'stream-json' | 'sdk';
+export type AuthMethod = 'api-key' | 'bedrock' | 'vertex' | 'foundry' | 'api-key-helper' | 'proxy';
+
+export interface AgentRepoConfig {
+  url?: string;
+  path?: string;
+  baseBranch: string;
+  default?: boolean;
+  projectId?: string;
+}
+
+export interface AgentLimitsConfig {
+  maxDurationMs: number;
+  stallThresholdMs?: number;
+}
+
+export interface AgentProfileConfig {
+  id: string;
+  name: string;
+  email: string;
+  kanbanUserId?: string;
+  avatar?: string;
+  systemPrompt?: string;
+  configDir?: string;
+  model: string;
+  triggerMode: TriggerMode;
+  runner?: RunnerType;
+  auth: { method: AuthMethod; secretRef: string };
+  repos: AgentRepoConfig[];
+  limits: AgentLimitsConfig;
+}
+
+export interface AgentRecord {
+  id: string;
+  config: AgentProfileConfig;
+  secretFields: string[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentListResponse {
+  items: AgentRecord[];
+  total: number;
+}

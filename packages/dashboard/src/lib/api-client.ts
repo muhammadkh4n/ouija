@@ -13,6 +13,9 @@
  */
 
 import type {
+  AgentListResponse,
+  AgentProfileConfig,
+  AgentRecord,
   BoardListResponse,
   PipelineDetailResponse,
   PipelineListResponse,
@@ -101,4 +104,46 @@ export function retryPipeline(id: string): Promise<{ ok: true; instanceId: strin
 
 export function cancelPipeline(id: string): Promise<{ ok: true; instanceId: string }> {
   return request(`/api/v1/pipelines/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
+}
+
+// ---- Agents ----
+
+export function listAgents(includeInactive = false): Promise<AgentListResponse> {
+  const qs = includeInactive ? '?includeInactive=true' : '';
+  return request<AgentListResponse>(`/api/v1/agents${qs}`);
+}
+
+export function getAgent(id: string): Promise<AgentRecord> {
+  return request<AgentRecord>(`/api/v1/agents/${encodeURIComponent(id)}`);
+}
+
+export interface CreateAgentRequest {
+  id: string;
+  config: AgentProfileConfig;
+  secrets?: Record<string, string>;
+}
+
+export function createAgent(body: CreateAgentRequest): Promise<AgentRecord> {
+  return request<AgentRecord>('/api/v1/agents', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export interface UpdateAgentRequest {
+  config?: AgentProfileConfig;
+  secrets?: Record<string, string>;
+  replaceSecrets?: boolean;
+  active?: boolean;
+}
+
+export function updateAgent(id: string, body: UpdateAgentRequest): Promise<AgentRecord> {
+  return request<AgentRecord>(`/api/v1/agents/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteAgent(id: string): Promise<void> {
+  return request<void>(`/api/v1/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
