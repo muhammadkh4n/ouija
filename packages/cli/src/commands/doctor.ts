@@ -39,6 +39,13 @@ export async function runDoctor(_argv: readonly string[]): Promise<number> {
   results.push(await checkAuthMethod());
   results.push(await checkOptionalClaudeCli());
 
+  // WS2.4 additions — catch the friction points self-hosters hit on first run.
+  results.push(await checkConfigPlaceholders());
+  results.push(await checkGhAuth());
+  results.push(await checkPlaneReachable());
+  results.push(await checkSubscriptionMount());
+  results.push(checkContainerCli());
+
   console.log('');
   let failures = 0;
   for (const r of results) {
@@ -165,5 +172,215 @@ async function checkOptionalClaudeCli(): Promise<CheckResult> {
     name: 'claude CLI available (optional)',
     status: 'warn',
     detail: 'Not found — OK if using ANTHROPIC_API_KEY only.',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// WS2.4 additions
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect unedited placeholder values in ouija.config.yaml. The only
+ * unambiguous placeholder is the example repo URL — agent emails like
+ * rex@ouija.local are legitimate bot identities, not template values.
+ *
+ * Upgraded from the original warn-only check — a repo URL pointing at a
+ * repo that does not exist is guaranteed to break dispatch, so failing
+ * fast with a clear message is more useful than a silent deploy.
+ */
+async function checkConfigPlaceholders(): Promise<CheckResult> {
+  const configPath = projectPath('ouija.config.yaml');
+  if (!existsSync(configPath)) {
+    return {
+      name: 'ouija.config.yaml has no placeholder values',
+      status: 'warn',
+      detail: "Config missing — run 'ouija init'.",
+    };
+  }
+  const body = await readFile(configPath, 'utf8');
+  const placeholders: string[] = [];
+  if (body.includes('your-org/your-repo.git')) placeholders.push('repos[].url');
+  if (/systemPrompt:\s*["']?TODO\s/i.test(body)) placeholders.push('agents[].systemPrompt');
+  if (placeholders.length === 0) {
+    return { name: 'ouija.config.yaml has no placeholder values', status: 'pass' };
+  }
+  return {
+    name: 'ouija.config.yaml has no placeholder values',
+    status: 'fail',
+    detail: `Unedited placeholders in: ${placeholders.join(', ')}. Edit ouija.config.yaml or re-run 'ouija init --preset <name>'.`,
+  };
+}
+
+/**
+ * Check GitHub auth — the agent subprocess calls `gh pr create` via the
+ * credential helper, which requires `gh auth login` to have completed.
+ */
+async function checkGhAuth(): Promise<CheckResult> {
+  const which = spawnSync('gh', ['--version'], { stdio: 'ignore' });
+  if (which.status !== 0) {
+    return {
+      name: 'gh CLI authenticated',
+      status: 'warn',
+      detail: "gh CLI not installed on host. Needed for the agent's `gh pr create`. See https://cli.github.com/.",
+    };
+  }
+  const status = spawnSync('gh', ['auth', 'status'], { stdio: 'pipe' });
+  if (status.status === 0) {
+    return { name: 'gh CLI authenticated', status: 'pass' };
+  }
+  return {
+    name: 'gh CLI authenticated',
+    status: 'fail',
+    detail: "`gh auth status` failed. Run `gh auth login` then `gh auth setup-git`.",
+  };
+}
+
+/**
+ * Check that PLANE_BASE_URL + PLANE_API_TOKEN actually work. Does NOT try to
+ * verify workspace/project existence — that's the plugin's job at start(). We
+ * just prove the token is live and the host is reachable.
+ */
+async function checkPlaneReachable(): Promise<CheckResult> {
+  const envPath = projectPath('.env');
+  if (!existsSync(envPath)) {
+    return { name: 'Plane API reachable', status: 'warn', detail: 'No .env — skipped.' };
+  }
+  const env = parseEnv(await readFile(envPath, 'utf8'));
+  const baseUrl = env['PLANE_BASE_URL'];
+  const token = env['PLANE_API_TOKEN'];
+  if (!baseUrl || !token) {
+    return {
+      name: 'Plane API reachable',
+      status: 'warn',
+      detail: 'PLANE_BASE_URL or PLANE_API_TOKEN not set — skipped (OK if using Fizzy or standalone).',
+    };
+  }
+  const url = `${baseUrl.replace(/\/$/, '')}/api/v1/users/me/`;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 'X-Api-Key': token },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      return { name: 'Plane API reachable', status: 'pass' };
+    }
+    return {
+      name: 'Plane API reachable',
+      status: 'fail',
+      detail: `GET ${url} returned ${res.status}. Check PLANE_API_TOKEN + PLANE_BASE_URL.`,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      name: 'Plane API reachable',
+      status: 'fail',
+      detail: `Fetch failed: ${message}. Is the Plane container running?`,
+    };
+  }
+}
+
+/**
+ * When config declares runner: local or stream-json, the bundled in-container
+ * Claude CLI needs access to ~/.claude for subscription auth. Check that the
+ * docker compose file actually bind-mounts it.
+ */
+async function checkSubscriptionMount(): Promise<CheckResult> {
+  const configPath = projectPath('ouija.config.yaml');
+  if (!existsSync(configPath)) {
+    return {
+      name: '~/.claude bind-mount (subscription auth)',
+      status: 'warn',
+      detail: 'No config — skipped.',
+    };
+  }
+  const body = await readFile(configPath, 'utf8');
+  const usesSubscription =
+    /runner:\s*(?:local|stream-json)\b/.test(body) || !/runner:/.test(body);
+  if (!usesSubscription) {
+    return {
+      name: '~/.claude bind-mount (subscription auth)',
+      status: 'pass',
+      detail: 'Config uses runner: sdk (API-billed) — no mount needed.',
+    };
+  }
+
+  // Look for the mount in either compose variant. Docker accepts ~, ${HOME},
+  // or an absolute path — accept all three.
+  const composeFiles = [
+    projectPath('docker/docker-compose.ouija.yml'),
+    projectPath('docker/docker-compose.yml'),
+  ].filter((p) => existsSync(p));
+  if (composeFiles.length === 0) {
+    return {
+      name: '~/.claude bind-mount (subscription auth)',
+      status: 'warn',
+      detail: 'No docker-compose files — skipped.',
+    };
+  }
+  const mountPattern = /\$\{?HOME\}?\/\.claude|~\/\.claude|\/[a-zA-Z0-9_\-/]+\/\.claude/;
+  for (const path of composeFiles) {
+    const content = await readFile(path, 'utf8');
+    if (mountPattern.test(content) && /\/home\/node\/\.claude/.test(content)) {
+      return { name: '~/.claude bind-mount (subscription auth)', status: 'pass' };
+    }
+  }
+  return {
+    name: '~/.claude bind-mount (subscription auth)',
+    status: 'warn',
+    detail: 'runner: local/stream-json set but ~/.claude mount not found in docker-compose. Subscription auth will not work from the container — agent will fall back to ANTHROPIC_API_KEY or fail. See SECURITY.md.',
+  };
+}
+
+/**
+ * Check that `claude --version` works inside the ouija container. Requires
+ * the container to already be running. A no-op skip when the container is
+ * not up (common for first-time doctor invocations before `ouija up`).
+ */
+function checkContainerCli(): CheckResult {
+  // Is the ouija container running?
+  const ps = spawnSync(
+    'docker',
+    ['compose', '-f', 'docker/docker-compose.ouija.yml', 'ps', '--format', '{{.Name}}\t{{.State}}'],
+    { stdio: 'pipe', encoding: 'utf8' },
+  );
+  if (ps.status !== 0) {
+    return {
+      name: 'claude CLI inside ouija container',
+      status: 'warn',
+      detail: 'Container not running — start the stack with `ouija up` then re-run doctor.',
+    };
+  }
+  const running = (ps.stdout ?? '').split('\n').some((line) => {
+    const [name, state] = line.split('\t');
+    return name?.includes('ouija') && state === 'running';
+  });
+  if (!running) {
+    return {
+      name: 'claude CLI inside ouija container',
+      status: 'warn',
+      detail: 'ouija container not in "running" state — start with `ouija up`.',
+    };
+  }
+  const exec = spawnSync(
+    'docker',
+    ['compose', '-f', 'docker/docker-compose.ouija.yml', 'exec', '-T', 'ouija', 'claude', '--version'],
+    { stdio: 'pipe', encoding: 'utf8' },
+  );
+  if (exec.status === 0) {
+    const version = (exec.stdout ?? '').trim().split('\n')[0] ?? 'unknown';
+    return {
+      name: 'claude CLI inside ouija container',
+      status: 'pass',
+      detail: version,
+    };
+  }
+  return {
+    name: 'claude CLI inside ouija container',
+    status: 'fail',
+    detail: '`docker compose exec ouija claude --version` failed. The container image is stale or the bundle step in the Dockerfile did not run — rebuild with `docker compose build ouija`.',
   };
 }
