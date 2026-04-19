@@ -33,6 +33,7 @@
     "@ouija-dev/plugin-agent-claude": "*",
     "@ouija-dev/plugin-engram": "*",
     "@ouija-dev/plugin-fizzy": "*",
+    "@ouija-dev/plugin-github": "*",
     "@ouija-dev/plugin-notify-telegram": "*",
     "@ouija-dev/plugin-plane": "*",
     "@ouija-dev/plugin-sdk": "*",
