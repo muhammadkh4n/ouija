@@ -24,7 +24,7 @@ export function Header({ boardCount, onSignOut }: HeaderProps) {
         className="mx-auto flex items-center justify-between gap-6 px-6 py-4"
         style={{ maxWidth: '1280px' }}
       >
-        <div className="flex items-baseline gap-4">
+        <div className="flex items-baseline gap-6">
           <a href="/dashboard/" className="flex items-baseline gap-2">
             <span
               className="font-semibold tracking-tight"
@@ -43,6 +43,14 @@ export function Header({ boardCount, onSignOut }: HeaderProps) {
               v0.1
             </span>
           </a>
+          <nav className="flex items-center gap-4">
+            <a href="/dashboard/" className="mono dim" style={{ fontSize: 'var(--text-xs)' }}>
+              pipelines
+            </a>
+            <a href="/dashboard/agents" className="mono dim" style={{ fontSize: 'var(--text-xs)' }}>
+              agents
+            </a>
+          </nav>
           <span className="faint mono" style={{ fontSize: 'var(--text-xs)' }}>
             {boardCount} {boardCount === 1 ? 'board' : 'boards'}
           </span>

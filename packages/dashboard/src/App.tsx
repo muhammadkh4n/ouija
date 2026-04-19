@@ -19,6 +19,8 @@ import {
 } from 'react-router-dom';
 import { PipelineList } from './pages/PipelineList.js';
 import { PipelineDetail } from './pages/PipelineDetail.js';
+import { AgentList } from './pages/AgentList.js';
+import { AgentForm } from './pages/AgentForm.js';
 import { TokenEntry } from './pages/TokenEntry.js';
 import { ToastProvider } from './components/Toast.js';
 import { ApiError, getApiKey } from './lib/api-client.js';
@@ -64,6 +66,9 @@ export function App() {
           <Routes>
             <Route path="/" element={<PipelineList />} />
             <Route path="/pipelines/:id" element={<PipelineDetail />} />
+            <Route path="/agents" element={<AgentList />} />
+            <Route path="/agents/new" element={<AgentForm />} />
+            <Route path="/agents/:id/edit" element={<AgentForm />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
