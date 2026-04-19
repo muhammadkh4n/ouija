@@ -22,3 +22,16 @@ export {
   isEncryptedVault,
 } from './crypto/secrets-vault.js';
 export type { EncryptedVault } from './crypto/secrets-vault.js';
+export {
+  ReviewBundler,
+  InMemoryReviewBundleStore,
+  DEFAULT_REVIEW_DEBOUNCE_MS,
+} from './review-bundler.js';
+export type {
+  BundleReview,
+  BundleComment,
+  ReviewBundleStore,
+  ReviewBundlerOptions,
+  ReviewBundlerLogger,
+  ReviewFlushHandler,
+} from './review-bundler.js';

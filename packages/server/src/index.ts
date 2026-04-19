@@ -403,6 +403,28 @@ async function main(): Promise<void> {
   const liveEvents = new LiveEventBus();
   const unsubscribeLiveBridge = await registerLiveEventsBridge(eventBus, liveEvents);
 
+  // 7c. Review loop: subscribe to PR review/comment topics, debounce with the
+  // bundler, and hand each flushed bundle to the orchestrator. When
+  // pr_instance_index (migration 004) is missing, the orchestrator's
+  // processReviewBundle becomes a no-op — the loop stays dormant but the
+  // server keeps running.
+  const { registerReviewLoop } = await import('./review-loop.js');
+  const reviewLoop = await registerReviewLoop({
+    eventBus,
+    orchestrator,
+    // Boot-time logger — Fastify's app.log isn't ready yet. Bundler log volume
+    // is low (one line per pushed event + one per flush) so console is fine.
+    logger: {
+      debug: (msg, ctx) => console.debug(msg, ctx ?? {}),
+      info: (msg, ctx) => console.info(msg, ctx ?? {}),
+      warn: (msg, ctx) => console.warn(msg, ctx ?? {}),
+      error: (msg, ctx) => console.error(msg, ctx ?? {}),
+    },
+    ...(process.env['OUIJA_REVIEW_DEBOUNCE_MS']
+      ? { debounceMs: parseInt(process.env['OUIJA_REVIEW_DEBOUNCE_MS'], 10) }
+      : {}),
+  });
+
   // 8. Build Fastify app
   const appOpts: Parameters<typeof buildApp>[0] = {
     db,
@@ -682,6 +704,9 @@ async function main(): Promise<void> {
 
       // Unsubscribe SSE live-event bridge
       await unsubscribeLiveBridge();
+
+      // Unsubscribe review-loop listeners
+      await reviewLoop.stop();
 
       // Stop kanban plugin if real one was loaded
       if (planePluginInstance) {

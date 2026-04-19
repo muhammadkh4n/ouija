@@ -1,5 +1,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { OuijaEvent, StandardPR, GitPrOpenedPayload, GitPrMergedPayload } from '@ouija-dev/types';
+import type {
+  OuijaEvent,
+  StandardPR,
+  GitPrOpenedPayload,
+  GitPrMergedPayload,
+  GitPrReviewSubmittedPayload,
+  GitPrCommentPostedPayload,
+} from '@ouija-dev/types';
 import { prId, instanceId } from '@ouija-dev/types';
 import { encodePrId } from './api-client.js';
 
@@ -32,6 +39,71 @@ interface PullRequestPayload {
   pull_request: GitHubPR;
   repository: GitHubRepo;
   installation?: { id: number };
+}
+
+// ---- Review + comment webhook shapes ----
+// These power the review loop (see ~/.claude/plans/zesty-swinging-whistle.md).
+
+interface GitHubUser {
+  login: string;
+}
+
+interface GitHubReview {
+  id: number;
+  user: GitHubUser;
+  body: string | null;
+  /** GitHub sends uppercase; normalised on read. */
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING';
+  submitted_at: string | null;
+  html_url: string;
+}
+
+interface PullRequestReviewPayload {
+  action: string;
+  review: GitHubReview;
+  pull_request: GitHubPR;
+  repository: GitHubRepo;
+}
+
+interface GitHubReviewComment {
+  id: number;
+  user: GitHubUser;
+  body: string;
+  path: string;
+  line: number | null;
+  created_at: string;
+}
+
+interface PullRequestReviewCommentPayload {
+  action: string;
+  comment: GitHubReviewComment;
+  pull_request: GitHubPR;
+  repository: GitHubRepo;
+}
+
+interface GitHubIssueComment {
+  id: number;
+  user: GitHubUser;
+  body: string;
+  created_at: string;
+  /** Present on issue_comment payloads to distinguish issue vs PR comments. */
+  html_url: string;
+}
+
+interface IssueCommentPayload {
+  action: string;
+  comment: GitHubIssueComment;
+  /**
+   * When `issue_comment` is delivered for a PR, GitHub still sends
+   * `issue.pull_request` as a marker. We use its presence to filter out true
+   * issue comments from PR comments.
+   */
+  issue: {
+    number: number;
+    pull_request?: { url: string; html_url: string };
+    html_url: string;
+  };
+  repository: GitHubRepo;
 }
 
 // ---- Signature verification ----
@@ -75,26 +147,67 @@ export function verifySignature(
 
 // ---- Payload normalizer ----
 
+type ReviewState = GitPrReviewSubmittedPayload['state'];
+
+/** GitHub sends UPPERCASE states; normalise to the lowercase union our types use. */
+function normaliseReviewState(raw: GitHubReview['state']): ReviewState | null {
+  switch (raw) {
+    case 'APPROVED':
+      return 'approved';
+    case 'CHANGES_REQUESTED':
+      return 'changes_requested';
+    case 'COMMENTED':
+      return 'commented';
+    case 'DISMISSED':
+    case 'PENDING':
+      // Dismissed reviews don't affect the loop — they just retract prior
+      // feedback. Pending reviews haven't been submitted yet and GitHub will
+      // re-fire when they are. Both are dropped here.
+      return null;
+  }
+}
+
 /**
  * Normalize a raw GitHub webhook into an OuijaEvent.
  *
  * Supported mappings:
- *   pull_request / opened   → git.pr.opened
- *   pull_request / closed (merged: true) → git.pr.merged
+ *   pull_request / opened                   → git.pr.opened
+ *   pull_request / closed (merged: true)    → git.pr.merged
+ *   pull_request_review / submitted         → git.pr.review.submitted
+ *   pull_request_review_comment / created   → git.pr.comment.posted
+ *   issue_comment / created (on a PR)       → git.pr.comment.posted
  *
  * All other events/actions return null (caller should 200 OK and discard).
  */
 export function normalizeWebhook(
   githubEvent: string,
   payload: unknown,
-): OuijaEvent<'git.pr.opened'> | OuijaEvent<'git.pr.merged'> | null {
-  if (githubEvent !== 'pull_request') {
-    return null;
+):
+  | OuijaEvent<'git.pr.opened'>
+  | OuijaEvent<'git.pr.merged'>
+  | OuijaEvent<'git.pr.review.submitted'>
+  | OuijaEvent<'git.pr.comment.posted'>
+  | null {
+  switch (githubEvent) {
+    case 'pull_request':
+      return normalisePullRequestEvent(payload as PullRequestPayload);
+    case 'pull_request_review':
+      return normalisePullRequestReviewEvent(payload as PullRequestReviewPayload);
+    case 'pull_request_review_comment':
+      return normalisePullRequestReviewCommentEvent(
+        payload as PullRequestReviewCommentPayload,
+      );
+    case 'issue_comment':
+      return normaliseIssueCommentEvent(payload as IssueCommentPayload);
+    default:
+      return null;
   }
+}
 
-  const typed = payload as PullRequestPayload;
+function normalisePullRequestEvent(
+  typed: PullRequestPayload,
+): OuijaEvent<'git.pr.opened'> | OuijaEvent<'git.pr.merged'> | null {
   const { action, pull_request: pr, repository: repo } = typed;
-
   const owner = repo.owner.login;
   const repoName = repo.name;
   const encodedPrId = encodePrId(owner, repoName, pr.number);
@@ -103,30 +216,94 @@ export function normalizeWebhook(
     const eventPayload: GitPrOpenedPayload = {
       prId: encodedPrId,
       url: pr.html_url,
-      // instanceId is not available from a bare webhook — callers that
-      // need it will correlate by prId. We generate a placeholder here.
       instanceId: instanceId(`github-pr-${String(pr.number)}`),
       branch: pr.head.ref,
       targetBranch: pr.base.ref,
     };
-
     return buildEvent('git.pr.opened', eventPayload);
   }
 
   if (action === 'closed' && pr.merged === true) {
     const mergedAt = pr.merged_at ?? new Date().toISOString();
-
     const eventPayload: GitPrMergedPayload = {
       prId: encodedPrId,
       instanceId: instanceId(`github-pr-${String(pr.number)}`),
       mergedAt,
     };
-
     return buildEvent('git.pr.merged', eventPayload);
   }
 
-  // PR closed without merge, or any other action (synchronize, review_requested, etc.)
   return null;
+}
+
+function normalisePullRequestReviewEvent(
+  typed: PullRequestReviewPayload,
+): OuijaEvent<'git.pr.review.submitted'> | null {
+  if (typed.action !== 'submitted') return null;
+
+  const state = normaliseReviewState(typed.review.state);
+  if (state === null) return null;
+
+  const { pull_request: pr, repository: repo, review } = typed;
+  const encodedPrId = encodePrId(repo.owner.login, repo.name, pr.number);
+
+  const eventPayload: GitPrReviewSubmittedPayload = {
+    prUrl: pr.html_url,
+    prId: encodedPrId,
+    reviewId: String(review.id),
+    state,
+    reviewerLogin: review.user.login,
+    body: review.body ?? '',
+    submittedAt: review.submitted_at ?? new Date().toISOString(),
+  };
+  return buildEvent('git.pr.review.submitted', eventPayload);
+}
+
+function normalisePullRequestReviewCommentEvent(
+  typed: PullRequestReviewCommentPayload,
+): OuijaEvent<'git.pr.comment.posted'> | null {
+  if (typed.action !== 'created') return null;
+
+  const { pull_request: pr, repository: repo, comment } = typed;
+  const encodedPrId = encodePrId(repo.owner.login, repo.name, pr.number);
+
+  const payload: GitPrCommentPostedPayload = {
+    prUrl: pr.html_url,
+    prId: encodedPrId,
+    commentId: String(comment.id),
+    reviewerLogin: comment.user.login,
+    body: comment.body,
+    path: comment.path,
+    postedAt: comment.created_at,
+  };
+  if (comment.line !== null) payload.line = comment.line;
+
+  return buildEvent('git.pr.comment.posted', payload);
+}
+
+function normaliseIssueCommentEvent(
+  typed: IssueCommentPayload,
+): OuijaEvent<'git.pr.comment.posted'> | null {
+  if (typed.action !== 'created') return null;
+  // Filter out true issue comments — GitHub sends issue_comment for both
+  // issues and PRs and the only reliable discriminator is issue.pull_request.
+  const pullRequestRef = typed.issue.pull_request;
+  if (pullRequestRef === undefined) return null;
+
+  const { issue, repository: repo, comment } = typed;
+  const encodedPrId = encodePrId(repo.owner.login, repo.name, issue.number);
+
+  const payload: GitPrCommentPostedPayload = {
+    // issue.html_url on a PR comment points at the PR conversation anchor;
+    // the pull_request.html_url attribute isn't on this event.
+    prUrl: pullRequestRef.html_url,
+    prId: encodedPrId,
+    commentId: String(comment.id),
+    reviewerLogin: comment.user.login,
+    body: comment.body,
+    postedAt: comment.created_at,
+  };
+  return buildEvent('git.pr.comment.posted', payload);
 }
 
 /**
@@ -160,9 +337,23 @@ export function normalizePR(pr: GitHubPR, owner: string, repoName: string): Stan
 
 // ---- Internal helpers ----
 
-function buildEvent<T extends 'git.pr.opened' | 'git.pr.merged'>(
+type GitHubTopic =
+  | 'git.pr.opened'
+  | 'git.pr.merged'
+  | 'git.pr.review.submitted'
+  | 'git.pr.comment.posted';
+
+type GitHubTopicPayload<T extends GitHubTopic> = T extends 'git.pr.opened'
+  ? GitPrOpenedPayload
+  : T extends 'git.pr.merged'
+  ? GitPrMergedPayload
+  : T extends 'git.pr.review.submitted'
+  ? GitPrReviewSubmittedPayload
+  : GitPrCommentPostedPayload;
+
+function buildEvent<T extends GitHubTopic>(
   topic: T,
-  payload: T extends 'git.pr.opened' ? GitPrOpenedPayload : GitPrMergedPayload,
+  payload: GitHubTopicPayload<T>,
 ): OuijaEvent<T> {
   return {
     id: crypto.randomUUID(),

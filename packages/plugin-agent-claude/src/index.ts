@@ -320,11 +320,17 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
       await reporter.reportProgress('Provisioning workspace...');
 
       const repoPath = workOrder.metadata['repoPath'] as string | undefined;
+      // On review-loop iterations, the orchestrator sets metadata.reuseBranch='1'
+      // (also reflected in workOrder.reviewContext) so the workspace provider
+      // checks out the existing PR branch instead of creating a fresh one.
+      const reuseFeatureBranch =
+        workOrder.metadata['reuseBranch'] === '1' || workOrder.reviewContext !== undefined;
       const workspace = await this.workspaceProvider.provision({
         type: this.workspaceProvider.type,
         ...(repoPath ? { repoPath } : { repoUrl: workOrder.repoUrl }),
         baseBranch: workOrder.baseBranch,
         featureBranch: workOrder.branch,
+        ...(reuseFeatureBranch ? { reuseFeatureBranch: true } : {}),
       });
       dispatch.workspace = workspace;
 

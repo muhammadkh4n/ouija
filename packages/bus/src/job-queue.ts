@@ -1,4 +1,4 @@
-import type { OuijaEvent, OuijaTopic } from '@ouija-dev/types';
+import type { OuijaEvent, OuijaTopic, ReviewBundle, PrId } from '@ouija-dev/types';
 
 // ---------------------------------------------------------------------------
 // Queue names — single source of truth
@@ -16,6 +16,18 @@ export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 // Job data types (implementation-specific — live here, not in @ouija-dev/types)
 // ---------------------------------------------------------------------------
 
+/**
+ * Review-loop context attached to a re-dispatch. Present when the orchestrator
+ * is firing a follow-up agent run in response to reviewer feedback on a PR
+ * the agent previously opened. Absent on the first (fresh-card) dispatch.
+ */
+export interface ReviewDispatchContext {
+  iteration: number;
+  prUrl: string;
+  prId: PrId;
+  bundle: ReviewBundle;
+}
+
 export interface AgentDispatchJobData {
   instanceId: string;
   dispatchId: string;
@@ -25,6 +37,11 @@ export interface AgentDispatchJobData {
   workOrderDescription: string;
   /** ISO timestamp of when this dispatch was requested */
   dispatchedAt: string;
+  /**
+   * Set on follow-up iterations of the review loop. The worker forwards this
+   * into the WorkOrder so the agent prompt includes the prior review comments.
+   */
+  reviewContext?: ReviewDispatchContext;
 }
 
 export interface StallCheckJobData {
