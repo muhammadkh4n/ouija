@@ -446,7 +446,11 @@ describe('E2E: Plane webhook → dispatching → agent callbacks → succeeded',
     const reviewMove = kanban.moves.find((m) => m.toColumnId === COL_REVIEW);
     expect(reviewMove, 'kanban.moveCard called for Review column').toBeDefined();
 
-    // ---- Step 4: Agent posts agent_completed → succeeded with prUrl preserved + Done move ----
+    // ---- Step 4: Agent posts agent_completed → awaiting_review (review loop entry) ----
+    // Post-review-loop (see transition.ts / plans/zesty-swinging-whistle.md), a
+    // completed agent run with an open PR transitions to awaiting_review rather
+    // than succeeded. The pipeline sits there until either a reviewer triggers
+    // another iteration (pr_review_received) or a human merges (pr_merged).
     await postCallback(app, jwt, {
       type: 'agent_completed',
       instanceId: String(instance!.id),
@@ -457,23 +461,20 @@ describe('E2E: Plane webhook → dispatching → agent callbacks → succeeded',
 
     await settle();
     const afterDone = db._instances.get(String(instance!.id))!;
-    expect(afterDone.state.status).toBe('succeeded');
-    if (afterDone.state.status === 'succeeded') {
-      expect(
-        afterDone.state.prUrl,
-        'PR URL must propagate from running into succeeded state',
-      ).toBe(EXPECTED_PR_URL);
-      expect(afterDone.state.cost).toBeCloseTo(0.07);
-      expect(afterDone.state.tokensUsed).toBe(2500);
+    expect(afterDone.state.status).toBe('awaiting_review');
+    if (afterDone.state.status === 'awaiting_review') {
+      expect(afterDone.state.prUrl).toBe(EXPECTED_PR_URL);
+      expect(afterDone.state.iteration).toBe(1);
     }
-    // Note: the scalar pipeline_instances.pr_url column is derived from state at SAVE time
-    // by PostgresPipelineRepository.save (see packages/engine/src/repository.ts). Exercising
-    // that mapping needs a real Postgres — covered by the opt-in repository integration tests.
-    // Here we only assert the canonical source (state.prUrl), which is what the dashboard and
-    // the pipeline_instances_denorm view will read.
 
-    const doneMove = kanban.moves.find((m) => m.toColumnId === COL_DONE);
-    expect(doneMove, 'kanban.moveCard called for Done column').toBeDefined();
+    // The Review column move from step 3 should still be the most recent kanban
+    // motion. The Done move is a side effect of pr_merged, which this test
+    // doesn't exercise (merge arrives via a separate GitHub webhook).
+    expect(kanban.moves.find((m) => m.toColumnId === COL_REVIEW)).toBeDefined();
+    expect(
+      kanban.moves.find((m) => m.toColumnId === COL_DONE),
+      'Done move only happens on pr_merged, not on agent_completed',
+    ).toBeUndefined();
 
     // ---- Step 5: pipeline_events contains the transition audit log ----
     const timeline = await db.pipelineEvents.listByInstance(makeInstanceId(String(instance!.id)));
@@ -485,7 +486,7 @@ describe('E2E: Plane webhook → dispatching → agent callbacks → succeeded',
     );
     expect(toStatuses).toContain('dispatching');
     expect(toStatuses).toContain('running');
-    expect(toStatuses).toContain('succeeded');
+    expect(toStatuses).toContain('awaiting_review');
 
     // Sequence numbers are monotonic
     for (let i = 1; i < timeline.length; i++) {

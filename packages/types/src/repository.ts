@@ -105,6 +105,22 @@ export interface AgentRecord {
   updatedAt: string;
 }
 
+// ---- PR → instance mapping ----
+// Written at agent_pr_ready time; read by the webhook path that normalises
+// a review/comment webhook into a pipeline trigger.
+
+export interface PrInstanceMapping {
+  prUrl: string;
+  instanceId: string;
+  createdAt: string;
+}
+
+export interface PrInstanceRepository {
+  /** Upsert — agent_pr_ready is idempotent, so late retries must not duplicate rows. */
+  record(prUrl: string, instanceId: string): Promise<void>;
+  findInstanceByPrUrl(prUrl: string): Promise<string | undefined>;
+}
+
 export interface AgentRepository {
   findById(id: string): Promise<AgentRecord | undefined>;
   /**
@@ -136,6 +152,7 @@ export interface UnitOfWork {
   pipelineEvents: PipelineEventRepository;
   boardConfigs: BoardConfigRepository;
   agents?: AgentRepository;
+  prInstances?: PrInstanceRepository;
 }
 
 // ---- Database factory (produces read-only repos and transactional UoWs) ----
@@ -155,6 +172,12 @@ export interface Database {
    * presence and fall back to YAML-provided profiles when missing.
    */
   agents?: AgentRepository;
+  /**
+   * PR → instance index (migration 004). Optional for the same reason as
+   * `agents`: deployments without the migration applied continue to run, the
+   * review loop just stays dormant until the migration lands.
+   */
+  prInstances?: PrInstanceRepository;
 
   /** Liveness check — throws if DB is unreachable */
   ping(): Promise<void>;

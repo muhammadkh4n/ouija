@@ -6,11 +6,18 @@ import type { OuijaTopic, OuijaEventMap } from './events.js';
 export type PipelineState =
   | { status: 'idle' }
   | { status: 'provisioning'; dispatchId: DispatchId; agentId: AgentId; dispatchedAt: string; workspaceId?: string }
-  | { status: 'dispatching'; dispatchId: DispatchId; agentId: AgentId; dispatchedAt: string }
-  | { status: 'running'; dispatchId: DispatchId; agentId: AgentId; dispatchedAt: string; lastHeartbeatAt: string; prUrl?: string; prId?: PrId }
+  | { status: 'dispatching'; dispatchId: DispatchId; agentId: AgentId; dispatchedAt: string; iteration?: number }
+  | { status: 'running'; dispatchId: DispatchId; agentId: AgentId; dispatchedAt: string; lastHeartbeatAt: string; prUrl?: string; prId?: PrId; iteration?: number }
+  /**
+   * PR is open and the agent has finished an iteration. Pipeline is idle at the
+   * state-machine level but still "live" from the user's perspective — waiting
+   * for reviewer comments (CodeRabbit, Copilot, human) which will arrive as a
+   * `pr_review_received` trigger that re-enters `dispatching` with iteration+1.
+   */
+  | { status: 'awaiting_review'; dispatchId: DispatchId; agentId: AgentId; prUrl: string; prId: PrId; iteration: number; enteredAt: string }
   | { status: 'succeeded'; dispatchId: DispatchId; agentId: AgentId; completedAt: string; prUrl?: string; cost?: number; tokensUsed?: number }
   | { status: 'failed'; dispatchId: DispatchId; agentId: AgentId; failedAt: string; error: string; retryable: boolean }
-  | { status: 'stalled'; dispatchId: DispatchId; agentId: AgentId; stalledAt: string; lastHeartbeatAt: string }
+  | { status: 'stalled'; dispatchId: DispatchId; agentId: AgentId; stalledAt: string; lastHeartbeatAt: string; reason?: string }
   | { status: 'cancelled'; cancelledAt: string; cancelledBy: string };
 
 export type PipelineStatus = PipelineState['status'];
@@ -37,7 +44,37 @@ export type PipelineTrigger =
   | { type: 'stall_detected'; dispatchId: DispatchId; detectedAt: string }
   | { type: 'human_retry'; retriedBy: string }
   | { type: 'human_cancel'; cancelledBy: string }
-  | { type: 'pr_merged'; prId: PrId; mergedAt: string };
+  | { type: 'pr_merged'; prId: PrId; mergedAt: string }
+  | { type: 'pr_review_received'; prUrl: string; prId: PrId; bundle: ReviewBundle };
+
+/**
+ * Aggregated reviewer feedback on a single PR, flushed from the review bundler
+ * (Redis-backed debounce) after a quiet window. Every review/comment that
+ * landed during the window is here, deduped by its GitHub id.
+ */
+export interface ReviewBundle {
+  prUrl: string;
+  prId: PrId;
+  /** Reviewer-level submissions (approve / changes_requested / commented). */
+  reviews: Array<{
+    reviewId: string;
+    reviewerLogin: string;
+    state: 'approved' | 'changes_requested' | 'commented';
+    body: string;
+    submittedAt: string;
+  }>;
+  /** Inline review comments + top-level issue comments on the PR. */
+  comments: Array<{
+    commentId: string;
+    reviewerLogin: string;
+    body: string;
+    path?: string;
+    line?: number;
+    postedAt: string;
+  }>;
+  /** When the bundler finished draining the window and emitted this trigger. */
+  flushedAt: string;
+}
 
 // Pre-fetched data for guard evaluation (gathered BEFORE calling transition)
 export interface GuardContext {
@@ -57,7 +94,14 @@ export type SideEffectType =
   | 'cancel_agent'
   | 'enqueue_stall_check'
   | 'cancel_stall_check'
-  | 'destroy_workspace';
+  | 'destroy_workspace'
+  /**
+   * Persist the pr_url → instance_id mapping in pr_instance_index so that an
+   * incoming PR review webhook (which only carries a PR URL) can resolve the
+   * originating pipeline. Emitted alongside move_card / add_comment when
+   * agent_pr_ready fires.
+   */
+  | 'record_pr_mapping';
 
 export interface SideEffect {
   type: SideEffectType;
@@ -102,6 +146,12 @@ export interface PipelineConfig {
   columnMappings: ColumnMapping[];
   defaultStallThresholdMs: number;
   autoStartOnAssign: boolean;
+  /**
+   * Cap on review-loop iterations before the pipeline transitions to stalled.
+   * Unset → engine default (5). Set per-board (or indirectly via the agent
+   * profile in the future) to tune cost/quality tradeoff.
+   */
+  maxReviewIterations?: number;
 }
 
 // ---- Pipeline instance (DB row) ----

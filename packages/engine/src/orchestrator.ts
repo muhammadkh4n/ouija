@@ -492,6 +492,32 @@ export class Orchestrator {
         break;
       }
 
+      case 'record_pr_mapping': {
+        // Persist the pr_url → instance_id mapping so an incoming review
+        // webhook can resolve back to this pipeline without scanning the
+        // pipeline_instances.state JSONB. No-op when the agents/prInstances
+        // migration hasn't been applied (older deployments).
+        const prUrl = String(effect.payload['prUrl'] ?? '');
+        if (!prUrl) break;
+        if (this.db.prInstances === undefined) {
+          this.logger.info(
+            'record_pr_mapping skipped: migration 004 not applied; review loop will remain dormant',
+            { prUrl, instanceId: String(instance.id) },
+          );
+          break;
+        }
+        try {
+          await this.db.prInstances.record(prUrl, String(instance.id));
+        } catch (err) {
+          this.logger.error('record_pr_mapping failed (review loop may be inert)', {
+            prUrl,
+            instanceId: String(instance.id),
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      }
+
       default: {
         // Unknown side effect type — log and continue to avoid silent drops.
         this.logger.warn('Unknown side effect type, skipping', {

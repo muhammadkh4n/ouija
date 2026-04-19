@@ -13,6 +13,7 @@ import type {
   PipelineTrigger,
   PipelineConfig,
   GuardContext,
+  ReviewBundle,
 } from '@ouija-dev/types';
 import {
   cardId,
@@ -682,7 +683,10 @@ describe('agent_completed → succeeded + move card to done', () => {
     expect(result.rejected).toBe(true);
   });
 
-  it('propagates prUrl from running state into succeeded state', () => {
+  it('transitions running → awaiting_review when PR is open (review-loop entry)', () => {
+    // Post-review-loop: agent_completed while a PR is live no longer marks the
+    // pipeline succeeded. It waits in awaiting_review for reviewer feedback.
+    // Human merge (pr_merged) is the terminator.
     const runningWithPr = {
       ...running,
       prUrl: 'https://github.com/org/repo/pull/42',
@@ -698,10 +702,16 @@ describe('agent_completed → succeeded + move card to done', () => {
     expect(result.rejected).toBe(false);
     if (result.rejected) return;
 
-    expect(result.nextState.status).toBe('succeeded');
-    if (result.nextState.status === 'succeeded') {
+    expect(result.nextState.status).toBe('awaiting_review');
+    if (result.nextState.status === 'awaiting_review') {
       expect(result.nextState.prUrl).toBe('https://github.com/org/repo/pull/42');
+      expect(result.nextState.prId).toBe(prId('pr-42'));
+      expect(result.nextState.iteration).toBe(1);
     }
+
+    // Stall check must be cancelled so the running heartbeat watchdog doesn't
+    // fire while we wait for review comments.
+    expect(result.sideEffects.some((e) => e.type === 'cancel_stall_check')).toBe(true);
   });
 });
 
@@ -1313,5 +1323,186 @@ describe('transition purity — input state is not mutated', () => {
     // Should not throw (frozen objects throw on mutation in strict mode)
     const result = transition(frozen as PipelineState, trigger, testConfig);
     expect(result.rejected).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review loop — awaiting_review state + pr_review_received trigger
+// ---------------------------------------------------------------------------
+
+describe('review loop — agent_pr_ready → awaiting_review → dispatching → …', () => {
+  const runningWithPr: PipelineState = {
+    status: 'running',
+    dispatchId: dispatchId('d-1'),
+    agentId: agentId('agent-rex'),
+    dispatchedAt: '2026-04-01T10:00:00Z',
+    lastHeartbeatAt: '2026-04-01T10:05:00Z',
+    prUrl: 'https://github.com/org/repo/pull/42',
+    prId: prId('pr-42'),
+    iteration: 1,
+  };
+
+  const awaitingReview: PipelineState = {
+    status: 'awaiting_review',
+    dispatchId: dispatchId('d-1'),
+    agentId: agentId('agent-rex'),
+    prUrl: 'https://github.com/org/repo/pull/42',
+    prId: prId('pr-42'),
+    iteration: 1,
+    enteredAt: '2026-04-01T10:06:00Z',
+  };
+
+  function makeBundle(overrides: Partial<ReviewBundle> = {}): ReviewBundle {
+    return {
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prId: prId('pr-42'),
+      reviews: [
+        {
+          reviewId: 'rv-1',
+          reviewerLogin: 'coderabbit[bot]',
+          state: 'changes_requested',
+          body: 'Please add error handling around the fetch call.',
+          submittedAt: '2026-04-01T10:10:00Z',
+        },
+      ],
+      comments: [],
+      flushedAt: '2026-04-01T10:11:00Z',
+      ...overrides,
+    };
+  }
+
+  it('agent_pr_ready emits record_pr_mapping side effect so webhooks resolve the instance', () => {
+    const trigger: PipelineTrigger = {
+      type: 'agent_pr_ready',
+      dispatchId: dispatchId('d-1'),
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prId: prId('pr-42'),
+    };
+
+    const result = transition(
+      {
+        status: 'running',
+        dispatchId: dispatchId('d-1'),
+        agentId: agentId('agent-rex'),
+        dispatchedAt: '2026-04-01T10:00:00Z',
+        lastHeartbeatAt: '2026-04-01T10:05:00Z',
+      },
+      trigger,
+      testConfig,
+    );
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    const mapping = result.sideEffects.find((e) => e.type === 'record_pr_mapping');
+    expect(mapping).toBeDefined();
+    expect((mapping!.payload as { prUrl: string }).prUrl).toBe(
+      'https://github.com/org/repo/pull/42',
+    );
+  });
+
+  it('pr_review_received re-dispatches with iteration+1 and carries the bundle', () => {
+    const bundle = makeBundle();
+    const trigger: PipelineTrigger = {
+      type: 'pr_review_received',
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prId: prId('pr-42'),
+      bundle,
+    };
+
+    const result = transition(awaitingReview, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('dispatching');
+    if (result.nextState.status === 'dispatching') {
+      expect(result.nextState.iteration).toBe(2);
+      // Fresh dispatchId — must not collide with the previous iteration's stall/idempotency keys
+      expect(String(result.nextState.dispatchId)).not.toBe('d-1');
+    }
+
+    const dispatchEffect = result.sideEffects.find((e) => e.type === 'dispatch_agent');
+    expect(dispatchEffect).toBeDefined();
+    const payload = dispatchEffect!.payload as {
+      reviewContext?: { bundle: ReviewBundle; iteration: number };
+    };
+    expect(payload.reviewContext?.iteration).toBe(2);
+    expect(payload.reviewContext?.bundle.reviews[0]?.reviewerLogin).toBe('coderabbit[bot]');
+  });
+
+  it('pr_review_received is rejected when pipeline is not awaiting_review', () => {
+    const trigger: PipelineTrigger = {
+      type: 'pr_review_received',
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prId: prId('pr-42'),
+      bundle: makeBundle(),
+    };
+    const result = transition(runningWithPr, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+  });
+
+  it('pr_review_received ignores reviews for a different PR than the one this pipeline owns', () => {
+    const trigger: PipelineTrigger = {
+      type: 'pr_review_received',
+      prUrl: 'https://github.com/org/repo/pull/999',
+      prId: prId('pr-999'),
+      bundle: makeBundle({
+        prUrl: 'https://github.com/org/repo/pull/999',
+        prId: prId('pr-999'),
+      }),
+    };
+    const result = transition(awaitingReview, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+    if (result.rejected) {
+      expect(result.reason).toContain('pull/999');
+    }
+  });
+
+  it('transitions to stalled when iteration+1 exceeds maxReviewIterations', () => {
+    const atCap: PipelineState = { ...awaitingReview, iteration: 3 };
+    const configWithCap: PipelineConfig = { ...testConfig, maxReviewIterations: 3 };
+    const trigger: PipelineTrigger = {
+      type: 'pr_review_received',
+      prUrl: 'https://github.com/org/repo/pull/42',
+      prId: prId('pr-42'),
+      bundle: makeBundle(),
+    };
+
+    const result = transition(atCap, trigger, configWithCap);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('stalled');
+    if (result.nextState.status === 'stalled') {
+      expect(result.nextState.reason).toContain('max_review_iterations_exceeded');
+    }
+    // A notification side effect must fire so a human actually sees the loop stopped
+    expect(result.sideEffects.some((e) => e.type === 'send_notification')).toBe(true);
+  });
+
+  it('pr_merged from awaiting_review transitions to succeeded with prUrl preserved', () => {
+    const trigger: PipelineTrigger = {
+      type: 'pr_merged',
+      prId: prId('pr-42'),
+      mergedAt: '2026-04-01T12:00:00Z',
+    };
+    const result = transition(awaitingReview, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('succeeded');
+    if (result.nextState.status === 'succeeded') {
+      expect(result.nextState.prUrl).toBe('https://github.com/org/repo/pull/42');
+    }
+  });
+
+  it('human_cancel is allowed from awaiting_review (escape hatch)', () => {
+    const trigger: PipelineTrigger = {
+      type: 'human_cancel',
+      cancelledBy: 'muhammad',
+    };
+    const result = transition(awaitingReview, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+    expect(result.nextState.status).toBe('cancelled');
   });
 });

@@ -30,6 +30,43 @@ export interface GitPrMergedPayload {
   mergedAt: string;
 }
 
+/** A PR review submission — approve / request-changes / plain comment. */
+export interface GitPrReviewSubmittedPayload {
+  /** Full HTML URL of the PR; the server uses this to resolve instanceId via pr_instance_index. */
+  prUrl: string;
+  prId: PrId;
+  /** Stable id for dedupe across webhook retries. */
+  reviewId: string;
+  /**
+   * GitHub review state. `pending` is filtered out at the webhook layer — only
+   * submitted reviews reach this event.
+   */
+  state: 'approved' | 'changes_requested' | 'commented';
+  reviewerLogin: string;
+  /** Top-level review body (may be empty when the reviewer only left inline comments). */
+  body: string;
+  submittedAt: string;
+}
+
+/**
+ * Any PR-attached comment other than a formal review: top-level issue comments
+ * (`issue_comment` on a PR) and inline review comments (`pull_request_review_comment`).
+ * Both are coalesced into a single topic because downstream consumers (the
+ * review bundler) treat them identically.
+ */
+export interface GitPrCommentPostedPayload {
+  prUrl: string;
+  prId: PrId;
+  commentId: string;
+  reviewerLogin: string;
+  body: string;
+  /** Present for inline comments; absent for top-level `issue_comment` replies. */
+  path?: string;
+  /** 1-based line number in the new file; present only for inline comments. */
+  line?: number;
+  postedAt: string;
+}
+
 export interface AgentWorkProgressPayload {
   instanceId: InstanceId;
   dispatchId: DispatchId;
@@ -86,6 +123,8 @@ export interface OuijaEventMap {
   'kanban.card.assigned': KanbanCardAssignedPayload;
   'git.pr.opened': GitPrOpenedPayload;
   'git.pr.merged': GitPrMergedPayload;
+  'git.pr.review.submitted': GitPrReviewSubmittedPayload;
+  'git.pr.comment.posted': GitPrCommentPostedPayload;
   'agent.work.progress': AgentWorkProgressPayload;
   'agent.work.pr_ready': AgentWorkPrReadyPayload;
   'agent.work.completed': AgentWorkCompletedPayload;
