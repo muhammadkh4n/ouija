@@ -27,17 +27,30 @@ fi
 
 echo "::group::publish $PKG_NAME@$PKG_VERSION"
 
-# Capture stderr so we can inspect it when npm exits non-zero.
+# Capture stderr to a file and check npm's exit code explicitly. The previous
+# approach used `if npm publish ... 2> >(tee ...)` which silently swallowed
+# failures: the if-statement captures the exit of the pipeline including the
+# `tee` in the process substitution, which always exits 0. Both v0.2.0 and
+# v0.3.0 ghost-published (all 15 packages 404'd with auth errors) because the
+# real npm exit code never reached the caller. Never use process-substitution
+# inside an `if` when you need the left-hand exit code.
 stderr_file="$(mktemp)"
 trap 'rm -f "$stderr_file"' EXIT
 
-if npm publish --workspace="$WORKSPACE" --provenance 2> >(tee "$stderr_file" >&2); then
+set +e
+npm publish --workspace="$WORKSPACE" --provenance 2> "$stderr_file"
+status=$?
+set -e
+
+# Always surface npm's own stderr to the workflow log — callers want to see
+# the full npm output on both success and failure.
+cat "$stderr_file" >&2
+
+if [ "$status" -eq 0 ]; then
   echo "::notice::published $PKG_NAME@$PKG_VERSION"
   echo "::endgroup::"
   exit 0
 fi
-
-status=$?
 
 # Tolerate "version already published" only.
 if grep -qE "cannot publish over the previously published versions|You cannot publish over the previously published version|code E403.*previous version|code EPUBLISHCONFLICT" "$stderr_file"; then
