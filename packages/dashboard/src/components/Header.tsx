@@ -1,4 +1,6 @@
-import { setApiKey } from '../lib/api-client.js';
+import { useQuery } from '@tanstack/react-query';
+import { getWebhookActivity, setApiKey } from '../lib/api-client.js';
+import { relativeTime } from '../lib/format.js';
 
 interface HeaderProps {
   boardCount: number;
@@ -56,6 +58,7 @@ export function Header({ boardCount, onSignOut }: HeaderProps) {
           </span>
         </div>
         <div className="flex items-center gap-4">
+          <WebhookIndicator />
           <a
             href="https://github.com/muhammadkh4n/ouija"
             target="_blank"
@@ -82,5 +85,55 @@ export function Header({ boardCount, onSignOut }: HeaderProps) {
         </div>
       </div>
     </header>
+  );
+}
+
+/**
+ * Last-webhook-received badge. Polls every 5s. Solves the "silent wiring
+ * failure" problem: a self-hoster can verify HMAC + path-secret wiring
+ * without having to drag a card and wait for a pipeline.
+ */
+function WebhookIndicator() {
+  const query = useQuery({
+    queryKey: ['webhook-activity'],
+    queryFn: getWebhookActivity,
+    refetchInterval: 5_000,
+    staleTime: 0,
+  });
+
+  const last = query.data?.last ?? null;
+  const fresh =
+    last !== null && Date.now() - new Date(last.receivedAt).getTime() < 60_000;
+
+  const color = last === null
+    ? 'var(--color-dim)'
+    : fresh
+    ? 'var(--color-ok, #66cc88)'
+    : 'var(--color-dim)';
+
+  const label = last === null
+    ? 'waiting for first webhook'
+    : `webhook ${relativeTime(last.receivedAt)}`;
+
+  return (
+    <span
+      className="mono dim flex items-center gap-2"
+      style={{ fontSize: 'var(--text-xs)' }}
+      title={last === null
+        ? 'Ouija has not received a signature-verified webhook yet. Check your Plane/Fizzy webhook URL + secret.'
+        : `Last ${last.source} webhook at ${last.receivedAt}`}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: '0.5rem',
+          height: '0.5rem',
+          borderRadius: '50%',
+          background: color,
+          display: 'inline-block',
+        }}
+      />
+      {label}
+    </span>
   );
 }

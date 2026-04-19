@@ -41,6 +41,7 @@ import { projectRoutes } from './routes/projects.js';
 import { agentRoutes } from './routes/agents.js';
 import { registerDashboardRoutes } from './routes/dashboard.js';
 import { LiveEventBus } from './live-events.js';
+import { WebhookActivityTracker } from './webhook-activity.js';
 
 // ---- App options ----
 
@@ -137,11 +138,16 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
 
   await app.register(healthRoutes, healthOpts);
 
-  // Webhook ingress
+  // Webhook ingress + activity indicator endpoint. The tracker is per-app and
+  // lives in process memory — a restart clears it, which correctly surfaces as
+  // "waiting for first webhook" on the dashboard.
+  const webhookActivity = new WebhookActivityTracker();
+
   if (opts.orchestrator !== undefined && opts.db !== undefined) {
     const webhookOpts: WebhookRouteOptions = {
       orchestrator: opts.orchestrator,
       db: opts.db,
+      activityTracker: webhookActivity,
     };
     if (opts.planeWebhookSecret !== undefined) webhookOpts.planeWebhookSecret = opts.planeWebhookSecret;
     if (opts.githubWebhookSecret !== undefined) webhookOpts.githubWebhookSecret = opts.githubWebhookSecret;
@@ -156,6 +162,16 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
       reply.status(200).send({ ok: true }),
     );
   }
+
+  // Dashboard-facing indicator: "when did we last receive a verified webhook?"
+  // Auth-gated (consistent with the rest of /api/v1), but the only information
+  // surfaced is a timestamp + source kind — no payload contents.
+  const { requireAuth } = await import('./middleware/auth.js');
+  app.get(
+    '/api/v1/webhooks/activity',
+    { preHandler: requireAuth },
+    async (_req, reply) => reply.status(200).send(webhookActivity.snapshot()),
+  );
 
   // Agent callback
   if (opts.orchestrator !== undefined) {

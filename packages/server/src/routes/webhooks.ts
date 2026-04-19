@@ -32,6 +32,13 @@ export interface WebhookRouteOptions {
   /** Expected path secrets — map from token → workspace info. For v1: single secret from env. */
   planeWebhookSecret?: string;
   githubWebhookSecret?: string;
+  /**
+   * Optional tracker — called after signature verification passes. Powers the
+   * dashboard's "last webhook received" indicator. Omitted in tests.
+   */
+  activityTracker?: {
+    record(source: 'plane' | 'github' | 'fizzy'): void;
+  };
 }
 
 // ---- HMAC verification helpers ----
@@ -105,6 +112,11 @@ async function handlePlaneWebhook(
     return sendOk();
   }
 
+  // HMAC passed — record activity so the dashboard indicator turns green even
+  // when the payload itself normalises to no event (e.g. an issue field we
+  // don't care about).
+  opts.activityTracker?.record('plane');
+
   const body = request.body as Record<string, unknown>;
 
   // 3. Timestamp validation
@@ -176,6 +188,8 @@ async function handleGitHubWebhook(
     request.log.warn('GitHub webhook: HMAC verification failed');
     return sendOk();
   }
+
+  opts.activityTracker?.record('github');
 
   const body = request.body as Record<string, unknown>;
 

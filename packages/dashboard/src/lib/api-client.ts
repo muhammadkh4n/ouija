@@ -19,6 +19,7 @@ import type {
   BoardListResponse,
   PipelineDetailResponse,
   PipelineListResponse,
+  WebhookActivitySnapshot,
 } from './api-types.js';
 
 const API_KEY_STORAGE = 'ouija:apiKey';
@@ -146,4 +147,10 @@ export function updateAgent(id: string, body: UpdateAgentRequest): Promise<Agent
 
 export function deleteAgent(id: string): Promise<void> {
   return request<void>(`/api/v1/agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+// ---- Webhook activity ----
+
+export function getWebhookActivity(): Promise<WebhookActivitySnapshot> {
+  return request<WebhookActivitySnapshot>('/api/v1/webhooks/activity');
 }
