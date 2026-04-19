@@ -258,12 +258,27 @@ export class Orchestrator {
           instanceId: String(instance.id),
         });
         const now = new Date().toISOString();
+        const existingForAck = await this.db.pipelineEvents.listByInstance(instance.id);
+        const ackSynthEvent = {
+          id: randomUUID(),
+          instanceId: instance.id,
+          topic: 'pipeline.transitioned' as const,
+          payload: {
+            instanceId: instance.id,
+            fromStatus: instance.state.status,
+            toStatus: ackOutcome.nextState.status,
+            trigger: 'auto_acknowledge',
+          },
+          occurredAt: now,
+          sequence: existingForAck.length,
+        };
         await this.db.transaction(async (uow) => {
           await uow.pipelines.save({
             ...instance,
             state: ackOutcome.nextState,
             updatedAt: now,
           });
+          await uow.pipelineEvents.appendMany([ackSynthEvent]);
         });
         // Update local instance for the subsequent transition
         instance = { ...instance, state: ackOutcome.nextState, updatedAt: now };
