@@ -56,7 +56,15 @@ jobs:
           export CI_SMOKE_DIR="$RUNNER_TEMP/ouija-fresh"
           mkdir -p "$CI_SMOKE_DIR"
           cd "$CI_SMOKE_DIR"
-          npx --yes "${{ steps.pack.outputs.tarball }}" init --preset self-hosted-plane -y
+          # Install the CLI tarball locally, then invoke the binary directly.
+          # `npx --yes <tarball>` tries to execute the tarball file itself,
+          # which shells out to sh and errors with EACCES on macOS + Linux.
+          npm init -y > /dev/null
+          npm install "${{ steps.pack.outputs.tarball }}"
+          ./node_modules/.bin/ouija init --preset self-hosted-plane -y
+          # Clean up the installer scaffolding so the init-generated files
+          # are the only thing left for the compose check.
+          rm -rf node_modules package.json package-lock.json
 
           # Files we expect the init to have created.
           for f in .env ouija.config.yaml docker/docker-compose.ouija.yml docker/docker-compose.yml; do
