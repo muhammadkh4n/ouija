@@ -38,6 +38,7 @@ import { agentCallbackRoutes } from './routes/agent-callback.js';
 import { pipelineRoutes } from './routes/pipelines.js';
 import { pipelineStreamRoutes } from './routes/pipeline-stream.js';
 import { projectRoutes } from './routes/projects.js';
+import { agentRoutes } from './routes/agents.js';
 import { registerDashboardRoutes } from './routes/dashboard.js';
 import { LiveEventBus } from './live-events.js';
 
@@ -169,6 +170,7 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
     });
 
     await app.register(projectRoutes, { db: opts.db });
+    await app.register(agentRoutes, { db: opts.db });
   }
 
   // Pipeline live SSE stream (only when liveEvents wiring is provided).

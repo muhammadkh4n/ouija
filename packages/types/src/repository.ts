@@ -83,6 +83,41 @@ export interface BoardConfigRepository {
   delete(boardId: BoardId): Promise<void>;
 }
 
+// ---- Agent record ----
+// The `config` field holds the full AgentProfileConfig shape from @ouija-dev/config
+// but is typed here as Record<string, unknown> to avoid a types→config dependency.
+// Validation happens at the HTTP layer via ajv, not here.
+
+export interface EncryptedVaultBlob {
+  iv: string;
+  tag: string;
+  ciphertext: string;
+  /** Field names present in the vault (inspectable without decrypting). */
+  fields: string[];
+}
+
+export interface AgentRecord {
+  id: string;
+  config: Record<string, unknown>;
+  secretsVault: EncryptedVaultBlob | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentRepository {
+  findById(id: string): Promise<AgentRecord | undefined>;
+  /**
+   * List agents. When activeOnly=true (the default) only rows with active=true
+   * are returned — this is the dispatch-time lookup path. The dashboard's
+   * "show all agents including deactivated" view passes activeOnly=false.
+   */
+  listAll(activeOnly?: boolean): Promise<AgentRecord[]>;
+  save(record: AgentRecord): Promise<void>;
+  /** Soft delete — sets active=false so pipeline history can still resolve the name. */
+  softDelete(id: string): Promise<void>;
+}
+
 export interface DeduplicationRepository {
   /** Returns true if the event has already been processed */
   isDuplicate(externalEventId: string): Promise<boolean>;
@@ -100,6 +135,7 @@ export interface UnitOfWork {
   pipelines: PipelineRepository;
   pipelineEvents: PipelineEventRepository;
   boardConfigs: BoardConfigRepository;
+  agents?: AgentRepository;
 }
 
 // ---- Database factory (produces read-only repos and transactional UoWs) ----
@@ -113,6 +149,12 @@ export interface Database {
   pipelineEvents: PipelineEventRepository;
   boardConfigs: BoardConfigRepository;
   deduplication: DeduplicationRepository;
+  /**
+   * Agent CRUD. Optional because in-process tests and older deployments may run
+   * without the 003-agents migration applied — consumers that need it check for
+   * presence and fall back to YAML-provided profiles when missing.
+   */
+  agents?: AgentRepository;
 
   /** Liveness check — throws if DB is unreachable */
   ping(): Promise<void>;

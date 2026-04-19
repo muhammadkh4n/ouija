@@ -12,5 +12,12 @@ export {
   PostgresPipelineEventRepository,
   PostgresBoardConfigRepository,
   PostgresDeduplicationRepository,
+  PostgresAgentRepository,
   createDatabase,
 } from './repository.js';
+export {
+  encryptSecrets,
+  decryptSecrets,
+  isEncryptedVault,
+} from './crypto/secrets-vault.js';
+export type { EncryptedVault } from './crypto/secrets-vault.js';
