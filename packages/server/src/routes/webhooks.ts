@@ -22,6 +22,7 @@ import type { Orchestrator } from '@ouija-dev/engine';
 import type { Database, OuijaEvent } from '@ouija-dev/types';
 import { randomUUID } from 'node:crypto';
 import { normalizeWebhook as normalizePlaneWebhook } from '@ouija-dev/plugin-plane/webhook-handler';
+import { normalizeWebhook as normalizeGitHubWebhook } from '@ouija-dev/plugin-github/webhook-handler';
 
 const WEBHOOK_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
 const DEDUP_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -29,6 +30,12 @@ const DEDUP_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export interface WebhookRouteOptions {
   orchestrator: Orchestrator;
   db: Database;
+  /**
+   * Event bus for republishing review-loop events (git.pr.review.submitted,
+   * git.pr.comment.posted). The review bundler subscribes here. Required for
+   * the review loop; without it, those event types are silently dropped.
+   */
+  eventBus?: import('@ouija-dev/bus').EventBus;
   /** Expected path secrets — map from token → workspace info. For v1: single secret from env. */
   planeWebhookSecret?: string;
   githubWebhookSecret?: string;
@@ -208,57 +215,40 @@ async function handleGitHubWebhook(
     request.log.error({ err }, 'GitHub webhook: dedup store error, processing anyway');
   }
 
-  // 4. Normalize and dispatch
+  // 4. Normalize and dispatch via plugin-github's canonical normaliser.
+  // Review-loop events (pull_request_review / pull_request_review_comment /
+  // issue_comment) are republished on the event bus for the review bundler to
+  // consume. PR lifecycle events (opened / merged) go straight to the
+  // orchestrator as triggers. The distinction matters because review events
+  // don't carry an instanceId — the bundler looks it up via pr_instance_index
+  // after the debounce window flushes.
   const ghEvent = request.headers['x-github-event'] as string | undefined;
-  const event = normalizeGitHubEvent(body, ghEvent ?? '');
+  const event = normalizeGitHubWebhook(ghEvent ?? '', body);
   if (event) {
-    opts.orchestrator.processTrigger(event).catch((err) => {
-      request.log.error({ err, externalEventId }, 'GitHub webhook: orchestrator error');
-    });
+    if (event.topic === 'git.pr.review.submitted' || event.topic === 'git.pr.comment.posted') {
+      if (opts.eventBus === undefined) {
+        request.log.info(
+          { ghEvent, externalEventId },
+          'GitHub review-loop event received but no eventBus wired; dropping (loop inactive)',
+        );
+      } else {
+        opts.eventBus.publish(event.topic, event.payload, {
+          correlationId: event.correlationId,
+          sourcePlugin: event.sourcePlugin,
+        }).catch((err) => {
+          request.log.error({ err, externalEventId }, 'GitHub webhook: publish review event failed');
+        });
+      }
+    } else {
+      opts.orchestrator.processTrigger(event).catch((err) => {
+        request.log.error({ err, externalEventId }, 'GitHub webhook: orchestrator error');
+      });
+    }
   } else {
     request.log.info({ ghEvent }, 'GitHub webhook: no matching event type, skipping');
   }
 
   return sendOk();
-}
-
-// ---- GitHub event normalizer ----
-
-function normalizeGitHubEvent(
-  body: Record<string, unknown>,
-  eventType: string,
-): OuijaEvent | null {
-  if (eventType === 'pull_request') {
-    const action = body['action'] as string | undefined;
-    const pr = (body['pull_request'] as Record<string, unknown> | undefined) ?? {};
-
-    if (action === 'closed' && pr['merged'] === true) {
-      const prIdVal = String((pr['number'] as number | undefined) ?? '');
-      const mergedAt = (pr['merged_at'] as string | undefined) ?? new Date().toISOString();
-      const instanceId = extractInstanceIdFromBranch(
-        (pr['head'] as Record<string, unknown> | undefined)?.[
-          'ref'
-        ] as string | undefined,
-      );
-
-      if (!prIdVal || !instanceId) return null;
-
-      return {
-        id: randomUUID(),
-        topic: 'git.pr.merged',
-        payload: {
-          prId: prIdVal as import('@ouija-dev/types').PrId,
-          instanceId: instanceId as import('@ouija-dev/types').InstanceId,
-          mergedAt,
-        },
-        timestamp: new Date().toISOString(),
-        sourcePlugin: '@ouija-dev/plugin-github',
-        correlationId: randomUUID(),
-      };
-    }
-  }
-
-  return null;
 }
 
 /**

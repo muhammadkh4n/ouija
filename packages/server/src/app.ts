@@ -53,6 +53,12 @@ export interface AppOptions {
   githubWebhookSecret?: string;
   logger?: boolean | object;
   /**
+   * Durable event bus — passed into webhook routes so review-loop events
+   * (git.pr.review.submitted, git.pr.comment.posted) can be republished for
+   * the review bundler to consume.
+   */
+  eventBus?: import('@ouija-dev/bus').EventBus;
+  /**
    * Process-local event fan-out for SSE subscribers. When provided alongside
    * `db`, the /api/v1/pipelines/:id/stream route is registered. Tests pass
    * their own instance; production wires it to the durable event bus via
@@ -151,6 +157,7 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
     };
     if (opts.planeWebhookSecret !== undefined) webhookOpts.planeWebhookSecret = opts.planeWebhookSecret;
     if (opts.githubWebhookSecret !== undefined) webhookOpts.githubWebhookSecret = opts.githubWebhookSecret;
+    if (opts.eventBus !== undefined) webhookOpts.eventBus = opts.eventBus;
 
     await app.register(webhookRoutes, webhookOpts);
   } else {

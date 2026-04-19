@@ -228,9 +228,23 @@ describe('POST /hooks/github/:secret', () => {
       action: 'closed',
       pull_request: {
         number: 42,
+        html_url: 'https://github.com/acme/backend/pull/42',
+        title: 'test',
+        body: '',
+        state: 'closed',
+        draft: false,
         merged: true,
         merged_at: '2026-04-01T10:00:00Z',
+        created_at: '2026-04-01T09:00:00Z',
+        updated_at: '2026-04-01T10:00:00Z',
         head: { ref: 'ouija/test-instance-id' },
+        base: { ref: 'main' },
+      },
+      repository: {
+        full_name: 'acme/backend',
+        html_url: 'https://github.com/acme/backend',
+        name: 'backend',
+        owner: { login: 'acme' },
       },
     });
     const sig = signBody(body, GITHUB_SECRET);
@@ -301,9 +315,23 @@ describe('POST /hooks/github/:secret', () => {
       action: 'closed',
       pull_request: {
         number: 99,
+        html_url: 'https://github.com/acme/backend/pull/99',
+        title: 'dedup',
+        body: '',
+        state: 'closed',
+        draft: false,
         merged: true,
         merged_at: '2026-04-01T12:00:00Z',
+        created_at: '2026-04-01T11:00:00Z',
+        updated_at: '2026-04-01T12:00:00Z',
         head: { ref: 'ouija/dedup-instance' },
+        base: { ref: 'main' },
+      },
+      repository: {
+        full_name: 'acme/backend',
+        html_url: 'https://github.com/acme/backend',
+        name: 'backend',
+        owner: { login: 'acme' },
       },
     });
     const sig = signBody(body, GITHUB_SECRET);

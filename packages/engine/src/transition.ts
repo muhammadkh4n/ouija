@@ -267,12 +267,15 @@ function handleAgentAcknowledged(
     };
   }
 
+  // Carry iteration forward through dispatching → running so the review-loop
+  // counter survives into awaiting_review on agent_completed.
   const nextState: PipelineState = {
     status: 'running',
     dispatchId: state.dispatchId,
     agentId: state.agentId,
     dispatchedAt: state.dispatchedAt,
     lastHeartbeatAt: new Date().toISOString(),
+    ...(state.iteration !== undefined ? { iteration: state.iteration } : {}),
   };
 
   return {

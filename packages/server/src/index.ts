@@ -431,6 +431,7 @@ async function main(): Promise<void> {
     orchestrator,
     pluginLoader,
     liveEvents,
+    eventBus,
     logger: {
       level: process.env['LOG_LEVEL'] ?? 'info',
     },
