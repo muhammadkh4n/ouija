@@ -126,7 +126,8 @@ export class Orchestrator {
    *  - kanban.card.assigned → load/create instance, build card_assigned trigger
    *  - agent.work.progress / agent.work.completed / agent.work.failed / agent.work.pr_ready
    *    → load instance by instanceId from payload
-   *  - git.pr.merged → load instance by instanceId
+   *  - git.pr.merged → load instance by resolving payload.url via pr_instance_index
+   *    (Phase 1 Task 3 — the webhook no longer fabricates instanceId)
    */
   async processTrigger(event: OuijaEvent): Promise<void> {
     try {
@@ -163,8 +164,43 @@ export class Orchestrator {
         // New pipeline — create in idle state
         instance = await this._createIdleInstance(payload.cardId);
       }
+    } else if (topic === 'git.pr.merged') {
+      // Merge events carry the PR URL (GitHub's canonical identifier) — never
+      // a Ouija instanceId. Resolve via pr_instance_index which the agent
+      // populates when it emits agent.work.pr_ready. Before Phase 1 Task 3
+      // the webhook handler fabricated `github-pr-<N>` as an instanceId and
+      // the lookup silently failed, leaving merged PRs stuck forever.
+      const payload = event.payload as { url?: string };
+      if (this.db.prInstances === undefined) {
+        this.logger.info('processTrigger: pr_instance_index missing; git.pr.merged inert', {
+          eventId: event.id,
+        });
+        return;
+      }
+      if (!payload.url) {
+        this.logger.warn('processTrigger: git.pr.merged event has no url, skipping', {
+          eventId: event.id,
+        });
+        return;
+      }
+      const resolvedId = await this.db.prInstances.findInstanceByPrUrl(payload.url);
+      if (resolvedId === undefined) {
+        this.logger.warn('processTrigger: no pr_instance_index mapping for merged PR', {
+          prUrl: payload.url,
+        });
+        return;
+      }
+      const found = await this.db.pipelines.findById(makeInstanceId(resolvedId));
+      if (found === undefined) {
+        this.logger.warn('processTrigger: pr_instance_index points to missing pipeline', {
+          prUrl: payload.url,
+          resolvedId,
+        });
+        return;
+      }
+      instance = found;
     } else {
-      // Agent callbacks and git events carry instanceId in the payload
+      // Agent callbacks carry instanceId in the payload
       const payload = event.payload as { instanceId?: string };
       if (!payload.instanceId) {
         this.logger.warn('processTrigger: event has no instanceId, skipping', {

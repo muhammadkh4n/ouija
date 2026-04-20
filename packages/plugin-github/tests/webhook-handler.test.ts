@@ -50,10 +50,13 @@ describe('normalizeWebhook', () => {
       expect(event.payload.targetBranch).toBe('main');
     });
 
-    it('sets instanceId as a non-empty string', () => {
+    it('does not fabricate an instanceId (resolved downstream via pr_instance_index)', () => {
       const event = normalizeWebhook('pull_request', prOpenedPayload) as OuijaEvent<'git.pr.opened'>;
-      expect(typeof event.payload.instanceId).toBe('string');
-      expect(event.payload.instanceId.length).toBeGreaterThan(0);
+      // Phase 1 Task 3: the webhook handler no longer fabricates
+      // `github-pr-<N>` as an instanceId. Orchestrator resolves via URL.
+      expect((event.payload as unknown as Record<string, unknown>).instanceId).toBeUndefined();
+      expect(typeof event.payload.url).toBe('string');
+      expect(event.payload.url.length).toBeGreaterThan(0);
     });
   });
 
@@ -75,10 +78,14 @@ describe('normalizeWebhook', () => {
       expect(event.payload.mergedAt).toBe('2026-04-01T12:00:00Z');
     });
 
-    it('sets instanceId as a non-empty string', () => {
+    it('emits url (not instanceId) so orchestrator can resolve via pr_instance_index', () => {
       const event = normalizeWebhook('pull_request', prMergedPayload) as OuijaEvent<'git.pr.merged'>;
-      expect(typeof event.payload.instanceId).toBe('string');
-      expect(event.payload.instanceId.length).toBeGreaterThan(0);
+      // Phase 1 Task 3: drop the `github-pr-<N>` fabrication. The merge
+      // event now carries the PR URL and the orchestrator resolves the
+      // Ouija pipeline via pr_instance_index.
+      expect((event.payload as unknown as Record<string, unknown>).instanceId).toBeUndefined();
+      expect(typeof event.payload.url).toBe('string');
+      expect(event.payload.url).toMatch(/^https:\/\//);
     });
   });
 

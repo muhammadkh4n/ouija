@@ -685,27 +685,27 @@ describe('review loop — end-to-end webhook → re-dispatch', () => {
   it('human merge terminates the loop: pr_merged webhook from awaiting_review → succeeded', async () => {
     const h = await buildHarness();
     try {
+      // Phase 1 Task 3 regression coverage: the REAL webhook path must
+      // resolve the pipeline via pr_instance_index (the harness seeded
+      // `PR_URL → instanceIdStr` on buildHarness line 511). Before Task 3,
+      // the webhook handler fabricated `github-pr-42` as an instanceId, the
+      // orchestrator's findById returned undefined, and the merge event
+      // dropped silently — pipeline stuck in awaiting_review forever.
       const body = prMergedWebhookBody();
-      // Merge webhook must resolve the instance via pr_instance_index — the
-      // canonical GitHub normaliser extracts only the bare PR number, so we
-      // pre-populate the index with a placeholder instance ID that matches
-      // what `github-pr-42` resolves to. For this test we patch the index
-      // entry used by the normaliser's placeholder.
-      //
-      // Simpler path: call the orchestrator's processTrigger directly with a
-      // synthesised merge event carrying the real instanceId.
-      await h.orchestrator.processTrigger({
-        id: 'merge-event-1',
-        topic: 'git.pr.merged',
-        payload: {
-          prId: prId(PR_ID_STR),
-          instanceId: makeInstanceId(h.instanceIdStr),
-          mergedAt: '2026-04-21T10:00:00Z',
+      const resp = await h.app.inject({
+        method: 'POST',
+        url: `/hooks/github/${GITHUB_SECRET}`,
+        headers: {
+          'content-type': 'application/json',
+          'x-github-event': 'pull_request',
+          'x-hub-signature-256': ghSignature(body, GITHUB_SECRET),
+          'x-github-delivery': 'test-merge-delivery',
         },
-        timestamp: new Date().toISOString(),
-        sourcePlugin: '@ouija-dev/plugin-github',
-        correlationId: 'corr-merge',
+        payload: body,
       });
+      expect(resp.statusCode).toBe(200);
+
+      // Give the async processTrigger fire-and-forget a tick to settle.
       await settle();
 
       const after = h.db._instances.get(h.instanceIdStr)!;
@@ -713,9 +713,6 @@ describe('review loop — end-to-end webhook → re-dispatch', () => {
       if (after.state.status === 'succeeded') {
         expect(after.state.prUrl).toBe(PR_URL);
       }
-      // Silence the unused-body warning; the raw webhook path is covered by
-      // the earlier plugin-github normalizer tests.
-      expect(body.length).toBeGreaterThan(0);
     } finally {
       await h.reviewLoop.stop();
       await h.app.close();
