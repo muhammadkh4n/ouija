@@ -22,6 +22,7 @@ import type {
 } from '@ouija-dev/types';
 import { dispatchId as makeDispatchId, agentId as makeAgentId } from '@ouija-dev/types';
 import { evaluateGuards } from './guards.js';
+import { encodeJobId } from './ids.js';
 
 // ---- Public API ----
 
@@ -111,7 +112,7 @@ function handleCardMoved(
       {
         type: 'send_notification',
         payload: { cardId: trigger.cardId, message: `Card moved to "${mapping.columnName}" — pipeline closed` },
-        idempotencyKey: `close-notify-${trigger.cardId}-${trigger.toColumnId}`,
+        idempotencyKey: encodeJobId(['close-notify', trigger.cardId, trigger.toColumnId]),
       },
     ];
     return {
@@ -148,7 +149,7 @@ function handleCardMoved(
             guardsFailed: failedGuards,
             message: `Guards failed for card "${trigger.cardId}": ${failedGuards.map((g) => g.reason ?? g.guardType).join('; ')}`,
           },
-          idempotencyKey: `guard-fail-${trigger.cardId}-${trigger.toColumnId}`,
+          idempotencyKey: encodeJobId(['guard-fail', trigger.cardId, trigger.toColumnId]),
         },
       ],
     };
@@ -170,12 +171,12 @@ function handleCardMoved(
     {
       type: 'dispatch_agent',
       payload: { dispatchId: newDispatchId, agentId },
-      idempotencyKey: `dispatch-${newDispatchId}`,
+      idempotencyKey: encodeJobId(['dispatch', newDispatchId]),
     },
     {
       type: 'enqueue_stall_check',
       payload: { dispatchId: newDispatchId, delayMs: stallMs },
-      idempotencyKey: `stall-check-${newDispatchId}`,
+      idempotencyKey: encodeJobId(['stall-check', newDispatchId]),
     },
   ];
 
@@ -306,12 +307,12 @@ function handleAgentProgress(
     {
       type: 'cancel_stall_check',
       payload: { dispatchId: state.dispatchId },
-      idempotencyKey: `cancel-stall-${state.dispatchId}-${trigger.heartbeatAt}`,
+      idempotencyKey: encodeJobId(['cancel-stall', state.dispatchId, trigger.heartbeatAt]),
     },
     {
       type: 'enqueue_stall_check',
       payload: { dispatchId: state.dispatchId },
-      idempotencyKey: `stall-check-${state.dispatchId}-${trigger.heartbeatAt}`,
+      idempotencyKey: encodeJobId(['stall-check', state.dispatchId, trigger.heartbeatAt]),
     },
   ];
 
@@ -341,22 +342,22 @@ function handleAgentPrReady(
     {
       type: 'move_card',
       payload: { columnName: 'Review', prUrl: trigger.prUrl, prId: trigger.prId },
-      idempotencyKey: `move-review-${trigger.dispatchId}`,
+      idempotencyKey: encodeJobId(['move-review', trigger.dispatchId]),
     },
     {
       type: 'add_comment',
       payload: { body: `PR ready for review: ${trigger.prUrl}`, prId: trigger.prId },
-      idempotencyKey: `comment-pr-ready-${trigger.dispatchId}`,
+      idempotencyKey: encodeJobId(['comment-pr-ready', trigger.dispatchId]),
     },
     {
       type: 'send_notification',
       payload: { prUrl: trigger.prUrl, prId: trigger.prId },
-      idempotencyKey: `notify-pr-ready-${trigger.dispatchId}`,
+      idempotencyKey: encodeJobId(['notify-pr-ready', trigger.dispatchId]),
     },
     {
       type: 'record_pr_mapping',
       payload: { prUrl: trigger.prUrl },
-      idempotencyKey: `record-pr-${trigger.prUrl}`,
+      idempotencyKey: encodeJobId(['record-pr', trigger.prUrl]),
     },
   ];
 
@@ -409,7 +410,7 @@ function handleAgentCompleted(
       {
         type: 'cancel_stall_check',
         payload: { dispatchId: state.dispatchId },
-        idempotencyKey: `cancel-stall-complete-${trigger.dispatchId}`,
+        idempotencyKey: encodeJobId(['cancel-stall-complete', trigger.dispatchId]),
       },
     ];
     return { rejected: false, nextState, events: [], sideEffects };
@@ -430,12 +431,12 @@ function handleAgentCompleted(
     {
       type: 'cancel_stall_check',
       payload: { dispatchId: state.dispatchId },
-      idempotencyKey: `cancel-stall-complete-${trigger.dispatchId}`,
+      idempotencyKey: encodeJobId(['cancel-stall-complete', trigger.dispatchId]),
     },
     {
       type: 'move_card',
       payload: { columnName: 'Done' },
-      idempotencyKey: `move-done-${trigger.dispatchId}`,
+      idempotencyKey: encodeJobId(['move-done', trigger.dispatchId]),
     },
   ];
 
@@ -473,17 +474,17 @@ function handleAgentFailed(
     {
       type: 'cancel_stall_check',
       payload: { dispatchId: trigger.dispatchId },
-      idempotencyKey: `cancel-stall-fail-${trigger.dispatchId}`,
+      idempotencyKey: encodeJobId(['cancel-stall-fail', trigger.dispatchId]),
     },
     {
       type: 'move_card',
       payload: { columnName: 'Failed' },
-      idempotencyKey: `move-failed-${trigger.dispatchId}`,
+      idempotencyKey: encodeJobId(['move-failed', trigger.dispatchId]),
     },
     {
       type: 'send_notification',
       payload: { error: trigger.error, retryable: trigger.retryable },
-      idempotencyKey: `notify-fail-${trigger.dispatchId}`,
+      idempotencyKey: encodeJobId(['notify-fail', trigger.dispatchId]),
     },
   ];
 
@@ -521,7 +522,7 @@ function handleStallDetected(
     {
       type: 'send_notification',
       payload: { dispatchId: trigger.dispatchId, detectedAt: trigger.detectedAt, message: 'Agent has stalled — no heartbeat received' },
-      idempotencyKey: `notify-stall-${trigger.dispatchId}`,
+      idempotencyKey: encodeJobId(['notify-stall', trigger.dispatchId]),
     },
   ];
 
@@ -559,12 +560,12 @@ function handleHumanRetry(
     {
       type: 'dispatch_agent',
       payload: { dispatchId: newDispatchId, agentId: state.agentId, retriedBy: trigger.retriedBy },
-      idempotencyKey: `dispatch-retry-${newDispatchId}`,
+      idempotencyKey: encodeJobId(['dispatch-retry', newDispatchId]),
     },
     {
       type: 'enqueue_stall_check',
       payload: { dispatchId: newDispatchId, delayMs: config.defaultStallThresholdMs },
-      idempotencyKey: `stall-check-retry-${newDispatchId}`,
+      idempotencyKey: encodeJobId(['stall-check-retry', newDispatchId]),
     },
   ];
 
@@ -598,7 +599,7 @@ function handleHumanCancel(
     {
       type: 'send_notification',
       payload: { cancelledBy: trigger.cancelledBy, message: 'Pipeline cancelled by human' },
-      idempotencyKey: `notify-cancel-${trigger.cancelledBy}-${now}`,
+      idempotencyKey: encodeJobId(['notify-cancel', trigger.cancelledBy, now]),
     },
   ];
 
@@ -608,19 +609,19 @@ function handleHumanCancel(
       sideEffects.push({
         type: 'destroy_workspace',
         payload: { workspaceId: state.workspaceId },
-        idempotencyKey: `destroy-ws-${state.dispatchId}`,
+        idempotencyKey: encodeJobId(['destroy-ws', state.dispatchId]),
       });
     }
     sideEffects.push(
       {
         type: 'cancel_agent',
         payload: { dispatchId: state.dispatchId },
-        idempotencyKey: `cancel-agent-${state.dispatchId}`,
+        idempotencyKey: encodeJobId(['cancel-agent', state.dispatchId]),
       },
       {
         type: 'cancel_stall_check',
         payload: { dispatchId: state.dispatchId },
-        idempotencyKey: `cancel-stall-cancel-${state.dispatchId}`,
+        idempotencyKey: encodeJobId(['cancel-stall-cancel', state.dispatchId]),
       },
     );
   }
@@ -684,12 +685,12 @@ function handlePrMerged(
     {
       type: 'move_card',
       payload: { columnName: 'Done', prId: trigger.prId },
-      idempotencyKey: `move-done-merged-${trigger.prId}`,
+      idempotencyKey: encodeJobId(['move-done-merged', trigger.prId]),
     },
     {
       type: 'cancel_stall_check',
       payload: { prId: trigger.prId },
-      idempotencyKey: `cancel-stall-merged-${trigger.prId}`,
+      idempotencyKey: encodeJobId(['cancel-stall-merged', trigger.prId]),
     },
   ];
 
@@ -758,7 +759,7 @@ function handlePrReviewReceived(
             iteration: state.iteration,
             message: `Review loop exceeded ${maxIterations} iterations — human attention required on ${state.prUrl}`,
           },
-          idempotencyKey: `max-iter-${state.prUrl}-${state.iteration}`,
+          idempotencyKey: encodeJobId(['max-iter', state.prUrl, String(state.iteration)]),
         },
       ],
     };
@@ -797,12 +798,12 @@ function handlePrReviewReceived(
             bundle: trigger.bundle,
           },
         },
-        idempotencyKey: `dispatch-review-${state.prUrl}-${nextIteration}`,
+        idempotencyKey: encodeJobId(['dispatch-review', state.prUrl, String(nextIteration)]),
       },
       {
         type: 'enqueue_stall_check',
         payload: { dispatchId: String(newDispatchId) },
-        idempotencyKey: `stall-review-${String(newDispatchId)}`,
+        idempotencyKey: encodeJobId(['stall-review', String(newDispatchId)]),
       },
     ],
   };
