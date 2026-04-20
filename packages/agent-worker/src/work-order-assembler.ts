@@ -155,8 +155,22 @@ export async function assembleWorkOrder(
     }
   }
 
-  // 3. Fetch card details from kanban plugin
-  const card = await deps.getCardDetails(jobData.cardId);
+  // 3. Resolve card title/description. Prefer the job-carried fields when
+  // the dispatcher supplied them (API dispatch, per-card override). Otherwise
+  // fall back to the kanban plugin's `getCardDetails(cardId)`. This lets the
+  // POST /api/v1/pipelines/dispatch path work even when no kanban is wired
+  // (kanbanBackend === 'none'), while leaving the webhook path untouched.
+  let card: { title: string; description: string; acceptanceCriteria: string[]; labels: string[] };
+  if (jobData.taskTitle !== undefined || jobData.taskDescription !== undefined) {
+    card = {
+      title: jobData.taskTitle ?? `Card ${jobData.cardId}`,
+      description: jobData.taskDescription ?? '',
+      acceptanceCriteria: [],
+      labels: [],
+    };
+  } else {
+    card = await deps.getCardDetails(jobData.cardId);
+  }
 
   // 3a. Sanitize the description before it flows into the WorkOrder and
   // ultimately the agent prompt. The orchestrator's _fetchGuardContext runs

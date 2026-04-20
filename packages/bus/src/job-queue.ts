@@ -35,6 +35,16 @@ export interface AgentDispatchJobData {
   cardId: string;
   projectId: string;
   workOrderDescription: string;
+  /**
+   * Optional task title + description supplied at dispatch time. When present,
+   * the work-order assembler prefers these over whatever a kanban plugin's
+   * `getCardDetails` returns — the API-driven dispatch path (no kanban) and
+   * self-hosters that want per-card overrides both flow through here.
+   * Absent on webhook-initiated dispatches; the assembler falls back to
+   * `getCardDetails(cardId)` in that case.
+   */
+  taskTitle?: string;
+  taskDescription?: string;
   /** ISO timestamp of when this dispatch was requested */
   dispatchedAt: string;
   /**

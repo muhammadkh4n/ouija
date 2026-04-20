@@ -45,7 +45,11 @@ export type PipelineTrigger =
   | { type: 'human_retry'; retriedBy: string }
   | { type: 'human_cancel'; cancelledBy: string }
   | { type: 'pr_merged'; prId: PrId; mergedAt: string }
-  | { type: 'pr_review_received'; prUrl: string; prId: PrId; bundle: ReviewBundle };
+  | { type: 'pr_review_received'; prUrl: string; prId: PrId; bundle: ReviewBundle }
+  // Administrative dispatch — bypasses kanban. Carries the agentId + synthetic
+  // cardId + task text directly. Used by POST /api/v1/pipelines/dispatch and
+  // by future CLI-driven flows that skip the kanban roundtrip.
+  | { type: 'manual_dispatch'; cardId: CardId; agentId: string; title: string; description: string; requestedBy: string };
 
 /**
  * Aggregated PR feedback — reviews + comments + CI failures — flushed from the

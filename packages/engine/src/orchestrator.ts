@@ -389,6 +389,15 @@ export class Orchestrator {
           workOrderDescription: String(effect.payload['workOrderDescription'] ?? ''),
           dispatchedAt: new Date().toISOString(),
         };
+        // Manual dispatch path: the transition handler stashes the user-
+        // supplied title + description on the side effect so the assembler
+        // doesn't need a kanban plugin to build the WorkOrder.
+        if (typeof effect.payload['taskTitle'] === 'string') {
+          dispatchJobData.taskTitle = effect.payload['taskTitle'] as string;
+        }
+        if (typeof effect.payload['taskDescription'] === 'string') {
+          dispatchJobData.taskDescription = effect.payload['taskDescription'] as string;
+        }
         // On review-loop iterations, the transition handler attaches the
         // aggregated reviewer feedback as `reviewContext` on the side effect.
         // Forward it to the worker so the WorkOrder prompt includes it.
@@ -736,6 +745,107 @@ export class Orchestrator {
   /** Invalidate the config cache for a board (call after config updates). */
   invalidateConfigCache(boardId: BoardId): void {
     this._configCache.delete(boardId as string);
+  }
+
+  /**
+   * Administrative dispatch — runs an agent without a kanban round-trip.
+   * Creates (or reuses) an idle pipeline instance keyed by cardId, then fires
+   * a `manual_dispatch` trigger through the normal transition + side-effect
+   * path. Used by POST /api/v1/pipelines/dispatch; the review loop after PR
+   * open is unchanged (git webhooks → processReviewBundle).
+   *
+   * Returns the instanceId so the caller can subscribe to the pipeline
+   * timeline.
+   */
+  async dispatchManual(input: {
+    agentId: string;
+    cardId: CardId;
+    boardId: BoardId;
+    title: string;
+    description: string;
+    requestedBy: string;
+  }): Promise<{ instanceId: string; rejected: boolean; reason?: string }> {
+    // Reuse the existing instance for the card if one exists; otherwise
+    // create a fresh idle instance tied to the provided boardId.
+    let instance = await this.db.pipelines.findByCardId(input.cardId);
+    if (!instance) {
+      const now = new Date().toISOString();
+      instance = {
+        id: makeInstanceId(randomUUID()),
+        cardId: input.cardId,
+        boardId: input.boardId,
+        projectId: String(input.boardId),
+        state: { status: 'idle' } satisfies PipelineState,
+        attempt: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.db.pipelines.save(instance);
+    }
+
+    const config = await this._getConfig(instance.boardId);
+    if (!config) {
+      return {
+        instanceId: String(instance.id),
+        rejected: true,
+        reason: `no pipeline config for board ${String(instance.boardId)}`,
+      };
+    }
+
+    const trigger: PipelineTrigger = {
+      type: 'manual_dispatch',
+      cardId: input.cardId,
+      agentId: input.agentId,
+      title: input.title,
+      description: input.description,
+      requestedBy: input.requestedBy,
+    };
+
+    const outcome = transition(instance.state, trigger, config);
+    if (outcome.rejected) {
+      return {
+        instanceId: String(instance.id),
+        rejected: true,
+        reason: outcome.reason ?? 'transition rejected',
+      };
+    }
+
+    // Persist new state + run side effects through the same pipeline the
+    // webhook flow uses. Keep this aligned with _processTrigger — if that
+    // grows a new step, replicate it here.
+    const existingEvents = await this.db.pipelineEvents.listByInstance(instance.id);
+    const seqBase = existingEvents.length;
+    const now = new Date().toISOString();
+    const updatedInstance: PipelineInstance = {
+      ...instance,
+      state: outcome.nextState,
+      updatedAt: now,
+    };
+    const eventRecords = outcome.events.map((e, i) => ({
+      id: randomUUID(),
+      instanceId: instance.id,
+      topic: e.topic,
+      payload: e.payload,
+      occurredAt: now,
+      sequence: seqBase + i,
+    }));
+    await this.db.pipelines.save(updatedInstance);
+    for (const ev of eventRecords) {
+      await this.db.pipelineEvents.append(ev);
+    }
+    for (const effect of outcome.sideEffects) {
+      try {
+        await this._executeSideEffect(effect, updatedInstance);
+      } catch (err) {
+        this.logger.error('dispatchManual: side effect failed', {
+          effectType: effect.type,
+          instanceId: String(instance.id),
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return { instanceId: String(instance.id), rejected: false };
   }
 
   // ---- Instance creation ----

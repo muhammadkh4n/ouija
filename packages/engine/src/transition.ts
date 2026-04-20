@@ -57,6 +57,8 @@ export function transition(
       return handlePrMerged(state, trigger);
     case 'pr_review_received':
       return handlePrReviewReceived(state, trigger, config);
+    case 'manual_dispatch':
+      return handleManualDispatch(state, trigger, config);
     default: {
       const _exhaustive: never = trigger;
       return {
@@ -216,6 +218,61 @@ function handleCardAssigned(
   };
 }
 
+// Administrative dispatch — carries agentId + task text inline, bypassing
+// the column-mapping lookup. Used by POST /api/v1/pipelines/dispatch and
+// other non-kanban entrypoints. State machine is otherwise identical to the
+// card_moved → dispatching path: generate dispatchId, emit dispatch_agent +
+// enqueue_stall_check side effects.
+function handleManualDispatch(
+  state: PipelineState,
+  trigger: Extract<PipelineTrigger, { type: 'manual_dispatch' }>,
+  config: PipelineConfig,
+): TransitionOutcome {
+  if (state.status !== 'idle') {
+    return {
+      rejected: true,
+      reason: `Cannot manually dispatch: pipeline is in state "${state.status}", expected "idle"`,
+    };
+  }
+
+  const newDispatchId = makeDispatchId(randomUUID());
+  const now = new Date().toISOString();
+  const stallMs = config.defaultStallThresholdMs;
+
+  const brandedAgent = makeAgentId(trigger.agentId);
+  const nextState: PipelineState = {
+    status: 'dispatching',
+    dispatchId: newDispatchId,
+    agentId: brandedAgent,
+    dispatchedAt: now,
+  };
+
+  const sideEffects: SideEffect[] = [
+    {
+      type: 'dispatch_agent',
+      payload: {
+        dispatchId: newDispatchId,
+        agentId: brandedAgent,
+        taskTitle: trigger.title,
+        taskDescription: trigger.description,
+      },
+      idempotencyKey: `dispatch-${newDispatchId}`,
+    },
+    {
+      type: 'enqueue_stall_check',
+      payload: { dispatchId: newDispatchId, delayMs: stallMs },
+      idempotencyKey: `stall-check-${newDispatchId}`,
+    },
+  ];
+
+  return {
+    rejected: false,
+    nextState,
+    events: [],
+    sideEffects,
+  };
+}
+
 function handleWorkspaceProvisioned(
   state: PipelineState,
   trigger: Extract<PipelineTrigger, { type: 'workspace_provisioned' }>,
@@ -356,7 +413,8 @@ function handleAgentPrReady(
     {
       type: 'record_pr_mapping',
       payload: { prUrl: trigger.prUrl },
-      idempotencyKey: `record-pr-${trigger.prUrl}`,
+      // prId alone is unique per repo and colon-free (BullMQ job-id rule).
+      idempotencyKey: `record-pr-${String(trigger.prId)}`,
     },
   ];
 
@@ -758,7 +816,7 @@ function handlePrReviewReceived(
             iteration: state.iteration,
             message: `Review loop exceeded ${maxIterations} iterations — human attention required on ${state.prUrl}`,
           },
-          idempotencyKey: `max-iter-${state.prUrl}-${state.iteration}`,
+          idempotencyKey: `max-iter-${String(state.prId)}-${state.iteration}`,
         },
       ],
     };
@@ -797,7 +855,10 @@ function handlePrReviewReceived(
             bundle: trigger.bundle,
           },
         },
-        idempotencyKey: `dispatch-review-${state.prUrl}-${nextIteration}`,
+        // BullMQ rejects ":" in job IDs, so don't interpolate the raw PR URL.
+        // prId is a short numeric string per GitHub's REST API and is unique
+        // per repo, so combined with the dispatchId it gives a stable key.
+        idempotencyKey: `dispatch-review-${String(trigger.prId)}-${nextIteration}`,
       },
       {
         type: 'enqueue_stall_check',

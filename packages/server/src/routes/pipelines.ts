@@ -136,6 +136,70 @@ export async function pipelineRoutes(
     },
   );
 
+  // ---- POST /api/v1/pipelines/dispatch ----
+  // Administrative dispatch — creates a pipeline instance and runs the named
+  // agent without a kanban round-trip. The review loop after the agent opens
+  // a PR is unchanged (git webhooks → processReviewBundle).
+  app.post<{
+    Body: {
+      agentId: string;
+      title: string;
+      description: string;
+      cardId?: string;
+      boardId?: string;
+    };
+  }>(
+    '/api/v1/pipelines/dispatch',
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: {
+          type: 'object',
+          properties: {
+            agentId: { type: 'string', minLength: 1 },
+            title: { type: 'string', minLength: 1, maxLength: 300 },
+            description: { type: 'string', maxLength: 10_000 },
+            cardId: { type: 'string', minLength: 1, nullable: true },
+            boardId: { type: 'string', minLength: 1, nullable: true },
+          },
+          required: ['agentId', 'title', 'description'],
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { agentId, title, description } = request.body;
+      // Default boardId mirrors the self-hosted-plane preset so the existing
+      // board_configs row (seeded at startup from ouija.config.yaml) applies.
+      const boardIdStr = request.body.boardId ?? '00000000-0000-0000-0000-000000000001';
+      const cardIdStr = request.body.cardId ?? `manual/${randomUUID()}`;
+
+      const result = await orchestrator.dispatchManual({
+        agentId,
+        cardId: cardIdStr as unknown as import('@ouija-dev/types').CardId,
+        boardId: boardIdStr as unknown as import('@ouija-dev/types').BoardId,
+        title,
+        description,
+        requestedBy: request.user?.userId ?? 'api',
+      });
+
+      if (result.rejected) {
+        throw new ApiError(
+          'DISPATCH_REJECTED',
+          result.reason ?? 'dispatch rejected by state machine',
+          409,
+          false,
+        );
+      }
+
+      return reply.status(202).send({
+        instanceId: result.instanceId,
+        cardId: cardIdStr,
+        boardId: boardIdStr,
+      });
+    },
+  );
+
   // ---- POST /api/v1/pipelines/:id/retry ----
   app.post<{ Params: { id: string } }>(
     '/api/v1/pipelines/:id/retry',
