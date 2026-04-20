@@ -8,7 +8,7 @@ import type {
   GitPrCommentPostedPayload,
   GitCiFailedPayload,
 } from '@ouija-dev/types';
-import { prId, instanceId } from '@ouija-dev/types';
+import { prId } from '@ouija-dev/types';
 import { encodePrId } from './api-client.js';
 
 // ---- GitHub webhook payload shapes (only the fields we need) ----
@@ -278,7 +278,6 @@ function normalisePullRequestEvent(
     const eventPayload: GitPrOpenedPayload = {
       prId: encodedPrId,
       url: pr.html_url,
-      instanceId: instanceId(`github-pr-${String(pr.number)}`),
       branch: pr.head.ref,
       targetBranch: pr.base.ref,
     };
@@ -289,7 +288,7 @@ function normalisePullRequestEvent(
     const mergedAt = pr.merged_at ?? new Date().toISOString();
     const eventPayload: GitPrMergedPayload = {
       prId: encodedPrId,
-      instanceId: instanceId(`github-pr-${String(pr.number)}`),
+      url: pr.html_url,
       mergedAt,
     };
     return buildEvent('git.pr.merged', eventPayload);

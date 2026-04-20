@@ -18,15 +18,28 @@ export interface KanbanCardAssignedPayload {
 
 export interface GitPrOpenedPayload {
   prId: PrId;
+  /**
+   * Full HTML URL of the PR — the canonical identifier from GitHub's side.
+   * Used by the orchestrator to resolve the originating Ouija pipeline via
+   * `pr_instance_index`. No `instanceId` here: the webhook fires before the
+   * agent's own `agent.work.pr_ready` event populates the index, so the
+   * opened event is effectively informational until the index catches up.
+   */
   url: string;
-  instanceId: InstanceId;
   branch: string;
   targetBranch: string;
 }
 
 export interface GitPrMergedPayload {
   prId: PrId;
-  instanceId: InstanceId;
+  /**
+   * Full HTML URL of the PR. Primary key for orchestrator instance
+   * resolution via `pr_instance_index`. Replaces the old `instanceId` field
+   * which was fabricated from the PR number by the webhook handler and
+   * never matched a real pipeline instance — see Ouija/Build Log session
+   * 2e (Phase 1 Task 3).
+   */
+  url: string;
   mergedAt: string;
 }
 

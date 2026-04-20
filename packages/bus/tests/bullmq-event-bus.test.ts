@@ -186,7 +186,7 @@ describe.skipIf(!process.env['REDIS_URL'])(
         'git.pr.merged',
         {
           prId: 'pr-1' as never,
-          instanceId: 'inst-1' as never,
+          url: 'https://github.com/acme/backend/pull/1',
           mergedAt: '2026-04-01T00:00:00Z',
         },
         { correlationId: 'corr-test', sourcePlugin: '@ouija-dev/test' },
@@ -258,7 +258,7 @@ describe.skipIf(!process.env['REDIS_URL'])(
 
       await bus.publish('git.pr.merged', {
         prId: 'pr-integration-1' as never,
-        instanceId: 'inst-integration-1' as never,
+        url: 'https://github.com/acme/backend/pull/integration-1',
         mergedAt: new Date().toISOString(),
       });
 
