@@ -20,7 +20,7 @@ import type {
   SideEffect,
   ColumnMapping,
 } from '@ouija-dev/types';
-import { dispatchId as makeDispatchId, agentId as makeAgentId } from '@ouija-dev/types';
+import { dispatchId as makeDispatchId, agentId as makeAgentId, hasPositiveEvidence } from '@ouija-dev/types';
 import { evaluateGuards } from './guards.js';
 import { encodeJobId } from './ids.js';
 
@@ -389,6 +389,55 @@ function handleAgentCompleted(
 
   const now = new Date().toISOString();
 
+  // Tenet 3 — positive evidence. If the runner reported an outcome AND that
+  // outcome shows no observable progress (no PR, no commits pushed, no tool
+  // calls), reject the "completed" signal and transition to `failed`. This
+  // is the defence-in-depth sibling of the runner-level check in
+  // plugin-agent-claude: a runner that forgets to pre-reject is still caught
+  // here. Legacy runners that don't report an outcome keep the old behaviour
+  // (outcome === undefined → trust the subprocess exit).
+  //
+  // Also emits `dispatch.outcome` so Phase 4's plugin-engram can ingest the
+  // outcome as a memory episode without subscribing to the richer
+  // `agent.work.completed` topic (which carries the original payload).
+  const outcome = trigger.outcome;
+  const hasOutcome = outcome !== undefined;
+  const outcomeRejected = hasOutcome && !hasPositiveEvidence(outcome);
+
+  if (outcomeRejected) {
+    const nextState: PipelineState = {
+      status: 'failed',
+      dispatchId: state.dispatchId,
+      agentId: state.agentId,
+      failedAt: now,
+      error: 'no observable progress',
+      retryable: false,
+    };
+    const sideEffects: SideEffect[] = [
+      {
+        type: 'cancel_stall_check',
+        payload: { dispatchId: state.dispatchId },
+        idempotencyKey: encodeJobId(['cancel-stall-complete', trigger.dispatchId]),
+      },
+    ];
+    return {
+      rejected: false,
+      nextState,
+      events: [
+        {
+          topic: 'dispatch.outcome',
+          payload: {
+            instanceId: '' as never,
+            dispatchId: state.dispatchId,
+            outcome,
+            accepted: false,
+          },
+        },
+      ],
+      sideEffects,
+    };
+  }
+
   // If the agent opened a PR, transition to awaiting_review and wait for
   // reviewer feedback. The card stays in Review; a later pr_review_received
   // trigger (from the review bundler) re-dispatches with iteration++.
@@ -413,7 +462,20 @@ function handleAgentCompleted(
         idempotencyKey: encodeJobId(['cancel-stall-complete', trigger.dispatchId]),
       },
     ];
-    return { rejected: false, nextState, events: [], sideEffects };
+    const events = hasOutcome
+      ? [
+          {
+            topic: 'dispatch.outcome' as const,
+            payload: {
+              instanceId: '' as never,
+              dispatchId: state.dispatchId,
+              outcome,
+              accepted: true,
+            },
+          },
+        ]
+      : [];
+    return { rejected: false, nextState, events, sideEffects };
   }
 
   // No PR — treat as legacy completion. Preserves the close_and_notify and
@@ -440,10 +502,24 @@ function handleAgentCompleted(
     },
   ];
 
+  const events = hasOutcome
+    ? [
+        {
+          topic: 'dispatch.outcome' as const,
+          payload: {
+            instanceId: '' as never,
+            dispatchId: state.dispatchId,
+            outcome,
+            accepted: true,
+          },
+        },
+      ]
+    : [];
+
   return {
     rejected: false,
     nextState,
-    events: [],
+    events,
     sideEffects,
   };
 }

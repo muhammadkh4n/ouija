@@ -5,6 +5,8 @@
  * Remote: E2B sandbox / Codespace / VM (SaaS)
  */
 
+import type { DispatchOutcome } from './state-machine.js';
+
 // ---- Workspace domain types ----
 
 /** Identifies which execution environment backs the workspace. */
@@ -112,6 +114,15 @@ export interface AgentRunResult {
   costUsd?: number;
   /** Number of agentic turns. Only set when using SdkAgentRunner. */
   numTurns?: number;
+  /**
+   * Positive-evidence summary: tool calls observed, commits pushed, PR URL
+   * extracted from stdout, tokens (when reported by the runner). Populated
+   * by stream-json and sdk runners; absent for legacy local runner. When
+   * present, the plugin short-circuits to `reportFailed` if it lacks
+   * positive evidence — Tenet 3 (no subprocess "success" without an
+   * observable artefact).
+   */
+  outcome?: DispatchOutcome;
 }
 
 // ---- AgentRunner interface ----

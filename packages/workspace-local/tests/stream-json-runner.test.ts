@@ -528,3 +528,140 @@ describe('StreamJsonAgentRunner — lifecycle', () => {
     await expect(runPromise).rejects.toThrow(/broken pipe/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// DispatchOutcome (positive-evidence counters)
+// ---------------------------------------------------------------------------
+
+function assistantWithToolUse(
+  name: string,
+  input: Record<string, unknown>,
+  id: string,
+): string {
+  return (
+    JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', id, name, input }],
+      },
+    }) + '\n'
+  );
+}
+
+function toolResultEvent(toolUseId: string, isError: boolean): string {
+  return (
+    JSON.stringify({
+      type: 'tool_result',
+      tool_use_id: toolUseId,
+      is_error: isError,
+    }) + '\n'
+  );
+}
+
+describe('StreamJsonAgentRunner — DispatchOutcome (positive evidence)', () => {
+  it('reports zero-progress outcome when the agent makes no tool calls', async () => {
+    const fake = makeFakeChild();
+    const spawnFn = vi.fn().mockReturnValue(fake);
+
+    const runner = new StreamJsonAgentRunner({ spawnFn });
+    const runPromise = runner.run(makeWorkspace(), 'prompt', {}, 5_000);
+
+    // Simulate the 2026-04-19 smoke failure mode: system + result, no tool
+    // calls, clean exit. Previously reported as succeeded; must now report
+    // an outcome with zero positive evidence so the transition rejects it.
+    fake._stdout(systemEvent());
+    fake._stdout(resultEvent({ total_cost_usd: 0 }));
+    fake._exit(0);
+    const result = await runPromise;
+
+    expect(result.outcome).toBeDefined();
+    expect(result.outcome?.toolCallsMade).toBe(0);
+    expect(result.outcome?.commitsPushed).toBe(0);
+    expect(result.outcome?.prUrl).toBeUndefined();
+  });
+
+  it('counts inline assistant tool_use blocks as tool calls', async () => {
+    const fake = makeFakeChild();
+    const spawnFn = vi.fn().mockReturnValue(fake);
+
+    const runner = new StreamJsonAgentRunner({ spawnFn });
+    const runPromise = runner.run(makeWorkspace(), 'prompt', {}, 5_000);
+
+    fake._stdout(assistantWithToolUse('Read', { file_path: '/a' }, 't1'));
+    fake._stdout(assistantWithToolUse('Edit', { file_path: '/a' }, 't2'));
+    fake._stdout(assistantWithToolUse('Bash', { command: 'ls' }, 't3'));
+    fake._stdout(resultEvent());
+    fake._exit(0);
+    const result = await runPromise;
+
+    expect(result.outcome?.toolCallsMade).toBe(3);
+  });
+
+  it('extracts a PR URL from assistant text (gh pr create stdout)', async () => {
+    const fake = makeFakeChild();
+    const spawnFn = vi.fn().mockReturnValue(fake);
+
+    const runner = new StreamJsonAgentRunner({ spawnFn });
+    const runPromise = runner.run(makeWorkspace(), 'prompt', {}, 5_000);
+
+    fake._stdout(
+      assistantEvent('PR opened at https://github.com/acme/backend/pull/42 ready'),
+    );
+    fake._stdout(resultEvent());
+    fake._exit(0);
+    const result = await runPromise;
+
+    expect(result.outcome?.prUrl).toBe('https://github.com/acme/backend/pull/42');
+  });
+
+  it('counts git push tool_use as commitsPushed only when tool_result is non-error', async () => {
+    const fake = makeFakeChild();
+    const spawnFn = vi.fn().mockReturnValue(fake);
+
+    const runner = new StreamJsonAgentRunner({ spawnFn });
+    const runPromise = runner.run(makeWorkspace(), 'prompt', {}, 5_000);
+
+    // Two git-push Bash calls: one succeeds, one fails.
+    fake._stdout(
+      assistantWithToolUse(
+        'Bash',
+        { command: 'git push -u origin feat/abc' },
+        'push-ok',
+      ),
+    );
+    fake._stdout(toolResultEvent('push-ok', false));
+    fake._stdout(
+      assistantWithToolUse(
+        'Bash',
+        { command: 'git push' },
+        'push-fail',
+      ),
+    );
+    fake._stdout(toolResultEvent('push-fail', true));
+    fake._stdout(resultEvent());
+    fake._exit(0);
+    const result = await runPromise;
+
+    expect(result.outcome?.commitsPushed).toBe(1);
+    // Two tool_use events were emitted — both count as tool calls regardless
+    // of result success.
+    expect(result.outcome?.toolCallsMade).toBe(2);
+  });
+
+  it('surfaces outcome even on timeout so dashboards see what progress was made', async () => {
+    const fake = makeFakeChild();
+    const spawnFn = vi.fn().mockReturnValue(fake);
+
+    const runner = new StreamJsonAgentRunner({ spawnFn });
+    const runPromise = runner.run(makeWorkspace(), 'prompt', {}, 50);
+
+    fake._stdout(assistantWithToolUse('Read', { file_path: '/a' }, 't1'));
+    // Deliberately do not emit result event. Let the timeout fire.
+    await new Promise((r) => setTimeout(r, 80));
+    fake._exit(143);
+    const result = await runPromise;
+
+    expect(result.timedOut).toBe(true);
+    expect(result.outcome?.toolCallsMade).toBe(1);
+  });
+});

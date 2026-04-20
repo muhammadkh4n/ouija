@@ -1,5 +1,6 @@
 import type { CardId, ColumnId, InstanceId, PrId, DispatchId } from './ids.js';
 import type { NotificationLevel, NotificationAction } from './notification.js';
+import type { DispatchOutcome } from './state-machine.js';
 
 // ---- Event payloads ----
 
@@ -128,6 +129,29 @@ export interface AgentWorkCompletedPayload {
   dispatchId: DispatchId;
   cost?: number;
   tokensUsed?: number;
+  /**
+   * Positive-evidence summary of the run. Populated by runners that can
+   * report it (stream-json, sdk); absent for legacy runners. When present
+   * and empty, the orchestrator treats the dispatch as failed, not succeeded
+   * (Tenet 3). See [[DispatchOutcome]] in state-machine.ts.
+   */
+  outcome?: DispatchOutcome;
+}
+
+/**
+ * Emitted by the orchestrator when a pipeline completes (successfully or
+ * via zero-progress rejection). Intended for downstream consumers like
+ * Phase 4's plugin-engram — subscribe to this topic to ingest dispatch
+ * outcomes as memory episodes without touching the engine's internals.
+ *
+ * Fires once per agent_completed trigger, after state persistence.
+ */
+export interface DispatchOutcomePayload {
+  instanceId: InstanceId;
+  dispatchId: DispatchId;
+  outcome: DispatchOutcome;
+  /** Whether the outcome was accepted as success or rejected as no-progress. */
+  accepted: boolean;
 }
 
 export interface AgentWorkFailedPayload {
@@ -172,6 +196,7 @@ export interface OuijaEventMap {
   'agent.work.pr_ready': AgentWorkPrReadyPayload;
   'agent.work.completed': AgentWorkCompletedPayload;
   'agent.work.failed': AgentWorkFailedPayload;
+  'dispatch.outcome': DispatchOutcomePayload;
   'notification.send': NotificationSendPayload;
   'pipeline.transitioned': PipelineTransitionedPayload;
 }

@@ -713,6 +713,128 @@ describe('agent_completed → succeeded + move card to done', () => {
     // fire while we wait for review comments.
     expect(result.sideEffects.some((e) => e.type === 'cancel_stall_check')).toBe(true);
   });
+
+  // ---- DispatchOutcome (Tenet 3: positive evidence) ----
+
+  it('rejects agent_completed → failed when outcome shows no observable progress', () => {
+    // The 2026-04-19 smoke failure: blocked hooks + missing subscription auth
+    // produced clean exit code with zero tool calls. Previously reported as
+    // succeeded with tokens=0. Now: transitions to failed with no-progress.
+    const trigger: PipelineTrigger = {
+      type: 'agent_completed',
+      dispatchId: dispatchId('d-1'),
+      outcome: {
+        commitsPushed: 0,
+        toolCallsMade: 0,
+        tokensIn: 0,
+        tokensOut: 0,
+      },
+    };
+
+    const result = transition(running, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('failed');
+    if (result.nextState.status === 'failed') {
+      expect(result.nextState.error).toBe('no observable progress');
+      expect(result.nextState.retryable).toBe(false);
+    }
+    expect(result.sideEffects.some((e) => e.type === 'cancel_stall_check')).toBe(true);
+    // Rejection path must NOT dispatch move_card — failed runs stay in their
+    // current column for human triage.
+    expect(result.sideEffects.some((e) => e.type === 'move_card')).toBe(false);
+  });
+
+  it('emits dispatch.outcome event on the rejection path', () => {
+    const outcome = {
+      commitsPushed: 0,
+      toolCallsMade: 0,
+      tokensIn: 0,
+      tokensOut: 0,
+    };
+    const trigger: PipelineTrigger = {
+      type: 'agent_completed',
+      dispatchId: dispatchId('d-1'),
+      outcome,
+    };
+
+    const result = transition(running, trigger, testConfig);
+    if (result.rejected) throw new Error('unexpected rejection');
+
+    const evt = result.events.find((e) => e.topic === 'dispatch.outcome');
+    expect(evt).toBeDefined();
+    if (evt === undefined) return;
+    const payload = evt.payload as { outcome: unknown; accepted: boolean };
+    expect(payload.accepted).toBe(false);
+    expect(payload.outcome).toEqual(outcome);
+  });
+
+  it('accepts agent_completed with positive evidence (tool calls made)', () => {
+    const trigger: PipelineTrigger = {
+      type: 'agent_completed',
+      dispatchId: dispatchId('d-1'),
+      outcome: {
+        commitsPushed: 0,
+        toolCallsMade: 12,
+        tokensIn: 8_000,
+        tokensOut: 2_000,
+      },
+    };
+
+    const result = transition(running, trigger, testConfig);
+    if (result.rejected) throw new Error('unexpected rejection');
+    expect(result.nextState.status).toBe('succeeded');
+    const evt = result.events.find((e) => e.topic === 'dispatch.outcome');
+    expect(evt).toBeDefined();
+    if (evt === undefined) return;
+    const payload = evt.payload as { accepted: boolean };
+    expect(payload.accepted).toBe(true);
+  });
+
+  it('accepts agent_completed when outcome has a prUrl (PR-only evidence)', () => {
+    const trigger: PipelineTrigger = {
+      type: 'agent_completed',
+      dispatchId: dispatchId('d-1'),
+      outcome: {
+        prUrl: 'https://github.com/acme/backend/pull/42',
+        commitsPushed: 0,
+        toolCallsMade: 0,
+        tokensIn: 0,
+        tokensOut: 0,
+      },
+    };
+
+    const runningWithPr = {
+      ...running,
+      prUrl: 'https://github.com/acme/backend/pull/42',
+      prId: prId('pr-42'),
+    };
+
+    const result = transition(runningWithPr, trigger, testConfig);
+    if (result.rejected) throw new Error('unexpected rejection');
+    // State transitions to awaiting_review because the running state already
+    // had a prUrl/prId (review-loop entry path).
+    expect(result.nextState.status).toBe('awaiting_review');
+    const evt = result.events.find((e) => e.topic === 'dispatch.outcome');
+    expect(evt).toBeDefined();
+    if (evt === undefined) return;
+    const payload = evt.payload as { accepted: boolean };
+    expect(payload.accepted).toBe(true);
+  });
+
+  it('omits dispatch.outcome event when legacy trigger has no outcome (back-compat)', () => {
+    const trigger: PipelineTrigger = {
+      type: 'agent_completed',
+      dispatchId: dispatchId('d-1'),
+      // outcome absent — legacy runner path
+    };
+
+    const result = transition(running, trigger, testConfig);
+    if (result.rejected) throw new Error('unexpected rejection');
+    expect(result.nextState.status).toBe('succeeded');
+    expect(result.events.find((e) => e.topic === 'dispatch.outcome')).toBeUndefined();
+  });
 });
 
 // ---- agent_failed ----

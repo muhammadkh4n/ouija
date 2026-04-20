@@ -25,11 +25,13 @@ import type {
   PluginContext,
   PluginHealth,
   DispatchId,
+  DispatchOutcome,
   InstanceId,
   WorkspaceProvider,
   AgentRunner,
   Workspace,
 } from '@ouija-dev/types';
+import { hasPositiveEvidence } from '@ouija-dev/types';
 
 /**
  * Runner selection. Duplicated from @ouija-dev/config's RunnerType to avoid
@@ -471,7 +473,27 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
         return;
       }
 
-      await reporter.reportCompleted();
+      // Tenet 3 — positive evidence. If the runner reported an outcome AND
+      // that outcome shows zero observable progress (no PR, no commits
+      // pushed, no tool calls), short-circuit to reportFailed instead of
+      // claiming success. Defence-in-depth: the orchestrator's transition
+      // also rejects this, but catching it here produces a richer error
+      // message and avoids burning a "succeeded" pipeline transition first.
+      // retryable=false because nothing actionable happened — re-running the
+      // same blocked-hooks config will produce the same non-result.
+      const outcome: DispatchOutcome | undefined = result.outcome;
+      if (outcome !== undefined && !hasPositiveEvidence(outcome)) {
+        await reporter.reportFailed(
+          'no observable progress (zero tool calls, no PR, no commits pushed) — ' +
+            'likely blocked by Claude CLI hooks, missing subscription auth, or a ' +
+            'misconfigured shell. Check the session log for diagnostics.',
+          false,
+        );
+        dispatch.state = 'failed';
+        return;
+      }
+
+      await reporter.reportCompleted(outcome);
       dispatch.state = 'completed';
     } catch (err: unknown) {
       reporter.stopInterval();

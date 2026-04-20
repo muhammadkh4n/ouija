@@ -30,10 +30,18 @@ interface PrReadyPayload {
   prId: string;
 }
 
+import type { DispatchOutcome } from '@ouija-dev/types';
+
 interface CompletedPayload {
   type: 'agent_completed';
   instanceId: string;
   dispatchId: string;
+  /**
+   * Positive-evidence summary — tool calls observed, commits pushed, PR URL
+   * extracted from stdout, tokens when reported. Absent for legacy runners
+   * that don't compute it. See DispatchOutcome in @ouija-dev/types.
+   */
+  outcome?: DispatchOutcome;
 }
 
 interface FailedPayload {
@@ -172,14 +180,18 @@ export class HeartbeatReporter {
   }
 
   /**
-   * Report successful completion of the work order.
+   * Report successful completion of the work order. Pass the runner's
+   * DispatchOutcome so the orchestrator can apply Tenet-3 positive-evidence
+   * checking before marking the pipeline succeeded.
    */
-  async reportCompleted(): Promise<void> {
-    await this._post({
+  async reportCompleted(outcome?: DispatchOutcome): Promise<void> {
+    const payload: CompletedPayload = {
       type: 'agent_completed',
       instanceId: this.instanceId,
       dispatchId: this.dispatchId,
-    });
+    };
+    if (outcome !== undefined) payload.outcome = outcome;
+    await this._post(payload);
   }
 
   /**

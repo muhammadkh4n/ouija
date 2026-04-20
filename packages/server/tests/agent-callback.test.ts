@@ -296,6 +296,68 @@ describe('POST /hooks/agent/callback — valid callbacks', () => {
     const event = orch.processTrigger.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(event['topic']).toBe('agent.work.failed');
   });
+
+  it('forwards agent_completed outcome into the published event payload', async () => {
+    const token = await issueAgentJWT('inst-outcome', 'board-001', 'ws-001');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/hooks/agent/callback',
+      headers: {
+        'content-type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      payload: JSON.stringify({
+        type: 'agent_completed',
+        instanceId: 'inst-outcome',
+        dispatchId: 'disp-outcome',
+        outcome: {
+          prUrl: 'https://github.com/acme/backend/pull/42',
+          commitsPushed: 2,
+          toolCallsMade: 14,
+          tokensIn: 18_000,
+          tokensOut: 4_200,
+          costUsd: 0.34,
+          durationMs: 45_123,
+        },
+      }),
+    });
+
+    expect(response.statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(orch.processTrigger).toHaveBeenCalledOnce();
+    const event = orch.processTrigger.mock.calls[0]?.[0] as Record<string, unknown>;
+    const payload = event['payload'] as Record<string, unknown>;
+    expect(payload['outcome']).toBeDefined();
+    const outcome = payload['outcome'] as Record<string, unknown>;
+    expect(outcome['commitsPushed']).toBe(2);
+    expect(outcome['toolCallsMade']).toBe(14);
+    expect(outcome['prUrl']).toBe('https://github.com/acme/backend/pull/42');
+  });
+
+  it('rejects agent_completed payloads with a malformed outcome object (schema validation)', async () => {
+    const token = await issueAgentJWT('inst-bad', 'board-001', 'ws-001');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/hooks/agent/callback',
+      headers: {
+        'content-type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      payload: JSON.stringify({
+        type: 'agent_completed',
+        instanceId: 'inst-bad',
+        dispatchId: 'disp-bad',
+        outcome: {
+          // Missing required fields — schema must reject.
+          prUrl: 'https://github.com/acme/backend/pull/7',
+        },
+      }),
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
 });
 
 describe('POST /hooks/agent/callback — JWT refresh', () => {
