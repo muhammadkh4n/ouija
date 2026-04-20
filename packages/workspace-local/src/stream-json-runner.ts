@@ -43,6 +43,7 @@ import type {
   AgentRunner,
   AgentRunOptions,
   AgentRunResult,
+  DispatchOutcome,
   Workspace,
 } from '@ouija-dev/types';
 
@@ -96,7 +97,12 @@ const ENV_ALLOWLIST = [
 interface AssistantMessageEvent {
   type: 'assistant';
   message?: {
-    content?: Array<{ type: string; text?: string }>;
+    content?: Array<
+      | { type: 'text'; text?: string }
+      | { type: 'tool_use'; name?: string; input?: Record<string, unknown> }
+      | { type: string; [k: string]: unknown }
+    >;
+    usage?: { input_tokens?: number; output_tokens?: number };
   };
 }
 
@@ -108,6 +114,7 @@ interface ResultEvent {
   num_turns?: number;
   total_cost_usd?: number;
   duration_ms?: number;
+  usage?: { input_tokens?: number; output_tokens?: number };
 }
 
 type StreamJsonEvent =
@@ -118,6 +125,13 @@ type StreamJsonEvent =
   | { type: 'tool_result'; [k: string]: unknown }
   | { type: 'rate_limit_event'; [k: string]: unknown }
   | { type: string; [k: string]: unknown };
+
+/**
+ * Regex matching the GitHub PR URL the agent prints to stdout after running
+ * `gh pr create`. Kept narrow — requires the literal `/pull/<digits>` suffix
+ * so marketing URLs like `https://github.com/foo/bar` don't trip it.
+ */
+const PR_URL_REGEX = /https:\/\/github\.com\/[^\s"'<>()]+\/pull\/\d+/i;
 
 // ---------------------------------------------------------------------------
 // StreamJsonAgentRunner
@@ -172,6 +186,21 @@ export class StreamJsonAgentRunner implements AgentRunner {
       const stderrChunks: string[] = [];
       let terminalResult: ResultEvent | undefined;
 
+      // ---- Positive-evidence counters (Tenet 3 / DispatchOutcome) ----
+      // toolCallsMade — every `tool_use` block emitted by the agent.
+      // commitsPushed — successful `Bash` tool_use whose command contains
+      //   `git push` AND the tool_result did not report failure.
+      let toolCallsMade = 0;
+      let commitsPushed = 0;
+      // Keys: tool_use id → true when we've tentatively counted a git push.
+      // We only count it as committed if the matching tool_result doesn't
+      // carry `is_error: true`. Preserves honesty on failed push attempts.
+      const pendingPushIds = new Map<string, true>();
+      // Assistant-event usage field (one or more events may carry it). Tallied
+      // so we report aggregate tokens even if the terminal result omits usage.
+      let assistantTokensIn = 0;
+      let assistantTokensOut = 0;
+
       // NDJSON parse buffer — stdout chunks don't align with \n boundaries.
       let lineBuffer = '';
 
@@ -225,18 +254,64 @@ export class StreamJsonAgentRunner implements AgentRunner {
               const assistant = event as AssistantMessageEvent;
               const blocks = assistant.message?.content ?? [];
               for (const block of blocks) {
-                if (block.type === 'text' && typeof block.text === 'string') {
-                  assistantText.push(block.text);
-                  options?.onOutput?.(block.text);
+                if (block.type === 'text' && typeof (block as { text?: unknown }).text === 'string') {
+                  const text = (block as { text: string }).text;
+                  assistantText.push(text);
+                  options?.onOutput?.(text);
+                } else if (block.type === 'tool_use') {
+                  toolCallsMade++;
+                  const tu = block as {
+                    id?: string;
+                    name?: string;
+                    input?: Record<string, unknown>;
+                  };
+                  // Heuristic: Bash invocations whose command includes
+                  // `git push` are candidate push attempts. We confirm them
+                  // only when the matching tool_result is non-error.
+                  if (tu.name === 'Bash' && typeof tu.input?.['command'] === 'string') {
+                    const cmd = tu.input['command'] as string;
+                    if (/\bgit\s+push\b/.test(cmd) && typeof tu.id === 'string') {
+                      pendingPushIds.set(tu.id, true);
+                    }
+                  }
                 }
+              }
+              const usage = assistant.message?.usage;
+              if (usage?.input_tokens !== undefined) {
+                assistantTokensIn += usage.input_tokens;
+              }
+              if (usage?.output_tokens !== undefined) {
+                assistantTokensOut += usage.output_tokens;
+              }
+            } else if (event.type === 'tool_use') {
+              // Some CLI versions emit tool_use as a top-level event instead
+              // of an inline content block. Count both shapes.
+              toolCallsMade++;
+              const tu = event as {
+                id?: string;
+                name?: string;
+                input?: Record<string, unknown>;
+              };
+              if (tu.name === 'Bash' && typeof tu.input?.['command'] === 'string') {
+                const cmd = tu.input['command'] as string;
+                if (/\bgit\s+push\b/.test(cmd) && typeof tu.id === 'string') {
+                  pendingPushIds.set(tu.id, true);
+                }
+              }
+            } else if (event.type === 'tool_result') {
+              const tr = event as {
+                tool_use_id?: string;
+                is_error?: boolean;
+              };
+              if (typeof tr.tool_use_id === 'string' && pendingPushIds.has(tr.tool_use_id)) {
+                if (tr.is_error !== true) {
+                  commitsPushed++;
+                }
+                pendingPushIds.delete(tr.tool_use_id);
               }
             } else if (event.type === 'result') {
               terminalResult = event as ResultEvent;
             }
-            // Other event types (system, tool_use, tool_result, rate_limit_event)
-            // are captured implicitly via stderrChunks logging if desired, but
-            // v1 ignores them. A follow-up can surface tool_use through
-            // AgentRunOptions for live dashboard rendering.
           }
         });
       }
@@ -294,12 +369,16 @@ export class StreamJsonAgentRunner implements AgentRunner {
         const durationMs = Date.now() - startTime;
 
         if (timedOut) {
+          // Timed-out runs may still have produced observable progress. Surface
+          // what we saw so the orchestrator can reason about it even though
+          // the pipeline will transition via agent_failed, not agent_completed.
           resolve({
             exitCode: code ?? 1,
             stdout,
             stderr,
             timedOut: true,
             durationMs,
+            outcome: buildOutcome(),
           });
           return;
         }
@@ -314,6 +393,7 @@ export class StreamJsonAgentRunner implements AgentRunner {
             stderr: stderr || 'stream-json ended without a result message',
             timedOut: false,
             durationMs,
+            outcome: buildOutcome(),
           });
           return;
         }
@@ -346,8 +426,33 @@ export class StreamJsonAgentRunner implements AgentRunner {
           ...(terminalResult.num_turns !== undefined
             ? { numTurns: terminalResult.num_turns }
             : {}),
+          outcome: buildOutcome(terminalResult, durationMs),
         });
       });
+
+      // Inline helper so we capture counters + terminalResult from closure.
+      function buildOutcome(
+        result?: ResultEvent,
+        explicitDurationMs?: number,
+      ): DispatchOutcome {
+        const combinedStdout = assistantText.join('');
+        const prMatch = PR_URL_REGEX.exec(combinedStdout);
+        const tokensIn = result?.usage?.input_tokens ?? assistantTokensIn;
+        const tokensOut = result?.usage?.output_tokens ?? assistantTokensOut;
+        const outcome: DispatchOutcome = {
+          commitsPushed,
+          toolCallsMade,
+          tokensIn,
+          tokensOut,
+        };
+        if (prMatch !== null) outcome.prUrl = prMatch[0];
+        if (result?.total_cost_usd !== undefined) {
+          outcome.costUsd = result.total_cost_usd;
+        }
+        const duration = explicitDurationMs ?? (Date.now() - startTime);
+        outcome.durationMs = duration;
+        return outcome;
+      }
     });
   }
 }

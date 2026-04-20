@@ -59,6 +59,53 @@ type _PipelineStatusExhaustive = PipelineStatus extends PipelineState['status']
 const _pipelineStatusExhaustive: _PipelineStatusExhaustive = true;
 void _pipelineStatusExhaustive;
 
+// ---- Dispatch outcome (positive-evidence contract) ----
+
+/**
+ * Positive-evidence summary of what an agent run actually produced. Emitted
+ * by AgentRunners (stream-json in v0.4.0) and flowed through
+ * `agent.work.completed` → `agent_completed` trigger → `handleAgentCompleted`.
+ *
+ * Tenet 3: a dispatch is only "completed" when it has observable output. A
+ * run that exits cleanly with zero tool calls, no commits pushed, and no PR
+ * URL is NOT success — it is `agent_failed { retryable: false, error: 'no
+ * observable progress' }`. This prevents the 2026-04-19 smoke class of bug
+ * where blocked hooks, missing subscription auth, or a misconfigured shell
+ * produced "success" dispatches that billed no tokens and changed nothing.
+ *
+ * Fields are populated best-effort by the runner; consumers must treat any
+ * missing/zero field as "not observed" rather than "zero confirmed".
+ */
+export interface DispatchOutcome {
+  /** URL of the PR the agent opened, if any. Regex-extracted from stdout. */
+  prUrl?: string;
+  /** Count of successful `git push` commands observed via tool_use events. */
+  commitsPushed: number;
+  /** Total tool_use events emitted by the agent during the run. */
+  toolCallsMade: number;
+  /** Input tokens consumed by the agent. 0 when the runner can't report. */
+  tokensIn: number;
+  /** Output tokens produced by the agent. 0 when the runner can't report. */
+  tokensOut: number;
+  /** USD cost when the runner reports it (SDK/stream-json). */
+  costUsd?: number;
+  /** Wall-clock duration of the run in milliseconds. */
+  durationMs?: number;
+}
+
+/**
+ * Positive-evidence predicate. Returns true iff the run produced at least one
+ * of: a PR URL, one or more commits pushed, or one or more tool calls.
+ * Token counts alone do NOT count — a model can spend tokens deliberating
+ * without doing anything.
+ */
+export function hasPositiveEvidence(outcome: DispatchOutcome): boolean {
+  if (outcome.prUrl !== undefined && outcome.prUrl.length > 0) return true;
+  if (outcome.commitsPushed > 0) return true;
+  if (outcome.toolCallsMade > 0) return true;
+  return false;
+}
+
 // ---- Guard results ----
 
 export interface GuardResult {
@@ -76,7 +123,7 @@ export type PipelineTrigger =
   | { type: 'agent_acknowledged'; dispatchId: DispatchId }
   | { type: 'agent_progress'; dispatchId: DispatchId; heartbeatAt: string; message: string }
   | { type: 'agent_pr_ready'; dispatchId: DispatchId; prUrl: string; prId: PrId }
-  | { type: 'agent_completed'; dispatchId: DispatchId; cost?: number; tokensUsed?: number }
+  | { type: 'agent_completed'; dispatchId: DispatchId; cost?: number; tokensUsed?: number; outcome?: DispatchOutcome }
   | { type: 'agent_failed'; dispatchId: DispatchId; error: string; retryable: boolean }
   | { type: 'stall_detected'; dispatchId: DispatchId; detectedAt: string }
   | { type: 'human_retry'; retriedBy: string }

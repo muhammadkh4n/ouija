@@ -8,8 +8,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ClaudeAgentPlugin } from '../src/index.js';
 import { createMockContext } from '@ouija-dev/plugin-sdk';
-import type { WorkOrder, WorkspaceProvider, AgentRunner, WorkspaceSpec, Workspace, WorkspaceHealth, AgentRunResult } from '@ouija-dev/types';
+import type { WorkOrder, WorkspaceProvider, AgentRunner, WorkspaceSpec, Workspace, WorkspaceHealth, AgentRunResult, DispatchOutcome } from '@ouija-dev/types';
 import { dispatchId } from '@ouija-dev/types';
+import { HeartbeatReporter } from '../src/heartbeat.js';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -40,6 +41,31 @@ function makeSuccessResult(): AgentRunResult {
     stderr: '',
     timedOut: false,
     durationMs: 5_000,
+    outcome: {
+      commitsPushed: 1,
+      toolCallsMade: 4,
+      tokensIn: 3_000,
+      tokensOut: 800,
+    },
+  };
+}
+
+function makeZeroProgressResult(): AgentRunResult {
+  // Simulates the 2026-04-19 smoke class of silent failure: clean exit, zero
+  // tool calls, no PR, no commits pushed. Previously transitioned to
+  // succeeded; must now short-circuit to agent_failed at the plugin boundary.
+  return {
+    exitCode: 0,
+    stdout: '',
+    stderr: '',
+    timedOut: false,
+    durationMs: 800,
+    outcome: {
+      commitsPushed: 0,
+      toolCallsMade: 0,
+      tokensIn: 0,
+      tokensOut: 0,
+    },
   };
 }
 
@@ -224,6 +250,49 @@ describe('ClaudeAgentPlugin', () => {
       await plugin.dispatch(baseWorkOrder);
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(wsProvider.destroyCalls).toContain('ws-mock-1');
+    });
+
+    // ---- DispatchOutcome (Tenet 3 runner-level pre-rejection) ----
+
+    it('short-circuits zero-progress runs to reportFailed, not reportCompleted', async () => {
+      // The HeartbeatReporter mock is a module-level singleton whose spies
+      // accumulate across tests. Reach in and clear them for isolation.
+      const MockedReporter = vi.mocked(HeartbeatReporter);
+      const reporter = MockedReporter.mock.results[0]?.value as {
+        reportCompleted: ReturnType<typeof vi.fn>;
+        reportFailed: ReturnType<typeof vi.fn>;
+      };
+      reporter?.reportCompleted.mockClear();
+      reporter?.reportFailed.mockClear();
+
+      const { plugin } = await makePlugin(makeZeroProgressResult());
+      await plugin.dispatch(baseWorkOrder);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(reporter.reportFailed).toHaveBeenCalledTimes(1);
+      expect(reporter.reportCompleted).not.toHaveBeenCalled();
+      const failArgs = reporter.reportFailed.mock.calls[0] as [string, boolean];
+      expect(failArgs[0]).toMatch(/no observable progress/);
+      expect(failArgs[1]).toBe(false); // retryable = false — config bug, not transient
+    });
+
+    it('forwards the DispatchOutcome to reportCompleted on a positive-evidence run', async () => {
+      const MockedReporter = vi.mocked(HeartbeatReporter);
+      const reporter = MockedReporter.mock.results[0]?.value as {
+        reportCompleted: ReturnType<typeof vi.fn>;
+        reportFailed: ReturnType<typeof vi.fn>;
+      };
+      reporter?.reportCompleted.mockClear();
+      reporter?.reportFailed.mockClear();
+
+      const { plugin } = await makePlugin(makeSuccessResult());
+      await plugin.dispatch(baseWorkOrder);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(reporter.reportCompleted).toHaveBeenCalledTimes(1);
+      const passed = reporter.reportCompleted.mock.calls[0]?.[0] as DispatchOutcome;
+      expect(passed.toolCallsMade).toBe(4);
+      expect(passed.commitsPushed).toBe(1);
     });
   });
 

@@ -21,7 +21,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import type { OuijaEvent } from '@ouija-dev/types';
+import type { OuijaEvent, DispatchOutcome } from '@ouija-dev/types';
 import {
   instanceId as makeInstanceId,
   dispatchId as makeDispatchId,
@@ -51,6 +51,13 @@ interface AgentCallbackBody {
   // agent_completed fields
   cost?: number;
   tokensUsed?: number;
+  /**
+   * Positive-evidence summary from the runner. Forwarded into
+   * AgentWorkCompletedPayload → agent_completed trigger. Used by the
+   * orchestrator's handleAgentCompleted to reject zero-progress dispatches
+   * (Tenet 3).
+   */
+  outcome?: DispatchOutcome;
   // agent_failed fields
   error?: string;
   retryable?: boolean;
@@ -92,6 +99,20 @@ export async function agentCallbackRoutes(
             prId: { type: 'string' },
             cost: { type: 'number', minimum: 0 },
             tokensUsed: { type: 'number', minimum: 0 },
+            outcome: {
+              type: 'object',
+              properties: {
+                prUrl: { type: 'string' },
+                commitsPushed: { type: 'number', minimum: 0 },
+                toolCallsMade: { type: 'number', minimum: 0 },
+                tokensIn: { type: 'number', minimum: 0 },
+                tokensOut: { type: 'number', minimum: 0 },
+                costUsd: { type: 'number', minimum: 0 },
+                durationMs: { type: 'number', minimum: 0 },
+              },
+              required: ['commitsPushed', 'toolCallsMade', 'tokensIn', 'tokensOut'],
+              additionalProperties: false,
+            },
             error: { type: 'string' },
             retryable: { type: 'boolean' },
           },
@@ -230,6 +251,7 @@ function buildAgentEvent(body: AgentCallbackBody): OuijaEvent | null {
           dispatchId: dispatchIdVal,
           ...(body.cost !== undefined ? { cost: body.cost } : {}),
           ...(body.tokensUsed !== undefined ? { tokensUsed: body.tokensUsed } : {}),
+          ...(body.outcome !== undefined ? { outcome: body.outcome } : {}),
         },
       };
 

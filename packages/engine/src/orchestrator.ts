@@ -91,6 +91,25 @@ export const CONFIG_CACHE_TTL_MS = 30_000;
  * the event — the pipeline is NOT created. This is the final enforcement point
  * for the defense-in-depth layer against prompt injection.
  */
+/**
+ * Stamp the orchestrator's instanceId onto event payloads that carry one but
+ * are emitted by the pure transition (which has no instance context). Today
+ * this is only `dispatch.outcome`; other payloads either already carry
+ * instanceId through the trigger chain (`agent.work.*`) or are
+ * instance-free. Any future instance-aware event emitted from the pure
+ * transition should be added here.
+ */
+function stampInstanceId<T>(
+  topic: string,
+  payload: T,
+  id: import('@ouija-dev/types').InstanceId,
+): T {
+  if (topic === 'dispatch.outcome') {
+    return { ...(payload as unknown as object), instanceId: id } as unknown as T;
+  }
+  return payload;
+}
+
 export class SanitizerBlockedError extends Error {
   constructor(
     public readonly cardId: string,
@@ -353,7 +372,12 @@ export class Orchestrator {
       id: randomUUID(),
       instanceId: instance.id,
       topic: e.topic,
-      payload: e.payload,
+      // The pure transition cannot fill instanceId on payloads that carry it
+      // (it has no knowledge of the pipeline instance). Stamp it here so
+      // persisted events are self-contained. Covers `dispatch.outcome`
+      // specifically; other topics already carry instanceId from the
+      // trigger or are instance-free.
+      payload: stampInstanceId(e.topic, e.payload, instance.id),
       occurredAt: now,
       sequence: seqBase + i,
     }));
@@ -680,12 +704,14 @@ export class Orchestrator {
           dispatchId: string;
           cost?: number;
           tokensUsed?: number;
+          outcome?: import('@ouija-dev/types').DispatchOutcome;
         };
         return {
           type: 'agent_completed',
           dispatchId: makeDispatchId(payload.dispatchId),
           ...(payload.cost !== undefined ? { cost: payload.cost } : {}),
           ...(payload.tokensUsed !== undefined ? { tokensUsed: payload.tokensUsed } : {}),
+          ...(payload.outcome !== undefined ? { outcome: payload.outcome } : {}),
         };
       }
 
@@ -949,7 +975,12 @@ export class Orchestrator {
       id: randomUUID(),
       instanceId: instance.id,
       topic: e.topic,
-      payload: e.payload,
+      // The pure transition cannot fill instanceId on payloads that carry it
+      // (it has no knowledge of the pipeline instance). Stamp it here so
+      // persisted events are self-contained. Covers `dispatch.outcome`
+      // specifically; other topics already carry instanceId from the
+      // trigger or are instance-free.
+      payload: stampInstanceId(e.topic, e.payload, instance.id),
       occurredAt: now,
       sequence: seqBase + i,
     }));
