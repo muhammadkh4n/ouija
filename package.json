@@ -8,7 +8,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "gen:migrations": "node scripts/gen-status-migration.mjs",
+    "gen:migrations:check": "node scripts/gen-status-migration.mjs --check"
   },
   "devDependencies": {
     "turbo": "^2.9.6",

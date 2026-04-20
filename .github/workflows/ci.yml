@@ -19,6 +19,11 @@ jobs:
       - run: npm run build
       - run: npm run typecheck
       - run: npm run test
+      # Tenet 4 drift-check: TypeScript generates the status check-constraint
+      # migration. If PIPELINE_STATUSES moves without the committed SQL being
+      # regenerated, this step fails the PR.
+      - name: check migration drift (PIPELINE_STATUSES → 006-status-enum.sql)
+        run: npm run gen:migrations:check
 
   # Exercise the real self-hoster install path: `npx @ouija-dev/cli@<sha> init`
   # in an empty directory, then `ouija up` boots the stack. Catches regressions

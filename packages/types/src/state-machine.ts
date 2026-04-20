@@ -1,7 +1,34 @@
 import type { CardId, InstanceId, DispatchId, AgentId, ColumnId, PrId, BoardId } from './ids.js';
 import type { OuijaTopic, OuijaEventMap } from './events.js';
 
+/**
+ * Runtime list of all pipeline statuses — the single source of truth for the
+ * `pipeline_instances.status` check constraint. Migration 006 is generated
+ * from this array by `scripts/gen-status-migration.mjs`.
+ *
+ * Tenet 4: TypeScript generates SQL. Regenerate with `npm run gen:migrations`.
+ * CI fails on drift. Never hand-edit migration 006; it is a generated file.
+ *
+ * Kept alphabetically sorted so the generated SQL body is stable regardless of
+ * how the PipelineState discriminated union below is reorganised.
+ */
+export const PIPELINE_STATUSES = [
+  'awaiting_review',
+  'cancelled',
+  'dispatching',
+  'failed',
+  'idle',
+  'provisioning',
+  'running',
+  'stalled',
+  'succeeded',
+] as const;
+
+export type PipelineStatus = (typeof PIPELINE_STATUSES)[number];
+
 // ---- Pipeline states (discriminated union) ----
+// Each arm's `status` tag MUST appear in PIPELINE_STATUSES above. The
+// compile-time assertion after the union enforces both directions.
 
 export type PipelineState =
   | { status: 'idle' }
@@ -20,7 +47,17 @@ export type PipelineState =
   | { status: 'stalled'; dispatchId: DispatchId; agentId: AgentId; stalledAt: string; lastHeartbeatAt: string; reason?: string }
   | { status: 'cancelled'; cancelledAt: string; cancelledBy: string };
 
-export type PipelineStatus = PipelineState['status'];
+// Compile-time exhaustiveness: PIPELINE_STATUSES and PipelineState['status']
+// must be mutually assignable. If this line fails to type-check, the two have
+// diverged — add or remove the tag in PIPELINE_STATUSES, then run
+// `npm run gen:migrations`.
+type _PipelineStatusExhaustive = PipelineStatus extends PipelineState['status']
+  ? PipelineState['status'] extends PipelineStatus
+    ? true
+    : 'ERROR: PipelineState union has a status not present in PIPELINE_STATUSES'
+  : 'ERROR: PIPELINE_STATUSES contains a value not present in the PipelineState union';
+const _pipelineStatusExhaustive: _PipelineStatusExhaustive = true;
+void _pipelineStatusExhaustive;
 
 // ---- Guard results ----
 
