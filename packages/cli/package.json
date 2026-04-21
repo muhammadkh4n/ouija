@@ -1,6 +1,6 @@
 {
   "name": "@ouija-dev/cli",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "type": "module",
   "description": "Command-line interface for the Ouija pipeline engine — init, up, down, logs, doctor.",
   "keywords": [

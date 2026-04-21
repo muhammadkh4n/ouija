@@ -1,6 +1,6 @@
 {
   "name": "@ouija-dev/dashboard",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "React SPA for monitoring Ouija pipelines — part of the Ouija monorepo.",

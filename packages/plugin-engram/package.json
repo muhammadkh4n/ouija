@@ -1,6 +1,6 @@
 {
   "name": "@ouija-dev/plugin-engram",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "type": "module",
   "description": "Ouija notification plugin that ingests pipeline events into an Engram memory instance. Gives Ouija-dispatched agents durable cross-run memory via Engram's MCP recall tools.",
   "keywords": [
