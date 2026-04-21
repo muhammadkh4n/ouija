@@ -195,10 +195,20 @@ export async function assembleWorkOrder(
   }
 
   // 6. Construct the WorkOrder
+  // taskTitle overrides card.title when set — manual-dispatch paths pass a
+  // human-meaningful title on the job and have a synthetic cardId that would
+  // otherwise produce "Card manual/<uuid>" in the agent prompt (friction #23).
+  // Empty/whitespace-only taskTitle is ignored so a blank override can't
+  // produce an empty `# Task:` line.
+  const effectiveTitle =
+    typeof jobData.taskTitle === 'string' && jobData.taskTitle.trim().length > 0
+      ? jobData.taskTitle
+      : card.title;
+
   const workOrder: WorkOrder = {
     instanceId: makeInstanceId(jobData.instanceId),
     cardId: jobData.cardId,
-    title: card.title,
+    title: effectiveTitle,
     description: safeDescription,
     acceptanceCriteria: card.acceptanceCriteria,
     repoUrl,

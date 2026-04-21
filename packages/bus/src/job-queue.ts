@@ -38,6 +38,16 @@ export interface AgentDispatchJobData {
   /** ISO timestamp of when this dispatch was requested */
   dispatchedAt: string;
   /**
+   * Human-meaningful task title. Set by manual-dispatch paths (Phase 3+
+   * `ouija watch`, API-driven dispatches) where `cardId` is a synthetic
+   * identifier like `manual/<uuid>` and the real title only exists on the
+   * original dispatch request. When present, the work-order assembler uses
+   * this verbatim for the `# Task:` line instead of the card-lookup title,
+   * so the agent sees "Fix stale timestamp in dashboard" rather than
+   * "Card manual/abcd-efgh". Fixes friction-log item #23.
+   */
+  taskTitle?: string;
+  /**
    * Set on follow-up iterations of the review loop. The worker forwards this
    * into the WorkOrder so the agent prompt includes the prior review comments.
    */

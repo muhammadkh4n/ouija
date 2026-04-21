@@ -121,6 +121,40 @@ describe('assembleWorkOrder', () => {
     expect(wo.branch).toBe('ouija/abc-def-ghi');
   });
 
+  it('uses jobData.taskTitle over card.title when set (manual-dispatch path, friction #23)', async () => {
+    const deps = makeDeps({
+      getCardDetails: vi.fn().mockResolvedValue({
+        title: 'Card manual/abcd-efgh',
+        description: 'Build feature X with tests.',
+        acceptanceCriteria: [],
+        labels: [],
+      }),
+    });
+    const jobData: AgentDispatchJobData = {
+      ...baseJobData,
+      taskTitle: 'Fix stale timestamp in dashboard',
+    };
+    const wo = await assembleWorkOrder(jobData, deps);
+    expect(wo.title).toBe('Fix stale timestamp in dashboard');
+  });
+
+  it('falls back to card.title when taskTitle is unset', async () => {
+    const deps = makeDeps();
+    const wo = await assembleWorkOrder(baseJobData, deps);
+    expect(wo.title).toBe('Implement feature X');
+  });
+
+  it('falls back to card.title when taskTitle is empty or whitespace-only', async () => {
+    const deps = makeDeps();
+    for (const value of ['', '   ', '\t\n']) {
+      const wo = await assembleWorkOrder(
+        { ...baseJobData, taskTitle: value },
+        deps,
+      );
+      expect(wo.title).toBe('Implement feature X');
+    }
+  });
+
   it('includes repoPath in metadata when profile has repoPath', async () => {
     const deps = makeDeps({
       getAgentProfile: vi.fn().mockResolvedValue({
