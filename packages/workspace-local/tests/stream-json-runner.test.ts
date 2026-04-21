@@ -11,7 +11,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { Writable } from 'node:stream';
-import { StreamJsonAgentRunner } from '../src/stream-json-runner.js';
+import {
+  StreamJsonAgentRunner,
+  composeSessionLogPath,
+  encodeClaudeProjectPath,
+} from '../src/stream-json-runner.js';
 import type { Workspace } from '@ouija-dev/types';
 
 // ---------------------------------------------------------------------------
@@ -663,5 +667,132 @@ describe('StreamJsonAgentRunner — DispatchOutcome (positive evidence)', () => 
 
     expect(result.timedOut).toBe(true);
     expect(result.outcome?.toolCallsMade).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// session_log_path composition + capture
+// ---------------------------------------------------------------------------
+
+describe('encodeClaudeProjectPath', () => {
+  it('replaces every slash with a dash', () => {
+    expect(encodeClaudeProjectPath('/tmp/ouija-ws-abc')).toBe('-tmp-ouija-ws-abc');
+    expect(encodeClaudeProjectPath('/home/node/work/repo')).toBe('-home-node-work-repo');
+  });
+
+  it('leaves slash-free paths unchanged', () => {
+    expect(encodeClaudeProjectPath('workspace')).toBe('workspace');
+  });
+});
+
+describe('composeSessionLogPath', () => {
+  it('produces the Claude CLI session JSONL path', () => {
+    expect(
+      composeSessionLogPath('/home/node', '/tmp/ouija-ws-abc', 'sess-uuid-1'),
+    ).toBe('/home/node/.claude/projects/-tmp-ouija-ws-abc/sess-uuid-1.jsonl');
+  });
+
+  it('returns undefined when HOME is missing', () => {
+    expect(composeSessionLogPath(undefined, '/tmp/ws', 'sess-1')).toBeUndefined();
+    expect(composeSessionLogPath('', '/tmp/ws', 'sess-1')).toBeUndefined();
+  });
+
+  it('returns undefined when session_id is empty', () => {
+    expect(composeSessionLogPath('/home/node', '/tmp/ws', '')).toBeUndefined();
+  });
+
+  it('strips trailing slash from HOME so the joined path has no `//`', () => {
+    expect(
+      composeSessionLogPath('/home/node/', '/tmp/ws', 'sess-1'),
+    ).toBe('/home/node/.claude/projects/-tmp-ws/sess-1.jsonl');
+  });
+});
+
+function systemInitEvent(sessionId: string): string {
+  return (
+    JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId }) + '\n'
+  );
+}
+
+describe('StreamJsonAgentRunner — sessionLogPath in outcome', () => {
+  it('captures session_id from the first system.init event and composes sessionLogPath', async () => {
+    const fake = makeFakeChild();
+    const spawnFn = vi.fn().mockReturnValue(fake);
+
+    const runner = new StreamJsonAgentRunner({ spawnFn });
+    const runPromise = runner.run(
+      makeWorkspace({ endpoint: '/tmp/ouija-ws-abc' }),
+      'prompt',
+      { HOME: '/home/node' },
+      5_000,
+    );
+
+    fake._stdout(systemInitEvent('abc123-session-uuid'));
+    fake._stdout(resultEvent());
+    fake._exit(0);
+    const result = await runPromise;
+
+    expect(result.outcome?.sessionLogPath).toBe(
+      '/home/node/.claude/projects/-tmp-ouija-ws-abc/abc123-session-uuid.jsonl',
+    );
+  });
+
+  it('ignores subsequent system events so the session_id is stable across the run', async () => {
+    const fake = makeFakeChild();
+    const spawnFn = vi.fn().mockReturnValue(fake);
+
+    const runner = new StreamJsonAgentRunner({ spawnFn });
+    const runPromise = runner.run(
+      makeWorkspace({ endpoint: '/tmp/ws' }),
+      'prompt',
+      { HOME: '/home/node' },
+      5_000,
+    );
+
+    fake._stdout(systemInitEvent('first-uuid'));
+    fake._stdout(systemInitEvent('second-uuid')); // should be ignored
+    fake._stdout(resultEvent());
+    fake._exit(0);
+    const result = await runPromise;
+
+    expect(result.outcome?.sessionLogPath).toContain('first-uuid.jsonl');
+    expect(result.outcome?.sessionLogPath).not.toContain('second-uuid');
+  });
+
+  it('omits sessionLogPath when the run produces no system event (protocol failure)', async () => {
+    const fake = makeFakeChild();
+    const spawnFn = vi.fn().mockReturnValue(fake);
+
+    const runner = new StreamJsonAgentRunner({ spawnFn });
+    const runPromise = runner.run(makeWorkspace(), 'prompt', { HOME: '/home/node' }, 5_000);
+
+    fake._stdout(resultEvent());
+    fake._exit(0);
+    const result = await runPromise;
+
+    expect(result.outcome?.sessionLogPath).toBeUndefined();
+  });
+
+  it('omits sessionLogPath when HOME is not in the env (no fallback to host)', async () => {
+    const fake = makeFakeChild();
+    const spawnFn = vi.fn().mockReturnValue(fake);
+
+    // Delete HOME from process.env for this test so the allowlist fallback
+    // can't smuggle it in from outside. Restore afterwards.
+    const savedHome = process.env['HOME'];
+    delete process.env['HOME'];
+    try {
+      const runner = new StreamJsonAgentRunner({ spawnFn });
+      const runPromise = runner.run(makeWorkspace(), 'prompt', {}, 5_000);
+
+      fake._stdout(systemInitEvent('sess-1'));
+      fake._stdout(resultEvent());
+      fake._exit(0);
+      const result = await runPromise;
+
+      expect(result.outcome?.sessionLogPath).toBeUndefined();
+    } finally {
+      if (savedHome !== undefined) process.env['HOME'] = savedHome;
+    }
   });
 });

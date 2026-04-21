@@ -455,6 +455,91 @@ describe('Orchestrator', () => {
     expect((last.payload as { toStatus: string }).toStatus).toBe('succeeded');
   });
 
+  // ---- session_log_path stamping (Phase 1 Task 5) ----
+
+  it('stamps session_log_path onto the instance when outcome carries one', async () => {
+    await orchestrator.processTrigger(makeCardMovedEvent());
+    const instance = [...db._instances.values()][0]!;
+
+    const knownDispatchId = dispatchId('disp-slp-001');
+    instance.state = {
+      status: 'running',
+      dispatchId: knownDispatchId,
+      agentId: AGENT_ID,
+      dispatchedAt: new Date().toISOString(),
+      lastHeartbeatAt: new Date().toISOString(),
+    };
+    db._instances.set(String(instance.id), instance);
+
+    const completedEvent: OuijaEvent<'agent.work.completed'> = {
+      id: 'evt-slp-001',
+      topic: 'agent.work.completed',
+      payload: {
+        instanceId: instance.id,
+        dispatchId: knownDispatchId,
+        outcome: {
+          commitsPushed: 1,
+          toolCallsMade: 4,
+          tokensIn: 1_000,
+          tokensOut: 500,
+          sessionLogPath: '/home/node/.claude/projects/-tmp-ws/sess-1.jsonl',
+        },
+      },
+      timestamp: new Date().toISOString(),
+      sourcePlugin: 'plugin-agent',
+      correlationId: 'corr-slp-001',
+    };
+
+    await orchestrator.processTrigger(completedEvent);
+
+    const updated = db._instances.get(String(instance.id))!;
+    expect(updated.sessionLogPath).toBe(
+      '/home/node/.claude/projects/-tmp-ws/sess-1.jsonl',
+    );
+  });
+
+  it('does not overwrite an existing session_log_path on later saves', async () => {
+    await orchestrator.processTrigger(makeCardMovedEvent());
+    const instance = [...db._instances.values()][0]!;
+    instance.sessionLogPath = '/home/node/.claude/projects/-tmp-ws/original.jsonl';
+
+    const knownDispatchId = dispatchId('disp-slp-002');
+    instance.state = {
+      status: 'running',
+      dispatchId: knownDispatchId,
+      agentId: AGENT_ID,
+      dispatchedAt: new Date().toISOString(),
+      lastHeartbeatAt: new Date().toISOString(),
+    };
+    db._instances.set(String(instance.id), instance);
+
+    const completedEvent: OuijaEvent<'agent.work.completed'> = {
+      id: 'evt-slp-002',
+      topic: 'agent.work.completed',
+      payload: {
+        instanceId: instance.id,
+        dispatchId: knownDispatchId,
+        outcome: {
+          commitsPushed: 0,
+          toolCallsMade: 2,
+          tokensIn: 500,
+          tokensOut: 200,
+          sessionLogPath: '/home/node/.claude/projects/-tmp-ws/later.jsonl',
+        },
+      },
+      timestamp: new Date().toISOString(),
+      sourcePlugin: 'plugin-agent',
+      correlationId: 'corr-slp-002',
+    };
+
+    await orchestrator.processTrigger(completedEvent);
+
+    const updated = db._instances.get(String(instance.id))!;
+    expect(updated.sessionLogPath).toBe(
+      '/home/node/.claude/projects/-tmp-ws/original.jsonl',
+    );
+  });
+
   // ---- Test 4: card_moved with failing guards → pipeline stays idle, notification sent ----
 
   it('card_moved with failing guards: state unchanged (idle), notification event published', async () => {

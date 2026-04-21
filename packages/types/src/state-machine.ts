@@ -91,6 +91,14 @@ export interface DispatchOutcome {
   costUsd?: number;
   /** Wall-clock duration of the run in milliseconds. */
   durationMs?: number;
+  /**
+   * Absolute path to the claude-code NDJSON session log inside the agent's
+   * runtime environment. Populated by the stream-json runner from the first
+   * `system.init` event's `session_id`. Self-hosters can `cat` this file to
+   * inspect tool calls, reasoning, and errors for a dispatch that went silent
+   * or failed unexpectedly. Fixes friction-log item #22.
+   */
+  sessionLogPath?: string;
 }
 
 /**
@@ -272,6 +280,14 @@ export interface PipelineInstance {
   prUrl?: string;
   cost?: number;
   tokensUsed?: number;
+  /**
+   * Absolute path to the claude-code NDJSON session log for this dispatch.
+   * Instance-level (not state-arm) because it is set once at dispatch time
+   * and never changes across state transitions. Stamped by the orchestrator
+   * when a DispatchOutcome carrying sessionLogPath arrives; the orchestrator
+   * never overwrites an existing value. See migration 007.
+   */
+  sessionLogPath?: string;
   createdAt: string;
   updatedAt: string;
 }

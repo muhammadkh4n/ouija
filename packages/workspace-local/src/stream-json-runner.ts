@@ -133,6 +133,35 @@ type StreamJsonEvent =
  */
 const PR_URL_REGEX = /https:\/\/github\.com\/[^\s"'<>()]+\/pull\/\d+/i;
 
+/**
+ * Encode a workspace absolute path into Claude CLI's session-storage directory
+ * name. Claude writes session JSONL files under
+ *   ${HOME}/.claude/projects/${encoded}/${session_id}.jsonl
+ * where `encoded` is the workspace path with every `/` replaced by `-`.
+ *
+ * Example: `/tmp/ouija-ws-abc` → `-tmp-ouija-ws-abc`.
+ */
+export function encodeClaudeProjectPath(absolutePath: string): string {
+  return absolutePath.replace(/\//g, '-');
+}
+
+/**
+ * Compose the absolute path to the session JSONL file. Returns undefined when
+ * any required component is missing (HOME env, session_id).
+ */
+export function composeSessionLogPath(
+  home: string | undefined,
+  workspacePath: string,
+  sessionId: string,
+): string | undefined {
+  if (home === undefined || home.length === 0) return undefined;
+  if (sessionId.length === 0) return undefined;
+  const encoded = encodeClaudeProjectPath(workspacePath);
+  // Trim trailing slash on HOME so we don't get `//` in the middle.
+  const h = home.endsWith('/') ? home.slice(0, -1) : home;
+  return `${h}/.claude/projects/${encoded}/${sessionId}.jsonl`;
+}
+
 // ---------------------------------------------------------------------------
 // StreamJsonAgentRunner
 // ---------------------------------------------------------------------------
@@ -200,6 +229,10 @@ export class StreamJsonAgentRunner implements AgentRunner {
       // so we report aggregate tokens even if the terminal result omits usage.
       let assistantTokensIn = 0;
       let assistantTokensOut = 0;
+      // Claude CLI session ID captured from the first `system.init` event.
+      // Combined with HOME + workspace path to compute the absolute path to
+      // the NDJSON session log (friction-log item #22).
+      let sessionId: string | undefined;
 
       // NDJSON parse buffer — stdout chunks don't align with \n boundaries.
       let lineBuffer = '';
@@ -308,6 +341,18 @@ export class StreamJsonAgentRunner implements AgentRunner {
                   commitsPushed++;
                 }
                 pendingPushIds.delete(tr.tool_use_id);
+              }
+            } else if (event.type === 'system') {
+              // Claude CLI emits `{ type: 'system', subtype: 'init', session_id: '...' }`
+              // as the first event after spawn. Capture once; subsequent system
+              // events (if any) are ignored to keep the ID stable across the run.
+              const sys = event as { subtype?: string; session_id?: string };
+              if (
+                sessionId === undefined &&
+                typeof sys.session_id === 'string' &&
+                sys.session_id.length > 0
+              ) {
+                sessionId = sys.session_id;
               }
             } else if (event.type === 'result') {
               terminalResult = event as ResultEvent;
@@ -451,6 +496,17 @@ export class StreamJsonAgentRunner implements AgentRunner {
         }
         const duration = explicitDurationMs ?? (Date.now() - startTime);
         outcome.durationMs = duration;
+        if (sessionId !== undefined) {
+          // Resolve HOME from the merged env the child saw — not process.env,
+          // because callers can override HOME for sandboxed agents.
+          const agentHome = mergedEnv['HOME'] as string | undefined;
+          const logPath = composeSessionLogPath(
+            agentHome,
+            workspace.endpoint,
+            sessionId,
+          );
+          if (logPath !== undefined) outcome.sessionLogPath = logPath;
+        }
         return outcome;
       }
     });

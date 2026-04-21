@@ -109,6 +109,7 @@ export async function agentCallbackRoutes(
                 tokensOut: { type: 'number', minimum: 0 },
                 costUsd: { type: 'number', minimum: 0 },
                 durationMs: { type: 'number', minimum: 0 },
+                sessionLogPath: { type: 'string' },
               },
               required: ['commitsPushed', 'toolCallsMade', 'tokensIn', 'tokensOut'],
               additionalProperties: false,

@@ -68,6 +68,7 @@ interface PipelineInstanceRow {
   pr_url: string | null;
   cost: string | null;
   tokens_used: number | null;
+  session_log_path: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -107,6 +108,9 @@ function rowToInstance(row: PipelineInstanceRow): PipelineInstance {
   if (scalars.prUrl !== null) base.prUrl = scalars.prUrl;
   if (scalars.cost !== null) base.cost = scalars.cost;
   if (scalars.tokensUsed !== null) base.tokensUsed = scalars.tokensUsed;
+  // session_log_path is instance-level (not state-derived) — set once at
+  // dispatch time and preserved across state transitions.
+  if (row.session_log_path !== null) base.sessionLogPath = row.session_log_path;
   return base;
 }
 
@@ -139,7 +143,8 @@ export class PostgresPipelineRepository implements PipelineRepository {
   async findById(id: InstanceId): Promise<PipelineInstance | undefined> {
     const result = await this.client.query<PipelineInstanceRow>(
       `SELECT id, card_id, board_id, project_id, state, attempt,
-              assigned_agent_id, pr_url, cost, tokens_used, created_at, updated_at
+              assigned_agent_id, pr_url, cost, tokens_used, session_log_path,
+              created_at, updated_at
          FROM pipeline_instances
         WHERE id = $1`,
       [id],
@@ -151,7 +156,8 @@ export class PostgresPipelineRepository implements PipelineRepository {
   async findByCardId(cardId: CardId): Promise<PipelineInstance | undefined> {
     const result = await this.client.query<PipelineInstanceRow>(
       `SELECT pi.id, pi.card_id, pi.board_id, pi.project_id, pi.state, pi.attempt,
-              pi.assigned_agent_id, pi.pr_url, pi.cost, pi.tokens_used, pi.created_at, pi.updated_at
+              pi.assigned_agent_id, pi.pr_url, pi.cost, pi.tokens_used,
+              pi.session_log_path, pi.created_at, pi.updated_at
          FROM pipeline_instances pi
          JOIN card_instance_index cii ON cii.instance_id = pi.id
         WHERE cii.card_id = $1`,
@@ -174,7 +180,8 @@ export class PostgresPipelineRepository implements PipelineRepository {
       const decoded = decodeCursor(cursor);
       const result = await this.client.query<PipelineInstanceRow>(
         `SELECT id, card_id, board_id, project_id, state, attempt,
-                pr_url, cost, tokens_used, created_at, updated_at
+                pr_url, cost, tokens_used, session_log_path,
+                created_at, updated_at
            FROM pipeline_instances
           WHERE board_id = $1
             AND (created_at, id) < ($2::timestamptz, $3)
@@ -186,7 +193,8 @@ export class PostgresPipelineRepository implements PipelineRepository {
     } else {
       const result = await this.client.query<PipelineInstanceRow>(
         `SELECT id, card_id, board_id, project_id, state, attempt,
-                pr_url, cost, tokens_used, created_at, updated_at
+                pr_url, cost, tokens_used, session_log_path,
+                created_at, updated_at
            FROM pipeline_instances
           WHERE board_id = $1
           ORDER BY created_at DESC, id DESC
@@ -218,9 +226,10 @@ export class PostgresPipelineRepository implements PipelineRepository {
     await this.client.query(
       `INSERT INTO pipeline_instances
              (id, card_id, board_id, project_id, state, status, attempt,
-              assigned_agent_id, pr_url, cost, tokens_used, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11,
-               $12::timestamptz, $13::timestamptz)
+              assigned_agent_id, pr_url, cost, tokens_used, session_log_path,
+              created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12,
+               $13::timestamptz, $14::timestamptz)
        ON CONFLICT (id) DO UPDATE SET
          state             = EXCLUDED.state,
          status            = EXCLUDED.status,
@@ -229,6 +238,9 @@ export class PostgresPipelineRepository implements PipelineRepository {
          pr_url            = EXCLUDED.pr_url,
          cost              = EXCLUDED.cost,
          tokens_used       = EXCLUDED.tokens_used,
+         -- Preserve session_log_path once set: callers that save without
+         -- it (e.g. a later review-bundle transition) must not null it out.
+         session_log_path  = COALESCE(EXCLUDED.session_log_path, pipeline_instances.session_log_path),
          updated_at        = EXCLUDED.updated_at`,
       [
         instance.id,
@@ -242,6 +254,7 @@ export class PostgresPipelineRepository implements PipelineRepository {
         scalars.prUrl,
         scalars.cost,
         scalars.tokensUsed,
+        instance.sessionLogPath ?? null,
         instance.createdAt,
         instance.updatedAt,
       ],
@@ -272,7 +285,8 @@ export class PostgresPipelineRepository implements PipelineRepository {
   async findStalledCandidates(cutoff: Date): Promise<PipelineInstance[]> {
     const result = await this.client.query<PipelineInstanceRow>(
       `SELECT id, card_id, board_id, project_id, state, attempt,
-              assigned_agent_id, pr_url, cost, tokens_used, created_at, updated_at
+              assigned_agent_id, pr_url, cost, tokens_used, session_log_path,
+              created_at, updated_at
          FROM pipeline_instances
         WHERE status IN ('dispatching', 'running')
           AND (
