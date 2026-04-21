@@ -271,20 +271,12 @@ export async function webhookRoutes(
   app: FastifyInstance,
   opts: WebhookRouteOptions,
 ): Promise<void> {
-  // Add raw body capture for HMAC verification
-  app.addContentTypeParser(
-    'application/json',
-    { parseAs: 'buffer' },
-    (req, body, done) => {
-      try {
-        (req as unknown as { rawBody: Buffer }).rawBody = body as Buffer;
-        const parsed: unknown = JSON.parse((body as Buffer).toString('utf8'));
-        done(null, parsed);
-      } catch (err) {
-        done(err as Error, undefined);
-      }
-    },
-  );
+  // Raw-body JSON parser is now registered globally in `buildApp`
+  // (packages/server/src/app.ts) so every webhook route — including
+  // plugin-fizzy's `/hooks/fizzy/:secret`, which is registered on the root
+  // app outside this encapsulated plugin — sees `request.rawBody`
+  // populated. Do not re-register here; Fastify rejects duplicate
+  // content-type parsers at startup.
 
   app.post<{ Params: { secret: string } }>(
     '/hooks/plane/:secret',
