@@ -122,6 +122,25 @@ export class SanitizerBlockedError extends Error {
   }
 }
 
+// ---- applyTrigger return shape ----
+
+/**
+ * Summary of what {@link Orchestrator.applyTrigger} did. Returned to
+ * callers so they can produce entry-point-specific log lines (each caller
+ * cares about a different set of fields — e.g. the review-loop path wants
+ * reviewer + comment counts while the stall path wants the dispatch id).
+ */
+interface ApplyTriggerResult {
+  accepted: boolean;
+  reason?: string;
+  /** Status the pipeline was in before the transition (unset when rejected). */
+  prevStatus?: PipelineState['status'];
+  /** Status the pipeline moved into (unset when rejected or a no-op). */
+  nextStatus?: PipelineState['status'];
+  /** Number of side effects the transition produced. */
+  sideEffectCount?: number;
+}
+
 // ---- Orchestrator ----
 
 export class Orchestrator {
@@ -341,25 +360,63 @@ export class Orchestrator {
       }
     }
 
-    // ---- Call pure transition ----
+    // ---- Delegate to the shared applyTrigger primitive ----
 
-    const outcome = transition(instance.state, trigger, config);
+    const result = await this.applyTrigger(instance, trigger, config);
 
-    if (outcome.rejected) {
+    if (!result.accepted) {
       this.logger.info('processTrigger: transition rejected', {
         instanceId: instance.id,
-        reason: outcome.reason,
+        reason: result.reason,
         topic,
       });
       return;
     }
 
-    // ---- Compute next sequence base for event records ----
+    this.logger.info('processTrigger: transition persisted', {
+      instanceId: instance.id,
+      prevStatus: result.prevStatus,
+      nextStatus: result.nextStatus,
+      sideEffectCount: result.sideEffectCount,
+    });
+  }
 
-    const existingEvents = await this.db.pipelineEvents.listByInstance(instance.id);
-    const seqBase = existingEvents.length;
+  // ---- applyTrigger: the one persist-+-side-effect primitive ----
 
-    // ---- Persist in a single transaction ----
+  /**
+   * The single path every trigger source flows through. Entry points
+   * (`_processTrigger`, `processStallDetected`, `processReviewBundle`, and
+   * Phase-3+ additions like `ouija watch`) resolve the pipeline instance and
+   * board config, then hand off to this method.
+   *
+   * Responsibilities:
+   *   1. Invoke the pure transition.
+   *   2. On rejection, return `{accepted: false, reason}` — caller logs.
+   *   3. Stamp instance-level set-once values (`sessionLogPath`) from the
+   *      trigger when the instance has none yet.
+   *   4. Synthesise a `pipeline.transitioned` event when the status changes,
+   *      so the audit log is populated even for transitions whose pure
+   *      handler returns `events: []`.
+   *   5. Persist (updated instance + events) in a single transaction.
+   *   6. Execute side effects after the DB commit. Side-effect failures are
+   *      logged and swallowed — they do NOT roll back the transition.
+   *
+   * Does NOT:
+   *   - Load the instance (caller resolves it).
+   *   - Load the board config (caller resolves it).
+   *   - Handle pre-transition logic like manual assignment or auto-ack (those
+   *     stay in the entry points that own them).
+   */
+  private async applyTrigger(
+    instance: PipelineInstance,
+    trigger: PipelineTrigger,
+    config: PipelineConfig,
+  ): Promise<ApplyTriggerResult> {
+    const outcome = transition(instance.state, trigger, config);
+
+    if (outcome.rejected) {
+      return { accepted: false, reason: outcome.reason };
+    }
 
     const now = new Date().toISOString();
     const updatedInstance: PipelineInstance = {
@@ -380,6 +437,9 @@ export class Orchestrator {
       updatedInstance.sessionLogPath = trigger.outcome.sessionLogPath;
     }
 
+    const existingEvents = await this.db.pipelineEvents.listByInstance(instance.id);
+    const seqBase = existingEvents.length;
+
     const eventRecords = outcome.events.map((e, i) => ({
       id: randomUUID(),
       instanceId: instance.id,
@@ -387,16 +447,13 @@ export class Orchestrator {
       // The pure transition cannot fill instanceId on payloads that carry it
       // (it has no knowledge of the pipeline instance). Stamp it here so
       // persisted events are self-contained. Covers `dispatch.outcome`
-      // specifically; other topics already carry instanceId from the
-      // trigger or are instance-free.
+      // specifically; other topics already carry instanceId from the trigger
+      // or are instance-free.
       payload: stampInstanceId(e.topic, e.payload, instance.id),
       occurredAt: now,
       sequence: seqBase + i,
     }));
 
-    // Synthesize a pipeline.transitioned event when status actually changes, so the audit log is
-    // populated even for transitions whose pure handler returns `events: []`. Without this the
-    // pipeline_events table stays empty for real runs and the dashboard timeline is blank.
     if (outcome.nextState.status !== instance.state.status) {
       eventRecords.push({
         id: randomUUID(),
@@ -420,16 +477,6 @@ export class Orchestrator {
       }
     });
 
-    this.logger.info('processTrigger: transition persisted', {
-      instanceId: instance.id,
-      prevStatus: instance.state.status,
-      nextStatus: outcome.nextState.status,
-      sideEffectCount: outcome.sideEffects.length,
-    });
-
-    // ---- Execute side effects AFTER db commit ----
-    // Failures here are logged but do NOT roll back the transition.
-
     await Promise.all(
       outcome.sideEffects.map((effect) =>
         this._executeSideEffect(effect, instance).catch((err) => {
@@ -442,6 +489,13 @@ export class Orchestrator {
         }),
       ),
     );
+
+    return {
+      accepted: true,
+      prevStatus: instance.state.status,
+      nextStatus: outcome.nextState.status,
+      sideEffectCount: outcome.sideEffects.length,
+    };
   }
 
   // ---- Side effect dispatch ----
@@ -872,45 +926,23 @@ export class Orchestrator {
       detectedAt,
     };
 
-    const outcome = transition(instance.state, trigger, config);
+    const result = await this.applyTrigger(instance, trigger, config);
 
-    if (outcome.rejected) {
+    if (!result.accepted) {
       this.logger.info('processStallDetected: transition rejected', {
         instanceId: instanceIdStr,
-        reason: outcome.reason,
+        reason: result.reason,
       });
       return;
     }
-
-    const now = new Date().toISOString();
-    const updatedInstance: PipelineInstance = {
-      ...instance,
-      state: outcome.nextState,
-      updatedAt: now,
-    };
-
-    await this.db.transaction(async (uow) => {
-      await uow.pipelines.save(updatedInstance);
-    });
 
     this.logger.warn('processStallDetected: pipeline marked stalled', {
       instanceId: instanceIdStr,
       dispatchId: String(dispatchIdVal),
       detectedAt,
+      prevStatus: result.prevStatus,
+      nextStatus: result.nextStatus,
     });
-
-    // Execute side effects (typically a send_notification)
-    await Promise.all(
-      outcome.sideEffects.map((effect) =>
-        this._executeSideEffect(effect, instance).catch((err) => {
-          this.logger.error('processStallDetected: side effect failed', {
-            effectType: effect.type,
-            instanceId: instanceIdStr,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }),
-      ),
-    );
   }
 
   /**
@@ -964,80 +996,22 @@ export class Orchestrator {
       bundle,
     };
 
-    const outcome = transition(instance.state, trigger, config);
-    if (outcome.rejected) {
+    const result = await this.applyTrigger(instance, trigger, config);
+
+    if (!result.accepted) {
       this.logger.info('processReviewBundle: transition rejected', {
         instanceId: instanceIdStr,
-        reason: outcome.reason,
+        reason: result.reason,
       });
       return;
     }
 
-    // ---- Persist state + append synth events ----
-    const existingEvents = await this.db.pipelineEvents.listByInstance(instance.id);
-    const seqBase = existingEvents.length;
-    const now = new Date().toISOString();
-    const updatedInstance: PipelineInstance = {
-      ...instance,
-      state: outcome.nextState,
-      updatedAt: now,
-    };
-
-    const eventRecords = outcome.events.map((e, i) => ({
-      id: randomUUID(),
-      instanceId: instance.id,
-      topic: e.topic,
-      // The pure transition cannot fill instanceId on payloads that carry it
-      // (it has no knowledge of the pipeline instance). Stamp it here so
-      // persisted events are self-contained. Covers `dispatch.outcome`
-      // specifically; other topics already carry instanceId from the
-      // trigger or are instance-free.
-      payload: stampInstanceId(e.topic, e.payload, instance.id),
-      occurredAt: now,
-      sequence: seqBase + i,
-    }));
-
-    if (outcome.nextState.status !== instance.state.status) {
-      eventRecords.push({
-        id: randomUUID(),
-        instanceId: instance.id,
-        topic: 'pipeline.transitioned',
-        payload: {
-          instanceId: instance.id,
-          fromStatus: instance.state.status,
-          toStatus: outcome.nextState.status,
-          trigger: trigger.type,
-        },
-        occurredAt: now,
-        sequence: seqBase + eventRecords.length,
-      });
-    }
-
-    await this.db.transaction(async (uow) => {
-      await uow.pipelines.save(updatedInstance);
-      if (eventRecords.length > 0) {
-        await uow.pipelineEvents.appendMany(eventRecords);
-      }
-    });
-
     this.logger.info('processReviewBundle: transition persisted', {
       instanceId: instanceIdStr,
-      prevStatus: instance.state.status,
-      nextStatus: outcome.nextState.status,
+      prevStatus: result.prevStatus,
+      nextStatus: result.nextStatus,
       reviews: bundle.reviews.length,
       comments: bundle.comments.length,
     });
-
-    await Promise.all(
-      outcome.sideEffects.map((effect) =>
-        this._executeSideEffect(effect, instance).catch((err) => {
-          this.logger.error('processReviewBundle: side effect failed', {
-            effectType: effect.type,
-            instanceId: instanceIdStr,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }),
-      ),
-    );
   }
 }

@@ -732,6 +732,53 @@ describe('Orchestrator', () => {
     // Notification should be published
     expect(eventBus.published.length).toBeGreaterThan(0);
   });
+
+  // ---- Test 10: applyTrigger unified path — stall now emits pipeline.transitioned ----
+  //
+  // Phase-2 Task 1 regression guard. Before the refactor, processStallDetected
+  // saved the instance but did NOT append a `pipeline.transitioned` event
+  // (the audit-log synthesis only lived inside `_processTrigger` and
+  // `processReviewBundle`). Since every transition path now flows through
+  // `applyTrigger`, the stall path gets the same audit-log treatment for free.
+  // This test locks that in: if a future refactor reverts `processStallDetected`
+  // to a bespoke save, the audit-log gap will resurface and this test will fail.
+
+  it('processStallDetected appends a pipeline.transitioned event via applyTrigger', async () => {
+    await orchestrator.processTrigger(makeCardMovedEvent());
+    const instance = [...db._instances.values()][0]!;
+    const knownDispatchId = dispatchId('disp-stall-audit');
+    instance.state = {
+      status: 'running',
+      dispatchId: knownDispatchId,
+      agentId: AGENT_ID,
+      dispatchedAt: new Date().toISOString(),
+      lastHeartbeatAt: new Date(Date.now() - 600_000).toISOString(),
+    };
+    db._instances.set(String(instance.id), instance);
+
+    const eventsBefore = db._events.filter(
+      (e) => e.instanceId === instance.id && e.topic === 'pipeline.transitioned',
+    ).length;
+
+    await orchestrator.processStallDetected(
+      String(instance.id),
+      knownDispatchId,
+      new Date().toISOString(),
+    );
+
+    const transitionEvents = db._events.filter(
+      (e) => e.instanceId === instance.id && e.topic === 'pipeline.transitioned',
+    );
+    expect(transitionEvents.length).toBeGreaterThan(eventsBefore);
+
+    // The most recent pipeline.transitioned entry should record the
+    // running→stalled hop and carry the `stall_detected` trigger name.
+    const last = transitionEvents[transitionEvents.length - 1]!;
+    const payload = last.payload as Record<string, unknown>;
+    expect(payload['fromStatus']).toBe('running');
+    expect(payload['toStatus']).toBe('stalled');
+    expect(payload['trigger']).toBe('stall_detected');
+  });
 });
 
 // ---- card_assigned + AgentMemberLookup tests ----
