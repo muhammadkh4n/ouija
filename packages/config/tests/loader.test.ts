@@ -29,4 +29,14 @@ describe('loadConfig', () => {
       loadConfig(resolve(fixturesDir, 'invalid-no-agents.yaml')),
     ).rejects.toThrow('Invalid config');
   });
+
+  it('loads a runner: local config without throwing (deprecation warning is not fatal)', async () => {
+    // Deprecation is a warning, not an error — the config must still load so
+    // self-hosters can migrate on their own schedule. Dedicated assertions
+    // for the warning content live in deprecations.test.ts (the pure
+    // function is the test-friendly seam; emitWarning is I/O).
+    const config = await loadConfig(resolve(fixturesDir, 'local-runner.yaml'));
+    expect(config.agents).toHaveLength(1);
+    expect(config.agents[0]!.runner).toBe('local');
+  });
 });
