@@ -13,7 +13,7 @@ import { listBoards, listPipelines } from '../lib/api-client.js';
 import { Header } from '../components/Header.js';
 import { StatusDot } from '../components/StatusDot.js';
 import { EmptyState } from '../components/EmptyState.js';
-import { relativeTime, shortId } from '../lib/format.js';
+import { relativeTime, shortId, isZeroTokenAnomaly } from '../lib/format.js';
 import type { PipelineSummary } from '../lib/api-types.js';
 
 const BOARD_STORAGE_KEY = 'ouija:selectedBoardId';
@@ -279,6 +279,24 @@ function PipelineRow({ pipeline }: { pipeline: PipelineSummary }) {
           className="flex items-center justify-end gap-2"
           style={{ fontSize: 'var(--text-xs)' }}
         >
+          {isZeroTokenAnomaly(pipeline) && (
+            <span
+              className="mono"
+              title="Succeeded with no tokens reported and no PR opened — likely pre-v0.4.0 historical row or a runner that skipped outcome reporting. See Ouija friction-log item #21."
+              style={{
+                padding: '2px var(--space-2)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'rgba(191, 97, 106, 0.15)',
+                color: 'var(--color-status-failed, #bf616a)',
+                border: '1px solid var(--color-status-failed, #bf616a)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+              }}
+              data-testid="zero-token-anomaly-badge"
+            >
+              ⚠ 0 tokens
+            </span>
+          )}
           {pipeline.prUrl !== null && pipeline.prUrl !== undefined && (
             <span
               className="mono"

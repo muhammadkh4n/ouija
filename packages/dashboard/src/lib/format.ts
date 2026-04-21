@@ -35,3 +35,40 @@ export function isInFlight(status: string): boolean {
 export function isAwaitingReview(status: string): boolean {
   return status === 'awaiting_review';
 }
+
+/**
+ * Subset of PipelineSummary used by {@link isZeroTokenAnomaly}. Typed as a
+ * structural contract so the predicate can be reused from list and detail
+ * views without coupling to the full summary shape.
+ */
+export interface ZeroTokenAnomalyInput {
+  status: string;
+  tokensUsed?: number | null;
+  prUrl?: string | null;
+}
+
+/**
+ * "Zero-token success" anomaly — pipeline reports succeeded but there is no
+ * observable evidence of work (no tokens reported, no PR opened). This is
+ * defensive depth: after Task 4 (DispatchOutcome, v0.4.0) the transition
+ * layer refuses to accept zero-progress completions, so this should never
+ * fire for fresh dispatches. It is intended to surface:
+ *
+ *   1. pre-v0.4.0 historical rows where tokens_used was never populated and
+ *      the run may or may not have actually done anything;
+ *   2. future runners that forget to populate {@link DispatchOutcome} and
+ *      slip past the positive-evidence gate.
+ *
+ * Null/undefined tokensUsed is treated the same as 0 — "no evidence reported".
+ * A prUrl of empty string is treated as no URL.
+ */
+export function isZeroTokenAnomaly(pipeline: ZeroTokenAnomalyInput): boolean {
+  if (pipeline.status !== 'succeeded') return false;
+  const tokens = pipeline.tokensUsed;
+  const hasTokens = tokens !== null && tokens !== undefined && tokens > 0;
+  if (hasTokens) return false;
+  const pr = pipeline.prUrl;
+  const hasPr = pr !== null && pr !== undefined && pr.length > 0;
+  if (hasPr) return false;
+  return true;
+}

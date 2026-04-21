@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { relativeTime, shortId, isInFlight } from '../src/lib/format.js';
+import {
+  relativeTime,
+  shortId,
+  isInFlight,
+  isZeroTokenAnomaly,
+} from '../src/lib/format.js';
 
 describe('relativeTime', () => {
   const now = new Date('2026-04-16T12:00:00.000Z');
@@ -67,5 +72,94 @@ describe('isInFlight', () => {
   it('returns false for unknown strings', () => {
     expect(isInFlight('pending')).toBe(false);
     expect(isInFlight('')).toBe(false);
+  });
+});
+
+describe('isZeroTokenAnomaly', () => {
+  it('flags succeeded pipelines with zero tokens and no PR', () => {
+    expect(
+      isZeroTokenAnomaly({ status: 'succeeded', tokensUsed: 0, prUrl: null }),
+    ).toBe(true);
+  });
+
+  it('flags succeeded pipelines with null tokens and null prUrl (pre-v0.4.0 historical rows)', () => {
+    expect(
+      isZeroTokenAnomaly({
+        status: 'succeeded',
+        tokensUsed: null,
+        prUrl: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('flags succeeded pipelines with undefined tokens and undefined prUrl', () => {
+    expect(isZeroTokenAnomaly({ status: 'succeeded' })).toBe(true);
+  });
+
+  it('flags succeeded pipelines with empty-string prUrl', () => {
+    expect(
+      isZeroTokenAnomaly({ status: 'succeeded', tokensUsed: 0, prUrl: '' }),
+    ).toBe(true);
+  });
+
+  it('does NOT flag when tokens are positive', () => {
+    expect(
+      isZeroTokenAnomaly({
+        status: 'succeeded',
+        tokensUsed: 1,
+        prUrl: null,
+      }),
+    ).toBe(false);
+    expect(
+      isZeroTokenAnomaly({
+        status: 'succeeded',
+        tokensUsed: 12_345,
+        prUrl: null,
+      }),
+    ).toBe(false);
+  });
+
+  it('does NOT flag when a PR URL is present (even without tokens)', () => {
+    expect(
+      isZeroTokenAnomaly({
+        status: 'succeeded',
+        tokensUsed: 0,
+        prUrl: 'https://github.com/owner/repo/pull/1',
+      }),
+    ).toBe(false);
+    expect(
+      isZeroTokenAnomaly({
+        status: 'succeeded',
+        tokensUsed: null,
+        prUrl: 'https://github.com/owner/repo/pull/1',
+      }),
+    ).toBe(false);
+  });
+
+  it('does NOT flag non-succeeded pipelines regardless of tokens/prUrl', () => {
+    for (const status of [
+      'idle',
+      'provisioning',
+      'dispatching',
+      'running',
+      'awaiting_review',
+      'failed',
+      'stalled',
+      'cancelled',
+    ]) {
+      expect(
+        isZeroTokenAnomaly({ status, tokensUsed: 0, prUrl: null }),
+      ).toBe(false);
+    }
+  });
+
+  it('does NOT flag when both tokens and PR are present', () => {
+    expect(
+      isZeroTokenAnomaly({
+        status: 'succeeded',
+        tokensUsed: 42,
+        prUrl: 'https://github.com/x/y/pull/1',
+      }),
+    ).toBe(false);
   });
 });
