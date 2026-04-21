@@ -1,0 +1,18 @@
+claudeHome: /home/ouija/.claude
+
+agents:
+  - id: legacy-rex
+    name: Legacy Rex
+    email: legacy@example.com
+    model: claude-sonnet-4-20250514
+    triggerMode: auto
+    runner: local
+    auth:
+      method: api-key
+      secretRef: ANTHROPIC_API_KEY
+    repos:
+      - url: https://github.com/example/repo.git
+        baseBranch: main
+        default: true
+    limits:
+      maxDurationMs: 300000

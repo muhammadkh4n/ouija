@@ -72,7 +72,7 @@ agents:
 |-------|------|----------|--------|---------|
 | `triggerMode` | `string` | **Yes** | `auto`, `manual` | `auto` dispatches immediately when a card is assigned. `manual` stores the assignment and waits for the card to enter a `dispatch_agent` column. |
 | `model` | `string` | **Yes** | any Claude model ID | Passed through to the Claude CLI. Example: `claude-sonnet-4-20250514`, `claude-opus-4-20250514`. |
-| `runner` | `string` | No | `local`, `stream-json`, `sdk` | Which runner implementation to use. Defaults to `stream-json` when unset. See [Runners](#runners) below. |
+| `runner` | `string` | No | `local` *(deprecated)*, `stream-json`, `sdk` | Which runner implementation to use. Defaults to `stream-json` when unset. `local` is deprecated in v0.4.0 and will be removed in v0.5.0 — migrate to `stream-json`. See [Runners](#runners) below. |
 
 ### Runners
 
@@ -83,17 +83,48 @@ API tokens.
 
 | Runner | What it spawns | Structured events | Auth source | Cost model |
 |---|---|---|---|---|
-| `local` | `claude -p <prompt> --output-format text` | ❌ text only | `~/.claude/` session *(no `ANTHROPIC_API_KEY` in env)* or API key *(when set)* | **Subscription** by default — flat-rate Pro/Max. |
+| `local` *(deprecated v0.4.0 — removal in v0.5.0)* | `claude -p <prompt> --output-format text` | ❌ text only | `~/.claude/` session *(no `ANTHROPIC_API_KEY` in env)* or API key *(when set)* | **Subscription** by default — flat-rate Pro/Max. |
 | `stream-json` *(default)* | `claude -p --input-format stream-json --output-format stream-json --verbose` with the prompt on stdin | ✅ assistant text, tool calls, cost, turn count | Same as `local` — it's the same binary | **Subscription** by default — same as `local`, plus dashboard visibility. |
 | `sdk` | `@anthropic-ai/claude-agent-sdk`'s `query()` | ✅ via the SDK's message protocol | **API key only** — the SDK does NOT read `~/.claude/` session credentials | **Per-token API billing**. Use this for Bedrock, Vertex, Foundry, Proxy, or when you want metered Anthropic usage. |
 
 **Default:** `stream-json`. Subscription billing *and* structured events
 out of the box.
 
-**When to pick `local`:**
-- Minimal install — no desire for live dashboard visibility
-- The `stream-json` protocol ever regresses and you need a known-good fallback
-- Test environments where you're specifically exercising text-mode output
+### Deprecation: `runner: local` (removal in v0.5.0)
+
+`runner: local` is deprecated as of **v0.4.0** and will be **removed in
+v0.5.0**. The text-mode runner cannot emit the structured events Ouija
+needs to enforce Tenet 3 (positive evidence of work) — a zero-progress
+dispatch under `local` looks identical to a successful one, which is the
+exact silent-failure class v0.4.0 was built to eliminate.
+
+**Why you see this warning:**
+```
+(node:XXX) [OUIJA_LOCAL_RUNNER_DEPRECATED] DeprecationWarning: Agent "<id>":
+runner: 'local' is deprecated and will be removed in v0.5.0...
+```
+
+**Migration path:**
+- Change `runner: local` → `runner: stream-json` in your
+  `ouija.config.yaml`. **No other change is required.** Subscription auth
+  (your Claude Pro/Max session) still works unchanged — `stream-json`
+  invokes the same `claude` binary, just with structured I/O.
+- You gain structured events in the dashboard (assistant text, tool calls,
+  cost per turn, `DispatchOutcome` positive-evidence checks).
+- If you were running `local` because `stream-json` regressed at some point,
+  please open an issue — it's been the default since v0.3.0 and is the
+  primary tested path.
+
+**Suppressing the warning during migration:**
+
+If you need to run on `local` while you plan the swap, set the env var:
+
+```
+OUIJA_ALLOW_LOCAL_RUNNER=1
+```
+
+This suppresses the startup deprecation warning but does **not** extend
+support — `runner: local` will still stop working when v0.5.0 lands.
 
 **When to pick `sdk`:**
 - You want to bill against the Anthropic API, Bedrock, Vertex, Foundry, or a proxy

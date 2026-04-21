@@ -8,3 +8,5 @@ export { resolveRepo } from './repo-resolver.js';
 export type { ResolvedRepo } from './repo-resolver.js';
 export { buildPipelineConfig } from './board-seeder.js';
 export type { KanbanColumnClient, PlaneColumnClient, SeederLogger, SeedablePipelineConfig } from './board-seeder.js';
+export { collectDeprecationWarnings, emitDeprecationWarnings } from './deprecations.js';
+export type { DeprecationWarning } from './deprecations.js';

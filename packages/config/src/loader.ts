@@ -1,6 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { parse } from 'yaml';
 import { validateConfig } from './schema.js';
+import {
+  collectDeprecationWarnings,
+  emitDeprecationWarnings,
+} from './deprecations.js';
 import type { OuijaConfig } from './types.js';
 
 export async function loadConfig(configPath: string): Promise<OuijaConfig> {
@@ -27,6 +31,8 @@ export async function loadConfig(configPath: string): Promise<OuijaConfig> {
       `Invalid config at ${configPath}:\n  - ${result.errors.join('\n  - ')}`,
     );
   }
+
+  emitDeprecationWarnings(collectDeprecationWarnings(result.config));
 
   return result.config;
 }
