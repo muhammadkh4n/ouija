@@ -23,7 +23,12 @@ import { streamPipelineEvents } from '../lib/pipeline-stream.js';
 import { Header } from '../components/Header.js';
 import { StatusDot } from '../components/StatusDot.js';
 import { useToast } from '../components/Toast.js';
-import { relativeTime, shortId, isInFlight } from '../lib/format.js';
+import {
+  relativeTime,
+  shortId,
+  isInFlight,
+  isZeroTokenAnomaly,
+} from '../lib/format.js';
 import type {
   PipelineDetailResponse,
   PipelineSummary,
@@ -259,6 +264,10 @@ function DetailHeader({
         </p>
       )}
 
+      {isZeroTokenAnomaly(pipeline) && (
+        <ZeroTokenAnomalyBanner sessionLogPath={pipeline.sessionLogPath} />
+      )}
+
       <div
         style={{
           marginTop: 'var(--space-4)',
@@ -335,6 +344,55 @@ function SessionLogButton({ path }: { path: string }): JSX.Element {
     >
       {copied ? 'copied ✓' : 'view session log'}
     </button>
+  );
+}
+
+/**
+ * "Zero-token success" warning — surfaces pipelines that reached `succeeded`
+ * with no observable evidence (no tokens reported, no PR opened). After
+ * Task 4 / v0.4.0 this is blocked at the transition layer, so this banner is
+ * primarily for pre-v0.4.0 historical rows. If it ever fires for a v0.4.0+
+ * run it means a runner slipped past the positive-evidence gate — check the
+ * session log.
+ */
+function ZeroTokenAnomalyBanner({
+  sessionLogPath,
+}: {
+  sessionLogPath: string | null | undefined;
+}): JSX.Element {
+  return (
+    <div
+      role="alert"
+      data-testid="zero-token-anomaly-banner"
+      className="mono"
+      style={{
+        marginTop: 'var(--space-3)',
+        padding: 'var(--space-3) var(--space-4)',
+        border: '1px solid var(--color-status-failed, #bf616a)',
+        background: 'rgba(191, 97, 106, 0.12)',
+        borderRadius: 'var(--radius-sm)',
+        color: 'var(--color-status-failed, #bf616a)',
+        fontSize: 'var(--text-xs)',
+        lineHeight: 1.5,
+      }}
+    >
+      <strong style={{ letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+        ⚠ zero-token success
+      </strong>
+      <div
+        style={{
+          marginTop: 'var(--space-1)',
+          color: 'var(--color-text-dim)',
+        }}
+      >
+        This pipeline reached <code>succeeded</code> with no tokens reported
+        and no PR opened. Either it's a pre-v0.4.0 historical row, or a
+        runner skipped <code>DispatchOutcome</code> reporting.
+        {sessionLogPath !== null && sessionLogPath !== undefined
+          ? ' Inspect the session log to confirm what (if anything) the agent did.'
+          : ' No session log path was recorded.'}
+      </div>
+    </div>
   );
 }
 
