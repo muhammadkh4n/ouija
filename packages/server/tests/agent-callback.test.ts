@@ -319,6 +319,7 @@ describe('POST /hooks/agent/callback — valid callbacks', () => {
           tokensOut: 4_200,
           costUsd: 0.34,
           durationMs: 45_123,
+          sessionLogPath: '/home/node/.claude/projects/-tmp-ws/sess-1.jsonl',
         },
       }),
     });
@@ -333,6 +334,9 @@ describe('POST /hooks/agent/callback — valid callbacks', () => {
     expect(outcome['commitsPushed']).toBe(2);
     expect(outcome['toolCallsMade']).toBe(14);
     expect(outcome['prUrl']).toBe('https://github.com/acme/backend/pull/42');
+    expect(outcome['sessionLogPath']).toBe(
+      '/home/node/.claude/projects/-tmp-ws/sess-1.jsonl',
+    );
   });
 
   it('rejects agent_completed payloads with a malformed outcome object (schema validation)', async () => {

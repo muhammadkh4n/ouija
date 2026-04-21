@@ -287,8 +287,54 @@ function DetailHeader({
             open PR →
           </a>
         )}
+        {pipeline.sessionLogPath !== null && pipeline.sessionLogPath !== undefined && (
+          <SessionLogButton path={pipeline.sessionLogPath} />
+        )}
       </div>
     </section>
+  );
+}
+
+/**
+ * "View session" button — surfaces the absolute path to the agent's NDJSON
+ * session log (friction-log item #22). Clicking copies the path to the
+ * clipboard so self-hosters can `cat` it from their terminal. Intentionally
+ * no in-dashboard viewer yet: reading arbitrary paths from the agent's HOME
+ * requires a scoped file-read endpoint that's out of scope for v0.4.0.
+ */
+function SessionLogButton({ path }: { path: string }): JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const onClick = (): void => {
+    navigator.clipboard
+      .writeText(path)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1_500);
+      })
+      .catch(() => {
+        // Clipboard unavailable (older browsers, insecure context) — fall back
+        // to visible-path prompt so the user can still copy manually.
+        window.prompt('session log path', path);
+      });
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mono"
+      title={path}
+      style={{
+        padding: 'var(--space-2) var(--space-4)',
+        borderRadius: 'var(--radius-sm)',
+        border: '1px solid var(--color-border)',
+        background: 'transparent',
+        color: 'var(--color-text-muted)',
+        fontSize: 'var(--text-sm)',
+        cursor: 'pointer',
+      }}
+    >
+      {copied ? 'copied ✓' : 'view session log'}
+    </button>
   );
 }
 

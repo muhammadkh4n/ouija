@@ -30,6 +30,12 @@ export interface PipelineSummary {
   prUrl?: string | null;
   cost?: number | null;
   tokensUsed?: number | null;
+  /**
+   * Absolute path to the agent's NDJSON session log inside the runtime
+   * environment. Self-hosters can `cat` this file to debug dispatches that
+   * failed or went silent. Fixes friction-log item #22.
+   */
+  sessionLogPath?: string | null;
   /** Review-loop iteration counter — present on dispatching/running/awaiting_review post-PR-1. */
   iteration?: number | null;
   createdAt: string;

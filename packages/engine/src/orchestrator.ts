@@ -368,6 +368,18 @@ export class Orchestrator {
       updatedAt: now,
     };
 
+    // Stamp session_log_path onto the instance when a DispatchOutcome carries
+    // one and the instance has none yet. Instance-level (not on state JSONB)
+    // because the value is set once per dispatch and must survive all
+    // subsequent transitions. Never overwrite: once set, the path is stable.
+    if (
+      trigger.type === 'agent_completed' &&
+      trigger.outcome?.sessionLogPath !== undefined &&
+      updatedInstance.sessionLogPath === undefined
+    ) {
+      updatedInstance.sessionLogPath = trigger.outcome.sessionLogPath;
+    }
+
     const eventRecords = outcome.events.map((e, i) => ({
       id: randomUUID(),
       instanceId: instance.id,

@@ -51,6 +51,7 @@ function serializePipeline(instance: import('@ouija-dev/types').PipelineInstance
     prUrl: instance.prUrl,
     cost: instance.cost,
     tokensUsed: instance.tokensUsed,
+    sessionLogPath: instance.sessionLogPath,
     iteration,
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
