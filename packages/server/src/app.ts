@@ -93,6 +93,30 @@ export async function buildApp(opts: AppOptions = {}): Promise<FastifyInstance> 
       (request as unknown as { id: string }).id;
   });
 
+  // ---- 1a. Global raw-body JSON parser ----
+  // HMAC-based webhook verification (GitHub, Fizzy, Plane) needs the exact
+  // bytes the upstream signed. Re-serialising `request.body` drops whitespace
+  // and changes key ordering, so signatures never match. Registering the
+  // parser at the root — before any plugin.register — means every plugin
+  // downstream (including plugin-fizzy's `/hooks/fizzy/:secret` mounted via
+  // `fizzyPlugin.registerRoutes(app)`) sees `request.rawBody` populated.
+  app.addContentTypeParser(
+    'application/json',
+    { parseAs: 'buffer' },
+    (req, body, done) => {
+      try {
+        (req as unknown as { rawBody: Buffer }).rawBody = body as Buffer;
+        const parsed: unknown =
+          (body as Buffer).length === 0
+            ? null
+            : JSON.parse((body as Buffer).toString('utf8'));
+        done(null, parsed);
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    },
+  );
+
   // ---- 2. Security headers ----
   await app.register(helmet, {
     contentSecurityPolicy: {
