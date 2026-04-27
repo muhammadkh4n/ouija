@@ -1141,6 +1141,136 @@ describe('human_cancel from idle → rejected', () => {
   });
 });
 
+// ---- admin_reset ----
+//
+// Phase 2 stuck-state recovery (friction-log #16). Allowed source states are
+// the live "stuck-recoverable" set; rejected from idle (no-op), failed (use
+// human_retry), and the terminal succeeded/cancelled (don't undo final
+// outcomes). On accept, the transition emits `pipeline.admin_reset` (audit)
+// and routes the appropriate teardown side effects (cancel agent, stall check,
+// destroy workspace).
+
+describe('admin_reset accepted from stuck-recoverable states', () => {
+  it('transitions running → idle and emits cancel + stall + notify side effects', () => {
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy: 'mk' };
+
+    const result = transition(running, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('idle');
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_stall_check')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'send_notification')).toBe(true);
+
+    // Audit event carries fromStatus + requestedBy + resetAt; instanceId is
+    // stamped later by Orchestrator.applyTrigger.
+    expect(result.events.length).toBe(1);
+    expect(result.events[0]!.topic).toBe('pipeline.admin_reset');
+    const payload = result.events[0]!.payload as Record<string, unknown>;
+    expect(payload['fromStatus']).toBe('running');
+    expect(payload['requestedBy']).toBe('mk');
+    expect(typeof payload['resetAt']).toBe('string');
+  });
+
+  it('transitions dispatching → idle with cancel_agent', () => {
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy: 'mk' };
+    const result = transition(dispatching, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+    expect(result.nextState.status).toBe('idle');
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(true);
+  });
+
+  it('transitions provisioning → idle and destroys the workspace if one was attached', () => {
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy: 'mk' };
+    const result = transition(provisioningWithWorkspace, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+    expect(result.nextState.status).toBe('idle');
+    expect(result.sideEffects.some((e) => e.type === 'destroy_workspace')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(true);
+  });
+
+  it('transitions provisioning (no workspaceId) → idle without destroy_workspace', () => {
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy: 'mk' };
+    const result = transition(provisioning, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+    expect(result.nextState.status).toBe('idle');
+    expect(result.sideEffects.some((e) => e.type === 'destroy_workspace')).toBe(false);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(true);
+  });
+
+  it('transitions stalled → idle with no cancel_agent (agent already declared dead)', () => {
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy: 'mk' };
+    const result = transition(stalled, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+    expect(result.nextState.status).toBe('idle');
+    // No live agent process to cancel; only stall-check teardown + notification.
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(false);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_stall_check')).toBe(true);
+  });
+
+  it('transitions awaiting_review → idle (operator aborts review loop)', () => {
+    const awaitingReview: PipelineState = {
+      status: 'awaiting_review',
+      dispatchId: dispatchId('d-1'),
+      agentId: agentId('agent-rex'),
+      prUrl: 'https://github.com/x/y/pull/1',
+      prId: prId('pr-1'),
+      iteration: 2,
+      enteredAt: '2026-04-01T11:00:00Z',
+    };
+
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy: 'mk' };
+    const result = transition(awaitingReview, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+    expect(result.nextState.status).toBe('idle');
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(false);
+  });
+});
+
+describe('admin_reset rejected from non-recoverable states', () => {
+  it('rejects from idle (no-op)', () => {
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy: 'mk' };
+    const result = transition(idle, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+    if (!result.rejected) return;
+    expect(result.reason).toContain('idle');
+  });
+
+  it('rejects from succeeded (don\'t undo final outcomes)', () => {
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy: 'mk' };
+    const result = transition(succeeded, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+    if (!result.rejected) return;
+    expect(result.reason).toContain('succeeded');
+  });
+
+  it('rejects from cancelled (already terminal)', () => {
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy: 'mk' };
+    const result = transition(cancelled, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+  });
+
+  it('rejects from failed (use human_retry instead — keeps dispatch context)', () => {
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy: 'mk' };
+    const result = transition(failed, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+    if (!result.rejected) return;
+    expect(result.reason).toContain('failed');
+  });
+});
+
 // ---- pr_merged ----
 
 describe('pr_merged → succeeded', () => {

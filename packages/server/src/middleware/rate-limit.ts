@@ -82,3 +82,18 @@ export const apiReadRateLimit = {
     },
   },
 };
+
+/**
+ * 30 req/min per session — for state-changing admin endpoints
+ * (e.g. POST /api/v1/pipelines/:id/reset). Tighter than the read limit so a
+ * stuck operator script can't fan out resets across every pipeline before a
+ * human notices.
+ */
+export const apiAdminRateLimit = {
+  config: {
+    rateLimit: {
+      max: 30,
+      timeWindow: '1 minute',
+    },
+  },
+};

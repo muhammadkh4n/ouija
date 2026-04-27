@@ -136,6 +136,17 @@ export type PipelineTrigger =
   | { type: 'stall_detected'; dispatchId: DispatchId; detectedAt: string }
   | { type: 'human_retry'; retriedBy: string }
   | { type: 'human_cancel'; cancelledBy: string }
+  /**
+   * Admin override that returns a stuck pipeline to `idle`. Phase 2: stuck-state
+   * recovery vocabulary (friction-log #16). Allowed source states are the live
+   * "stuck-recoverable" set (`provisioning`, `dispatching`, `running`,
+   * `awaiting_review`, `stalled`); rejected from `idle` (no-op),
+   * `succeeded`/`cancelled` (terminal — do not undo final outcomes), and
+   * `failed` (use `human_retry` instead). Distinct from `human_cancel`, which
+   * marks the pipeline `cancelled` and is itself terminal — `admin_reset` puts
+   * the pipeline back at the start so it can be re-dispatched without SQL.
+   */
+  | { type: 'admin_reset'; requestedBy: string }
   | { type: 'pr_merged'; prId: PrId; mergedAt: string }
   | { type: 'pr_review_received'; prUrl: string; prId: PrId; bundle: ReviewBundle };
 
