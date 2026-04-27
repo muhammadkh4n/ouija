@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "yaml": "^2.7.0",
-    "ajv": "^8.17.0",
+    "ajv": "^8.20.0",
     "ajv-formats": "^3.0.0"
   },
   "devDependencies": {
