@@ -5,6 +5,7 @@
  *   GET  /api/v1/pipelines/:id    — get single pipeline with timeline + allowed_actions
  *   POST /api/v1/pipelines/:id/retry  — retry a failed/stalled pipeline
  *   POST /api/v1/pipelines/:id/cancel — cancel a running pipeline (revokes agent JWT)
+ *   POST /api/v1/pipelines/:id/reset  — admin recovery: stuck pipeline → idle
  *
  * All routes require authentication (requireAuth preHandler).
  * Pagination: cursor-based (opaque base64) per spec §5.6.
@@ -17,6 +18,7 @@ import { instanceId as makeInstanceId } from '@ouija-dev/types';
 import { ApiError } from '@ouija-dev/types';
 import type { Orchestrator } from '@ouija-dev/engine';
 import { requireAuth } from '../middleware/auth.js';
+import { apiAdminRateLimit } from '../middleware/rate-limit.js';
 import { revokeJWT } from '../jwt.js';
 
 export interface PipelineRouteOptions {
@@ -35,6 +37,18 @@ function serializePipeline(instance: import('@ouija-dev/types').PipelineInstance
   }
   if (state.status === 'dispatching' || state.status === 'running' || state.status === 'awaiting_review') {
     allowedActions.push('cancel');
+  }
+  // Admin recovery: any "stuck-recoverable" state should expose `reset` so the
+  // dashboard surfaces the operator action without needing per-status logic.
+  // Mirrors the allowlist in `handleAdminReset` (engine/transition.ts).
+  if (
+    state.status === 'provisioning' ||
+    state.status === 'dispatching' ||
+    state.status === 'running' ||
+    state.status === 'awaiting_review' ||
+    state.status === 'stalled'
+  ) {
+    allowedActions.push('reset');
   }
 
   // Review-loop iteration lives on state for dispatching/running/awaiting_review.
@@ -240,6 +254,55 @@ export async function pipelineRoutes(
       });
 
       return reply.status(202).send({ ok: true, instanceId: request.params.id });
+    },
+  );
+
+  // ---- POST /api/v1/pipelines/:id/reset ----
+  //
+  // Admin recovery (Phase 2 friction-log #16). Drives the new `admin_reset`
+  // trigger through `applyTrigger`, returning the pipeline to `idle` and
+  // emitting a dedicated `pipeline.admin_reset` audit event alongside the
+  // automatic `pipeline.transitioned` event. Unlike the older /retry and
+  // /cancel scaffolding (which synthesise bogus card-moved events), this
+  // route uses the trigger primitive directly — no SQL hand-edit ever needed.
+  app.post<{ Params: { id: string }; Body?: { requestedBy?: string } }>(
+    '/api/v1/pipelines/:id/reset',
+    { preHandler: requireAuth, ...apiAdminRateLimit },
+    async (request, reply) => {
+      // `requireAuth` guarantees `request.user` is set here.
+      const requestedBy =
+        (request.body?.requestedBy && request.body.requestedBy.trim()) ||
+        request.user?.userId ||
+        'api';
+
+      const outcome = await orchestrator.requestAdminReset(request.params.id, requestedBy);
+
+      if (outcome.kind === 'not_found') {
+        throw new ApiError(
+          'PIPELINE_NOT_FOUND',
+          `Pipeline ${request.params.id} does not exist.`,
+          404,
+          false,
+        );
+      }
+      if (outcome.kind === 'config_missing') {
+        throw new ApiError(
+          'PIPELINE_CONFIG_MISSING',
+          `No board config for pipeline ${request.params.id}; cannot reset.`,
+          500,
+          false,
+        );
+      }
+      if (outcome.kind === 'rejected') {
+        throw new ApiError('PIPELINE_NOT_RESETTABLE', outcome.reason, 409, false);
+      }
+
+      return reply.status(200).send({
+        ok: true,
+        instanceId: request.params.id,
+        prevStatus: outcome.prevStatus,
+        nextStatus: outcome.nextStatus,
+      });
     },
   );
 }

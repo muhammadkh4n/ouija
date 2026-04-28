@@ -54,6 +54,8 @@ export function transition(
       return handleHumanRetry(state, trigger, config);
     case 'human_cancel':
       return handleHumanCancel(state, trigger);
+    case 'admin_reset':
+      return handleAdminReset(state, trigger);
     case 'pr_merged':
       return handlePrMerged(state, trigger);
     case 'pr_review_received':
@@ -712,6 +714,97 @@ function handleHumanCancel(
     rejected: false,
     nextState,
     events: [],
+    sideEffects,
+  };
+}
+
+function handleAdminReset(
+  state: PipelineState,
+  trigger: Extract<PipelineTrigger, { type: 'admin_reset' }>,
+): TransitionOutcome {
+  // Stuck-state recovery only. `idle` is a no-op (already there). `succeeded`
+  // and `cancelled` are terminal by intent — undoing them would falsify the
+  // audit log. `failed` has its own retry vocabulary (`human_retry`); routing
+  // it through reset would discard the dispatch context retry needs.
+  if (
+    state.status === 'idle' ||
+    state.status === 'succeeded' ||
+    state.status === 'cancelled' ||
+    state.status === 'failed'
+  ) {
+    return {
+      rejected: true,
+      reason: `Cannot reset: pipeline is in state "${state.status}"`,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const fromStatus = state.status;
+  const sideEffects: SideEffect[] = [
+    {
+      type: 'send_notification',
+      payload: {
+        requestedBy: trigger.requestedBy,
+        message: `Pipeline reset by admin (was in "${fromStatus}")`,
+      },
+      idempotencyKey: encodeJobId(['notify-reset', trigger.requestedBy, now]),
+    },
+  ];
+
+  // Tear down any in-flight dispatch the prior state owns. `awaiting_review`
+  // and `stalled` carry a dispatchId but no live process — the cancel side
+  // effects are idempotent no-ops in those cases, so issuing them keeps the
+  // path uniform without risking double-cancellation.
+  if (
+    state.status === 'provisioning' ||
+    state.status === 'dispatching' ||
+    state.status === 'running'
+  ) {
+    if (state.status === 'provisioning' && 'workspaceId' in state && state.workspaceId) {
+      sideEffects.push({
+        type: 'destroy_workspace',
+        payload: { workspaceId: state.workspaceId },
+        idempotencyKey: encodeJobId(['destroy-ws-reset', state.dispatchId]),
+      });
+    }
+    sideEffects.push(
+      {
+        type: 'cancel_agent',
+        payload: { dispatchId: state.dispatchId },
+        idempotencyKey: encodeJobId(['cancel-agent-reset', state.dispatchId]),
+      },
+      {
+        type: 'cancel_stall_check',
+        payload: { dispatchId: state.dispatchId },
+        idempotencyKey: encodeJobId(['cancel-stall-reset', state.dispatchId]),
+      },
+    );
+  } else if (state.status === 'awaiting_review' || state.status === 'stalled') {
+    sideEffects.push({
+      type: 'cancel_stall_check',
+      payload: { dispatchId: state.dispatchId },
+      idempotencyKey: encodeJobId(['cancel-stall-reset', state.dispatchId]),
+    });
+  }
+
+  const nextState: PipelineState = { status: 'idle' };
+
+  return {
+    rejected: false,
+    nextState,
+    // instanceId is filled in by Orchestrator.applyTrigger via stampInstanceId
+    // — the pure transition has no instance context. resetAt seeds the audit
+    // event with the same `now` used by the side-effect idempotency keys.
+    events: [
+      {
+        topic: 'pipeline.admin_reset',
+        payload: {
+          fromStatus,
+          requestedBy: trigger.requestedBy,
+          resetAt: now,
+        } as unknown as import('@ouija-dev/types').OuijaEventMap['pipeline.admin_reset'],
+      },
+    ],
     sideEffects,
   };
 }

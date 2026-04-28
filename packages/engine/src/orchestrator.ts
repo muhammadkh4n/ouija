@@ -94,9 +94,9 @@ export const CONFIG_CACHE_TTL_MS = 30_000;
 /**
  * Stamp the orchestrator's instanceId onto event payloads that carry one but
  * are emitted by the pure transition (which has no instance context). Today
- * this is only `dispatch.outcome`; other payloads either already carry
- * instanceId through the trigger chain (`agent.work.*`) or are
- * instance-free. Any future instance-aware event emitted from the pure
+ * this covers `dispatch.outcome` and `pipeline.admin_reset`; other payloads
+ * either already carry instanceId through the trigger chain (`agent.work.*`)
+ * or are instance-free. Any future instance-aware event emitted from the pure
  * transition should be added here.
  */
 function stampInstanceId<T>(
@@ -104,7 +104,7 @@ function stampInstanceId<T>(
   payload: T,
   id: import('@ouija-dev/types').InstanceId,
 ): T {
-  if (topic === 'dispatch.outcome') {
+  if (topic === 'dispatch.outcome' || topic === 'pipeline.admin_reset') {
     return { ...(payload as unknown as object), instanceId: id } as unknown as T;
   }
   return payload;
@@ -1014,4 +1014,70 @@ export class Orchestrator {
       comments: bundle.comments.length,
     });
   }
+
+  /**
+   * Admin recovery entry point. Resolves the pipeline instance + board config,
+   * builds an `admin_reset` trigger, and routes it through `applyTrigger` so the
+   * existing primitive owns persistence, the audit `pipeline.admin_reset` event,
+   * the auto-synthesised `pipeline.transitioned` event, and side-effect
+   * fan-out (cancel agent, cancel stall check, destroy workspace, notification).
+   *
+   * Returns a typed outcome so the HTTP route can map to 404 / 409 / 500 / 200
+   * without depending on thrown exceptions, mirroring `applyTrigger`'s shape.
+   */
+  async requestAdminReset(
+    instanceIdStr: string,
+    requestedBy: string,
+  ): Promise<AdminResetOutcome> {
+    const instance = await this.db.pipelines.findById(makeInstanceId(instanceIdStr));
+    if (instance === undefined) {
+      this.logger.warn('requestAdminReset: instance not found', { instanceId: instanceIdStr });
+      return { kind: 'not_found' };
+    }
+
+    const config = await this._getConfig(instance.boardId);
+    if (config === undefined) {
+      this.logger.warn('requestAdminReset: no config for board', {
+        instanceId: instanceIdStr,
+        boardId: instance.boardId,
+      });
+      return { kind: 'config_missing', boardId: String(instance.boardId) };
+    }
+
+    const trigger: PipelineTrigger = { type: 'admin_reset', requestedBy };
+    const result = await this.applyTrigger(instance, trigger, config);
+
+    if (!result.accepted) {
+      this.logger.info('requestAdminReset: transition rejected', {
+        instanceId: instanceIdStr,
+        requestedBy,
+        reason: result.reason,
+      });
+      return { kind: 'rejected', reason: result.reason ?? 'transition rejected' };
+    }
+
+    this.logger.warn('requestAdminReset: pipeline reset to idle', {
+      instanceId: instanceIdStr,
+      requestedBy,
+      prevStatus: result.prevStatus,
+      nextStatus: result.nextStatus,
+      sideEffectCount: result.sideEffectCount,
+    });
+
+    return {
+      kind: 'reset',
+      // applyTrigger only returns prevStatus/nextStatus when accepted; the
+      // non-null assertions are safe inside the accepted branch.
+      prevStatus: result.prevStatus!,
+      nextStatus: result.nextStatus!,
+    };
+  }
 }
+
+// ---- requestAdminReset return shape ----
+
+export type AdminResetOutcome =
+  | { kind: 'reset'; prevStatus: PipelineState['status']; nextStatus: PipelineState['status'] }
+  | { kind: 'not_found' }
+  | { kind: 'config_missing'; boardId: string }
+  | { kind: 'rejected'; reason: string };

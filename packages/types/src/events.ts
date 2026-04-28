@@ -168,6 +168,22 @@ export interface PipelineTransitionedPayload {
   trigger: string;
 }
 
+/**
+ * Audit record emitted whenever an operator returns a stuck pipeline to `idle`
+ * via the `admin_reset` trigger. Distinct from `pipeline.transitioned` (which
+ * the orchestrator also appends for the same hop) so admin-driven resets are
+ * trivially queryable without scanning every status hop.
+ */
+export interface PipelineAdminResetPayload {
+  instanceId: InstanceId;
+  /** Status the pipeline was in immediately before the reset. */
+  fromStatus: string;
+  /** Identifier of the operator who issued the reset (session userId or 'api'). */
+  requestedBy: string;
+  /** ISO-8601 instant the reset side-effect data was generated. */
+  resetAt: string;
+}
+
 export interface NotificationSendPayload {
   /** Short notification heading */
   title: string;
@@ -199,6 +215,7 @@ export interface OuijaEventMap {
   'dispatch.outcome': DispatchOutcomePayload;
   'notification.send': NotificationSendPayload;
   'pipeline.transitioned': PipelineTransitionedPayload;
+  'pipeline.admin_reset': PipelineAdminResetPayload;
 }
 
 export type OuijaTopic = keyof OuijaEventMap;

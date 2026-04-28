@@ -779,6 +779,90 @@ describe('Orchestrator', () => {
     expect(payload['toStatus']).toBe('stalled');
     expect(payload['trigger']).toBe('stall_detected');
   });
+
+  // ---- Test 11: requestAdminReset — admin recovery end-to-end ----
+  //
+  // Phase-2 Tasks 2 + 3. Drives a stuck `dispatching` pipeline back to `idle`
+  // through `applyTrigger`, asserting the dual audit-log entries
+  // (`pipeline.transitioned` + `pipeline.admin_reset`), instanceId stamping by
+  // the orchestrator, and side-effect fan-out (cancel agent + stall check).
+
+  it('requestAdminReset: stuck dispatching pipeline returns to idle with audit + side effects', async () => {
+    await orchestrator.processTrigger(makeCardMovedEvent());
+    const instance = [...db._instances.values()][0]!;
+    const stuckDispatchId = dispatchId('disp-stuck-001');
+    instance.state = {
+      status: 'dispatching',
+      dispatchId: stuckDispatchId,
+      agentId: AGENT_ID,
+      dispatchedAt: new Date().toISOString(),
+    };
+    db._instances.set(String(instance.id), instance);
+
+    const outcome = await orchestrator.requestAdminReset(String(instance.id), 'mk');
+
+    expect(outcome.kind).toBe('reset');
+    if (outcome.kind !== 'reset') return;
+    expect(outcome.prevStatus).toBe('dispatching');
+    expect(outcome.nextStatus).toBe('idle');
+
+    const updated = db._instances.get(String(instance.id))!;
+    expect(updated.state.status).toBe('idle');
+
+    const adminEvents = db._events.filter(
+      (e) => e.instanceId === instance.id && e.topic === 'pipeline.admin_reset',
+    );
+    expect(adminEvents.length).toBe(1);
+    const adminPayload = adminEvents[0]!.payload as Record<string, unknown>;
+    expect(adminPayload['instanceId']).toBe(instance.id); // stamped by orchestrator
+    expect(adminPayload['fromStatus']).toBe('dispatching');
+    expect(adminPayload['requestedBy']).toBe('mk');
+    expect(typeof adminPayload['resetAt']).toBe('string');
+
+    // The auto-synthesised pipeline.transitioned event should also land,
+    // carrying the admin_reset trigger name so audit consumers can correlate.
+    const transitionEvents = db._events.filter(
+      (e) => e.instanceId === instance.id && e.topic === 'pipeline.transitioned',
+    );
+    const lastTransition = transitionEvents[transitionEvents.length - 1]!;
+    const transitionPayload = lastTransition.payload as Record<string, unknown>;
+    expect(transitionPayload['fromStatus']).toBe('dispatching');
+    expect(transitionPayload['toStatus']).toBe('idle');
+    expect(transitionPayload['trigger']).toBe('admin_reset');
+
+    // Stall-check teardown fans out to the job queue. cancel_agent is handled
+    // upstream (server JWT revocation + AgentPlugin.cancel); the orchestrator
+    // logs it rather than enqueuing, matching the existing human_cancel path.
+    expect(jobQueue.cancelled.some((c) => c.queue === QUEUE_NAMES.stallCheck)).toBe(true);
+    expect(
+      logger.calls.some(
+        (c) =>
+          c.level === 'info' && c.message === 'cancel_agent side effect recorded',
+      ),
+    ).toBe(true);
+
+    // Notification fans out to the event bus.
+    expect(
+      eventBus.published.some((e) => e.topic === 'notification.send'),
+    ).toBe(true);
+  });
+
+  it('requestAdminReset: returns not_found for an unknown instance id', async () => {
+    const outcome = await orchestrator.requestAdminReset('does-not-exist', 'mk');
+    expect(outcome.kind).toBe('not_found');
+  });
+
+  it('requestAdminReset: returns rejected for an idle pipeline (no-op)', async () => {
+    await orchestrator.processTrigger(makeCardMovedEvent());
+    const instance = [...db._instances.values()][0]!;
+    instance.state = { status: 'idle' };
+    db._instances.set(String(instance.id), instance);
+
+    const outcome = await orchestrator.requestAdminReset(String(instance.id), 'mk');
+    expect(outcome.kind).toBe('rejected');
+    if (outcome.kind !== 'rejected') return;
+    expect(outcome.reason).toContain('idle');
+  });
 });
 
 // ---- card_assigned + AgentMemberLookup tests ----
