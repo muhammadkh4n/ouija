@@ -1,2 +1,7 @@
 import { defineConfig } from 'vitest/config';
-export default defineConfig({ test: { globals: true } });
+import { ouijaSourceAliases } from '../../vitest.shared';
+
+export default defineConfig({
+  resolve: { alias: ouijaSourceAliases },
+  test: { globals: true },
+});
