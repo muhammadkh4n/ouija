@@ -1,0 +1,300 @@
+/**
+ * `ouija watch` pure-helper tests.
+ *
+ * Covers `parseWatchArgs` (env + flag validation), `findLabelMatches`
+ * (issue dedup + PR exclusion), and `findMentionMatches` (case-insensitive
+ * mention substring + dedup + title truncation). The HTTP loop in
+ * `runWatch` is not unit-tested here — its only signal is "did fetch get
+ * called with the right args" which is better validated via the CI smoke
+ * once the route is wired in Phase 3 Task 12 (fizzy preset CI smoke).
+ */
+
+import { describe, it, expect } from 'vitest';
+import {
+  findLabelMatches,
+  findMentionMatches,
+  parseWatchArgs,
+  type GhCommentLike,
+  type GhIssueLike,
+} from '../src/commands/watch.js';
+
+const baseEnv = {
+  GITHUB_PAT: 'ghp_test',
+  OUIJA_API_KEY: 'ouija_test',
+};
+
+describe('parseWatchArgs', () => {
+  it('parses owner/repo + agent and applies defaults', () => {
+    const result = parseWatchArgs(['octocat/Hello-World', '--agent', 'agent-1'], baseEnv);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.config.owner).toBe('octocat');
+    expect(result.config.repo).toBe('Hello-World');
+    expect(result.config.agentId).toBe('agent-1');
+    expect(result.config.label).toBe('ouija');
+    expect(result.config.mention).toBe('@ouija');
+    expect(result.config.pollIntervalMs).toBe(30_000);
+    expect(result.config.dryRun).toBe(false);
+    expect(result.config.serverUrl).toBe('http://localhost:4000');
+    expect(result.config.boardId).toBeUndefined();
+  });
+
+  it('parses every overridable flag', () => {
+    const argv = [
+      'foo/bar',
+      '--agent', 'agent-x',
+      '--label', 'agent-please',
+      '--mention', 'ouija-bot',
+      '--poll-interval', '90',
+      '--server', 'https://ouija.example.com/',
+      '--board', 'board_42',
+      '--dry-run',
+    ];
+    const result = parseWatchArgs(argv, baseEnv);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.config.label).toBe('agent-please');
+    expect(result.config.mention).toBe('@ouija-bot');
+    expect(result.config.pollIntervalMs).toBe(90_000);
+    expect(result.config.dryRun).toBe(true);
+    expect(result.config.serverUrl).toBe('https://ouija.example.com');
+    expect(result.config.boardId).toBe('board_42');
+  });
+
+  it('preserves a leading @ on --mention without doubling it', () => {
+    const result = parseWatchArgs(
+      ['o/r', '--agent', 'a', '--mention', '@bot'],
+      baseEnv,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.config.mention).toBe('@bot');
+  });
+
+  it('rejects missing positional', () => {
+    const result = parseWatchArgs(['--agent', 'a'], baseEnv);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('missing required argument');
+  });
+
+  it('rejects malformed owner/repo', () => {
+    const result = parseWatchArgs(['no-slash', '--agent', 'a'], baseEnv);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('owner/repo');
+  });
+
+  it('rejects missing --agent', () => {
+    const result = parseWatchArgs(['o/r'], baseEnv);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('--agent');
+  });
+
+  it('rejects flags without a value', () => {
+    const result = parseWatchArgs(['o/r', '--agent'], baseEnv);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('requires a value');
+  });
+
+  it('rejects unknown flags', () => {
+    const result = parseWatchArgs(['o/r', '--agent', 'a', '--bogus', 'x'], baseEnv);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('unknown flag');
+  });
+
+  it('rejects extra positional args', () => {
+    const result = parseWatchArgs(['o/r', 'extra', '--agent', 'a'], baseEnv);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('unexpected positional');
+  });
+
+  it('rejects --poll-interval below the floor', () => {
+    const result = parseWatchArgs(
+      ['o/r', '--agent', 'a', '--poll-interval', '2'],
+      baseEnv,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('--poll-interval');
+  });
+
+  it('rejects missing GITHUB_PAT', () => {
+    const result = parseWatchArgs(
+      ['o/r', '--agent', 'a'],
+      { OUIJA_API_KEY: 'ouija_test' },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('GITHUB_PAT');
+  });
+
+  it('accepts GH_TOKEN as a fallback for GITHUB_PAT', () => {
+    const result = parseWatchArgs(
+      ['o/r', '--agent', 'a'],
+      { GH_TOKEN: 'ghp_alt', OUIJA_API_KEY: 'ouija_test' },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.config.githubPat).toBe('ghp_alt');
+  });
+
+  it('rejects missing OUIJA_API_KEY', () => {
+    const result = parseWatchArgs(
+      ['o/r', '--agent', 'a'],
+      { GITHUB_PAT: 'ghp_test' },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain('OUIJA_API_KEY');
+  });
+
+  it('falls back to OUIJA_SERVER_URL env when --server is not provided', () => {
+    const result = parseWatchArgs(
+      ['o/r', '--agent', 'a'],
+      { ...baseEnv, OUIJA_SERVER_URL: 'https://prod.example.com/' },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.config.serverUrl).toBe('https://prod.example.com');
+  });
+});
+
+describe('findLabelMatches', () => {
+  const issue = (overrides: Partial<GhIssueLike>): GhIssueLike => ({
+    number: 1,
+    title: 'Add a LICENSE file',
+    body: 'GPL-3.0 please',
+    html_url: 'https://github.com/o/r/issues/1',
+    ...overrides,
+  });
+
+  it('returns one match per labeled issue not yet processed', () => {
+    const issues = [issue({ number: 1 }), issue({ number: 2, title: 'Bump deps' })];
+    const matches = findLabelMatches(issues, new Set());
+    expect(matches).toHaveLength(2);
+    expect(matches[0]!.key).toBe('issue:1');
+    expect(matches[0]!.source).toBe('label');
+    expect(matches[1]!.key).toBe('issue:2');
+    expect(matches[1]!.title).toBe('Bump deps');
+  });
+
+  it('skips already-processed issues', () => {
+    const issues = [issue({ number: 1 }), issue({ number: 2 })];
+    const matches = findLabelMatches(issues, new Set(['issue:1']));
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.key).toBe('issue:2');
+  });
+
+  it('skips PRs (the issues endpoint returns them too)', () => {
+    const issues = [
+      issue({ number: 1 }),
+      issue({ number: 2, pull_request: { url: 'https://...' } }),
+    ];
+    const matches = findLabelMatches(issues, new Set());
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.key).toBe('issue:1');
+  });
+
+  it('substitutes a placeholder when body is empty/null', () => {
+    const matches = findLabelMatches(
+      [issue({ number: 7, body: null }), issue({ number: 8, body: '   ' })],
+      new Set(),
+    );
+    expect(matches[0]!.description).toBe('(no description on issue #7)');
+    expect(matches[1]!.description).toBe('(no description on issue #8)');
+  });
+});
+
+describe('findMentionMatches', () => {
+  const comment = (overrides: Partial<GhCommentLike>): GhCommentLike => ({
+    id: 100,
+    body: '@ouija please add a LICENSE',
+    html_url: 'https://github.com/o/r/issues/1#issuecomment-100',
+    issue_url: 'https://api.github.com/repos/o/r/issues/1',
+    ...overrides,
+  });
+
+  it('matches case-insensitively on the mention substring', () => {
+    const matches = findMentionMatches(
+      [
+        comment({ id: 1, body: '@OUIJA help me' }),
+        comment({ id: 2, body: '@ouija help me' }),
+        comment({ id: 3, body: '@Ouija help me' }),
+      ],
+      '@ouija',
+      new Set(),
+    );
+    expect(matches).toHaveLength(3);
+    expect(matches.map((m) => m.key)).toEqual(['comment:1', 'comment:2', 'comment:3']);
+  });
+
+  it('skips comments without the mention', () => {
+    const matches = findMentionMatches(
+      [
+        comment({ id: 1, body: 'looks good to me' }),
+        comment({ id: 2, body: '@ouija please review' }),
+      ],
+      '@ouija',
+      new Set(),
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.key).toBe('comment:2');
+  });
+
+  it('skips already-processed comments', () => {
+    const matches = findMentionMatches(
+      [comment({ id: 1 }), comment({ id: 2 })],
+      '@ouija',
+      new Set(['comment:1']),
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.key).toBe('comment:2');
+  });
+
+  it('truncates titles longer than 80 chars with an ellipsis', () => {
+    const longLine = 'x'.repeat(120);
+    const matches = findMentionMatches(
+      [comment({ id: 1, body: `@ouija ${longLine}` })],
+      '@ouija',
+      new Set(),
+    );
+    expect(matches[0]!.title.length).toBeLessThanOrEqual(80);
+    expect(matches[0]!.title.endsWith('…')).toBe(true);
+  });
+
+  it('uses just the first line as the title when multi-line', () => {
+    const matches = findMentionMatches(
+      [comment({ id: 1, body: '@ouija fix the linter\n\n## Steps\n1. Run eslint' })],
+      '@ouija',
+      new Set(),
+    );
+    expect(matches[0]!.title).toBe('@ouija fix the linter');
+  });
+
+  it('falls back to a synthetic title when the body is empty', () => {
+    const matches = findMentionMatches(
+      [comment({ id: 7, body: '@ouija' })],
+      '@ouija',
+      new Set(),
+    );
+    expect(matches[0]!.title).toBe('@ouija');
+  });
+
+  it('respects a custom mention different from @ouija', () => {
+    const matches = findMentionMatches(
+      [
+        comment({ id: 1, body: '@ouija ignored' }),
+        comment({ id: 2, body: '@bot used' }),
+      ],
+      '@bot',
+      new Set(),
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.key).toBe('comment:2');
+  });
+});

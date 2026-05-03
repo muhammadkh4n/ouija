@@ -13,6 +13,7 @@ import { runDown } from './commands/down.js';
 import { runLogs } from './commands/logs.js';
 import { runStatus } from './commands/status.js';
 import { runDoctor } from './commands/doctor.js';
+import { runWatch } from './commands/watch.js';
 import { log } from './lib/logger.js';
 
 const VERSION = '0.1.0';
@@ -43,6 +44,8 @@ async function main(argv: readonly string[]): Promise<number> {
       return runStatus(rest);
     case 'doctor':
       return runDoctor(rest);
+    case 'watch':
+      return runWatch(rest);
     default:
       log.error(`Unknown command: ${command}`);
       printHelp();
@@ -65,6 +68,8 @@ Commands:
   logs [service] [--stack S]  Tail docker compose logs
   status [--stack S]          Show docker compose ps for the stack
   doctor                      Preflight audit of the current project
+  watch <owner/repo>          Poll GitHub for ouija-labeled issues +
+                              @ouija mentions; dispatch via the server
   version                     Print the CLI version
   help                        Show this message
 
@@ -79,6 +84,7 @@ Examples:
   ouija logs ouija --follow
   ouija doctor
   ouija down --volumes
+  ouija watch muhammadkh4n/ouija --agent agent-test --dry-run
 
 Docs: https://github.com/muhammadkh4n/ouija#readme
 `);
