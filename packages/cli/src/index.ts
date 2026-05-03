@@ -14,6 +14,7 @@ import { runLogs } from './commands/logs.js';
 import { runStatus } from './commands/status.js';
 import { runDoctor } from './commands/doctor.js';
 import { runWatch } from './commands/watch.js';
+import { runGithubConnect } from './commands/github-connect.js';
 import { log } from './lib/logger.js';
 
 const VERSION = '0.1.0';
@@ -46,6 +47,13 @@ async function main(argv: readonly string[]): Promise<number> {
       return runDoctor(rest);
     case 'watch':
       return runWatch(rest);
+    case 'github': {
+      const [sub, ...subRest] = rest;
+      if (sub === 'connect') return runGithubConnect(subRest);
+      log.error(`unknown github subcommand: ${sub ?? '(none)'}`);
+      log.info('  available: ouija github connect <owner/repo> --server-url <url>');
+      return 1;
+    }
     default:
       log.error(`Unknown command: ${command}`);
       printHelp();
@@ -70,6 +78,8 @@ Commands:
   doctor                      Preflight audit of the current project
   watch <owner/repo>          Poll GitHub for ouija-labeled issues +
                               @ouija mentions; dispatch via the server
+  github connect <owner/repo> Register the Ouija webhook on a GitHub
+                              repo (idempotent)
   version                     Print the CLI version
   help                        Show this message
 
