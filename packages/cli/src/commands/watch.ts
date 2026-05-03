@@ -47,6 +47,14 @@ export interface WatchConfig {
   githubPat: string;
   agentId: string;
   boardId: string | undefined;
+  /**
+   * Whether the loop applies the {@link POLL_BACKOFF_MULTIPLIERS} ladder
+   * on quiet ticks. Default `true`. Disabled by setting
+   * `OUIJA_POLL_BACKOFF=off` (or `0` / `false` / `disabled`) in the env.
+   * Disable when watching a high-activity repo where every minute
+   * matters more than the GitHub rate-limit budget.
+   */
+  backoffEnabled: boolean;
 }
 
 export type WatchSource = 'label' | 'mention';
@@ -100,6 +108,18 @@ const DEFAULT_MENTION = '@ouija';
 const DEFAULT_POLL_SECONDS = 30;
 const MIN_POLL_SECONDS = 5;
 const DEFAULT_SERVER_URL = 'http://localhost:4000';
+
+/**
+ * Backoff ladder applied as multipliers on `pollIntervalMs`. After every
+ * tick that produces no activity (no new matches AND no comments fetched),
+ * the level advances one rung; any activity resets to 0.
+ *
+ * For the default 30s base interval, this maps to 30s → 60s → 120s → 300s,
+ * matching the phase note's spec. For non-default bases, the proportions
+ * stay the same so the human-meaningful "5 minutes between polls when the
+ * repo is quiet" property holds at any reasonable base.
+ */
+export const POLL_BACKOFF_MULTIPLIERS: readonly number[] = [1, 2, 4, 10];
 
 /**
  * Parse `ouija watch` argv + env into a validated config. Pure; returns
@@ -219,8 +239,54 @@ export function parseWatchArgs(
       githubPat,
       agentId: agentId.trim(),
       boardId,
+      backoffEnabled: parseBackoffEnv(env['OUIJA_POLL_BACKOFF']),
     },
   };
+}
+
+/**
+ * Read the `OUIJA_POLL_BACKOFF` env var. Default-on; opted out by the
+ * common "disabled" idioms operators reach for. Anything else (including
+ * unset) keeps backoff enabled. Pure for unit tests.
+ */
+export function parseBackoffEnv(raw: string | undefined): boolean {
+  if (raw === undefined) return true;
+  const v = raw.trim().toLowerCase();
+  if (v === '' || v === 'off' || v === '0' || v === 'false' || v === 'disabled' || v === 'no') {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Compute the next backoff level given the current level + whether the
+ * tick produced activity. Activity always resets to 0; quiet advances by
+ * one rung up to the ladder length minus one. When `enabled` is false,
+ * the level stays at 0 regardless. Pure; the loop wires it.
+ */
+export function nextBackoffLevel(
+  current: number,
+  hadActivity: boolean,
+  enabled: boolean,
+  maxLevel: number = POLL_BACKOFF_MULTIPLIERS.length - 1,
+): number {
+  if (!enabled) return 0;
+  if (hadActivity) return 0;
+  if (current < 0) return 0;
+  if (current >= maxLevel) return maxLevel;
+  return current + 1;
+}
+
+/**
+ * Resolve the effective sleep duration for the current backoff level
+ * against the operator's configured base interval. Same multipliers
+ * regardless of base so a `--poll-interval 60` user gets 60 → 120 → 240
+ * → 600 (mirroring the default ladder's proportions, not its absolute
+ * cap). Returns `pollIntervalMs` unchanged when level is 0.
+ */
+export function effectivePollMs(pollIntervalMs: number, level: number): number {
+  const safeLevel = Math.max(0, Math.min(level, POLL_BACKOFF_MULTIPLIERS.length - 1));
+  return pollIntervalMs * (POLL_BACKOFF_MULTIPLIERS[safeLevel] ?? 1);
 }
 
 /**
@@ -387,7 +453,7 @@ export async function runWatch(
 
   log.step(`ouija watch ${config.owner}/${config.repo}`);
   log.info(`agent: ${config.agentId}${config.boardId !== undefined ? ` · board: ${config.boardId}` : ''}`);
-  log.info(`label: ${config.label} · mention: ${config.mention} · poll: ${config.pollIntervalMs / 1000}s`);
+  log.info(`label: ${config.label} · mention: ${config.mention} · poll: ${config.pollIntervalMs / 1000}s${config.backoffEnabled ? '' : ' (backoff: off)'}`);
   log.info(`server: ${config.serverUrl}`);
   if (config.dryRun) {
     log.warn('DRY RUN — matches will be logged but not dispatched');
@@ -396,8 +462,10 @@ export async function runWatch(
   const processedKeys = new Set<string>();
   let lastCommentPollIso = clock.now();
   let firstTick = true;
+  let backoffLevel = 0;
 
   while (signal === undefined || !signal.aborted) {
+    let tickHadActivity = false;
     try {
       const tickStart = clock.now();
       const issues = await fetchLabeledIssues(config);
@@ -407,6 +475,13 @@ export async function runWatch(
       const labelMatches = findLabelMatches(issues, processedKeys);
       const mentionMatches = findMentionMatches(comments, config.mention, processedKeys);
       const newMatches = [...labelMatches, ...mentionMatches];
+
+      // "Activity" for backoff purposes = any new matches OR any comments
+      // since last poll. The latter signals genuine repo motion even when
+      // nothing matched our label/mention — avoids the "quiet repo with
+      // active maintainers" edge case where backoff would mute the loop
+      // for legitimate work.
+      tickHadActivity = newMatches.length > 0 || comments.length > 0;
 
       if (firstTick) {
         // Seed dedup with whatever currently matches so we don't fire on
@@ -437,10 +512,27 @@ export async function runWatch(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error(`poll error — ${msg}`);
+      // Treat a fetch error as quiet — same backoff behaviour applies so
+      // a sustained outage doesn't burn rate-limit budget retrying every
+      // base interval.
+      tickHadActivity = false;
+    }
+
+    // First tick is always "quiet for backoff purposes" because we just
+    // seeded — nothing dispatched, so don't reset the level yet.
+    const previousLevel = backoffLevel;
+    backoffLevel = nextBackoffLevel(backoffLevel, tickHadActivity, config.backoffEnabled);
+    if (config.backoffEnabled && backoffLevel !== previousLevel) {
+      const newSleepSec = effectivePollMs(config.pollIntervalMs, backoffLevel) / 1000;
+      if (backoffLevel > previousLevel) {
+        log.dim(`quiet — backing off to ${newSleepSec}s`);
+      } else {
+        log.dim(`activity resumed — back to base ${newSleepSec}s`);
+      }
     }
 
     if (signal?.aborted) break;
-    await clock.sleep(config.pollIntervalMs);
+    await clock.sleep(effectivePollMs(config.pollIntervalMs, backoffLevel));
   }
 
   log.info('ouija watch stopped');
