@@ -104,7 +104,11 @@ function stampInstanceId<T>(
   payload: T,
   id: import('@ouija-dev/types').InstanceId,
 ): T {
-  if (topic === 'dispatch.outcome' || topic === 'pipeline.admin_reset') {
+  if (
+    topic === 'dispatch.outcome' ||
+    topic === 'pipeline.admin_reset' ||
+    topic === 'pipeline.timed_out'
+  ) {
     return { ...(payload as unknown as object), instanceId: id } as unknown as T;
   }
   return payload;
@@ -419,9 +423,22 @@ export class Orchestrator {
     }
 
     const now = new Date().toISOString();
+    const statusChanged = outcome.nextState.status !== instance.state.status;
     const updatedInstance: PipelineInstance = {
       ...instance,
       state: outcome.nextState,
+      // Anchor the dwell reconciler: stamp on every status change so the
+      // next state's budget is timed from this instant. Same-status
+      // transitions (e.g. agent_progress refreshing lastHeartbeatAt on
+      // running) keep the prior anchor — they don't reset the dwell.
+      stateEnteredAt: statusChanged ? now : instance.stateEnteredAt,
+      // `timed_out` is a retry-eligible failure: bump `attempt` so a future
+      // `human_retry` (or auto-retry policy) starts iteration N+1. Same
+      // semantics as friction-log #16's stuck-state recovery, scoped
+      // narrowly to this trigger so unrelated transitions don't churn the
+      // counter. Done here rather than inside the pure handler because
+      // `attempt` is instance-level and the pure layer only sees state.
+      attempt: trigger.type === 'timed_out' ? instance.attempt + 1 : instance.attempt,
       updatedAt: now,
     };
 
@@ -454,7 +471,7 @@ export class Orchestrator {
       sequence: seqBase + i,
     }));
 
-    if (outcome.nextState.status !== instance.state.status) {
+    if (statusChanged) {
       eventRecords.push({
         id: randomUUID(),
         instanceId: instance.id,
@@ -883,6 +900,7 @@ export class Orchestrator {
       projectId: String(card.boardId),
       state: idleState,
       attempt: 0,
+      stateEnteredAt: now,
       createdAt: now,
       updatedAt: now,
     };
@@ -1072,12 +1090,86 @@ export class Orchestrator {
       nextStatus: result.nextStatus!,
     };
   }
+
+
+  /**
+   * Dwell-budget timeout entry point. Called by `DwellReconciler` when an
+   * instance has overstayed its per-state budget. Builds a `timed_out`
+   * trigger and routes through `applyTrigger` (5th caller) — the pure
+   * `handleTimedOut` rejects when the live state has drifted out of
+   * `fromStatus` between the reconciler's query and this call, so a slow
+   * reconciler racing with a real transition writes nothing.
+   *
+   * Returns a typed outcome so the reconciler can count successful timeouts
+   * for telemetry without depending on thrown exceptions.
+   */
+  async requestTimedOut(
+    instanceIdStr: string,
+    fromStatus: import('@ouija-dev/types').PipelineStatus,
+    budgetMs: number,
+    observedDwellMs: number,
+  ): Promise<TimedOutOutcome> {
+    const instance = await this.db.pipelines.findById(makeInstanceId(instanceIdStr));
+    if (instance === undefined) {
+      this.logger.warn('requestTimedOut: instance not found', { instanceId: instanceIdStr });
+      return { kind: 'not_found' };
+    }
+
+    const config = await this._getConfig(instance.boardId);
+    if (config === undefined) {
+      this.logger.warn('requestTimedOut: no config for board', {
+        instanceId: instanceIdStr,
+        boardId: instance.boardId,
+      });
+      return { kind: 'config_missing', boardId: String(instance.boardId) };
+    }
+
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus,
+      budgetMs,
+      observedDwellMs,
+    };
+    const result = await this.applyTrigger(instance, trigger, config);
+
+    if (!result.accepted) {
+      this.logger.info('requestTimedOut: transition rejected', {
+        instanceId: instanceIdStr,
+        fromStatus,
+        reason: result.reason,
+      });
+      return { kind: 'rejected', reason: result.reason ?? 'transition rejected' };
+    }
+
+    this.logger.warn('requestTimedOut: pipeline timed out', {
+      instanceId: instanceIdStr,
+      prevStatus: result.prevStatus,
+      nextStatus: result.nextStatus,
+      budgetMs,
+      observedDwellMs,
+      sideEffectCount: result.sideEffectCount,
+    });
+
+    return {
+      kind: 'timed_out',
+      prevStatus: result.prevStatus!,
+      nextStatus: result.nextStatus!,
+    };
+  }
 }
 
 // ---- requestAdminReset return shape ----
 
 export type AdminResetOutcome =
   | { kind: 'reset'; prevStatus: PipelineState['status']; nextStatus: PipelineState['status'] }
+  | { kind: 'not_found' }
+  | { kind: 'config_missing'; boardId: string }
+  | { kind: 'rejected'; reason: string };
+
+// ---- requestTimedOut return shape ----
+
+export type TimedOutOutcome =
+  | { kind: 'timed_out'; prevStatus: PipelineState['status']; nextStatus: PipelineState['status'] }
   | { kind: 'not_found' }
   | { kind: 'config_missing'; boardId: string }
   | { kind: 'rejected'; reason: string };

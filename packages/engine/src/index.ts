@@ -4,8 +4,16 @@ export { evaluateGuards } from './guards.js';
 export { sanitize, createSanitizer, defaultSanitizerConfig } from './sanitizer.js';
 export type { SanitizeResult, SanitizeWarning, SanitizeWarningType, SanitizerConfig } from './sanitizer.js';
 export { Orchestrator, CONFIG_CACHE_TTL_MS } from './orchestrator.js';
-export type { OrchestratorLogger, AdminResetOutcome } from './orchestrator.js';
+export type { OrchestratorLogger, AdminResetOutcome, TimedOutOutcome } from './orchestrator.js';
 export { StallMonitor } from './stall-monitor.js';
+export { DwellReconciler } from './reconciler.js';
+export type { DwellReconcilerOptions, DwellConfigResolver } from './reconciler.js';
+export {
+  DEFAULT_DWELL_BUDGETS_MS,
+  RUNNING_HARD_CAP_MS,
+  resolveDwellBudgetMs,
+  reconcilableStatuses,
+} from './dwell-budgets.js';
 export {
   PostgresDatabase,
   PostgresPipelineRepository,

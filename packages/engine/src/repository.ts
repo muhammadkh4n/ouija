@@ -69,6 +69,7 @@ interface PipelineInstanceRow {
   cost: string | null;
   tokens_used: number | null;
   session_log_path: string | null;
+  state_entered_at: Date;
   created_at: Date;
   updated_at: Date;
 }
@@ -98,6 +99,7 @@ function rowToInstance(row: PipelineInstanceRow): PipelineInstance {
     projectId: row.project_id,
     state: row.state,
     attempt: row.attempt,
+    stateEnteredAt: row.state_entered_at.toISOString(),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -113,6 +115,10 @@ function rowToInstance(row: PipelineInstanceRow): PipelineInstance {
   if (row.session_log_path !== null) base.sessionLogPath = row.session_log_path;
   return base;
 }
+
+// stateEnteredAt is required on PipelineInstance but populated by migration 008
+// for existing rows (backfilled from latest pipeline.transitioned event). Reads
+// always have it; the rowToInstance constructor below stamps it explicitly.
 
 interface PipelineEventRow {
   id: string;
@@ -144,7 +150,7 @@ export class PostgresPipelineRepository implements PipelineRepository {
     const result = await this.client.query<PipelineInstanceRow>(
       `SELECT id, card_id, board_id, project_id, state, attempt,
               assigned_agent_id, pr_url, cost, tokens_used, session_log_path,
-              created_at, updated_at
+              state_entered_at, created_at, updated_at
          FROM pipeline_instances
         WHERE id = $1`,
       [id],
@@ -157,7 +163,7 @@ export class PostgresPipelineRepository implements PipelineRepository {
     const result = await this.client.query<PipelineInstanceRow>(
       `SELECT pi.id, pi.card_id, pi.board_id, pi.project_id, pi.state, pi.attempt,
               pi.assigned_agent_id, pi.pr_url, pi.cost, pi.tokens_used,
-              pi.session_log_path, pi.created_at, pi.updated_at
+              pi.session_log_path, pi.state_entered_at, pi.created_at, pi.updated_at
          FROM pipeline_instances pi
          JOIN card_instance_index cii ON cii.instance_id = pi.id
         WHERE cii.card_id = $1`,
@@ -180,8 +186,8 @@ export class PostgresPipelineRepository implements PipelineRepository {
       const decoded = decodeCursor(cursor);
       const result = await this.client.query<PipelineInstanceRow>(
         `SELECT id, card_id, board_id, project_id, state, attempt,
-                pr_url, cost, tokens_used, session_log_path,
-                created_at, updated_at
+                assigned_agent_id, pr_url, cost, tokens_used, session_log_path,
+                state_entered_at, created_at, updated_at
            FROM pipeline_instances
           WHERE board_id = $1
             AND (created_at, id) < ($2::timestamptz, $3)
@@ -193,8 +199,8 @@ export class PostgresPipelineRepository implements PipelineRepository {
     } else {
       const result = await this.client.query<PipelineInstanceRow>(
         `SELECT id, card_id, board_id, project_id, state, attempt,
-                pr_url, cost, tokens_used, session_log_path,
-                created_at, updated_at
+                assigned_agent_id, pr_url, cost, tokens_used, session_log_path,
+                state_entered_at, created_at, updated_at
            FROM pipeline_instances
           WHERE board_id = $1
           ORDER BY created_at DESC, id DESC
@@ -227,9 +233,9 @@ export class PostgresPipelineRepository implements PipelineRepository {
       `INSERT INTO pipeline_instances
              (id, card_id, board_id, project_id, state, status, attempt,
               assigned_agent_id, pr_url, cost, tokens_used, session_log_path,
-              created_at, updated_at)
+              state_entered_at, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12,
-               $13::timestamptz, $14::timestamptz)
+               $13::timestamptz, $14::timestamptz, $15::timestamptz)
        ON CONFLICT (id) DO UPDATE SET
          state             = EXCLUDED.state,
          status            = EXCLUDED.status,
@@ -241,6 +247,7 @@ export class PostgresPipelineRepository implements PipelineRepository {
          -- Preserve session_log_path once set: callers that save without
          -- it (e.g. a later review-bundle transition) must not null it out.
          session_log_path  = COALESCE(EXCLUDED.session_log_path, pipeline_instances.session_log_path),
+         state_entered_at  = EXCLUDED.state_entered_at,
          updated_at        = EXCLUDED.updated_at`,
       [
         instance.id,
@@ -255,6 +262,7 @@ export class PostgresPipelineRepository implements PipelineRepository {
         scalars.cost,
         scalars.tokensUsed,
         instance.sessionLogPath ?? null,
+        instance.stateEnteredAt,
         instance.createdAt,
         instance.updatedAt,
       ],
@@ -286,7 +294,7 @@ export class PostgresPipelineRepository implements PipelineRepository {
     const result = await this.client.query<PipelineInstanceRow>(
       `SELECT id, card_id, board_id, project_id, state, attempt,
               assigned_agent_id, pr_url, cost, tokens_used, session_log_path,
-              created_at, updated_at
+              state_entered_at, created_at, updated_at
          FROM pipeline_instances
         WHERE status IN ('dispatching', 'running')
           AND (
@@ -299,6 +307,32 @@ export class PostgresPipelineRepository implements PipelineRepository {
               AND (state->>'lastHeartbeatAt')::timestamptz < $1)
           )`,
       [cutoff.toISOString()],
+    );
+    return result.rows.map(rowToInstance);
+  }
+
+
+  /**
+   * Phase-2 dwell reconciler entry point. Returns instances currently in
+   * `status` whose `state_entered_at` predates `cutoff`, capped at `limit`.
+   * The composite index on (status, state_entered_at) added in migration
+   * 008 keeps this sub-100ms even with thousands of pipelines.
+   */
+  async findOverbudgetCandidates(
+    status: import('@ouija-dev/types').PipelineStatus,
+    cutoff: Date,
+    limit: number,
+  ): Promise<PipelineInstance[]> {
+    const result = await this.client.query<PipelineInstanceRow>(
+      `SELECT id, card_id, board_id, project_id, state, attempt,
+              assigned_agent_id, pr_url, cost, tokens_used, session_log_path,
+              state_entered_at, created_at, updated_at
+         FROM pipeline_instances
+        WHERE status = $1
+          AND state_entered_at < $2::timestamptz
+        ORDER BY state_entered_at ASC
+        LIMIT $3`,
+      [status, cutoff.toISOString(), limit],
     );
     return result.rows.map(rowToInstance);
   }
