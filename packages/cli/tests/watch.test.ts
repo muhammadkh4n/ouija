@@ -11,8 +11,12 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  POLL_BACKOFF_MULTIPLIERS,
+  effectivePollMs,
   findLabelMatches,
   findMentionMatches,
+  nextBackoffLevel,
+  parseBackoffEnv,
   parseWatchArgs,
   type GhCommentLike,
   type GhIssueLike,
@@ -296,5 +300,99 @@ describe('findMentionMatches', () => {
     );
     expect(matches).toHaveLength(1);
     expect(matches[0]!.key).toBe('comment:2');
+  });
+});
+
+describe('parseBackoffEnv', () => {
+  it('defaults to enabled when env is unset', () => {
+    expect(parseBackoffEnv(undefined)).toBe(true);
+  });
+
+  it('treats common opt-out spellings as disabled', () => {
+    for (const v of ['off', 'OFF', '0', 'false', 'False', 'disabled', 'no', '  off  ', '']) {
+      expect(parseBackoffEnv(v)).toBe(false);
+    }
+  });
+
+  it('treats anything else (including "on" / "1" / "true") as enabled', () => {
+    for (const v of ['on', '1', 'true', 'enabled', 'yes', 'whatever']) {
+      expect(parseBackoffEnv(v)).toBe(true);
+    }
+  });
+});
+
+describe('nextBackoffLevel', () => {
+  it('returns 0 when backoff is disabled (regardless of input)', () => {
+    expect(nextBackoffLevel(0, false, false)).toBe(0);
+    expect(nextBackoffLevel(2, false, false)).toBe(0);
+    expect(nextBackoffLevel(3, true, false)).toBe(0);
+  });
+
+  it('resets to 0 on activity', () => {
+    expect(nextBackoffLevel(0, true, true)).toBe(0);
+    expect(nextBackoffLevel(2, true, true)).toBe(0);
+    expect(nextBackoffLevel(POLL_BACKOFF_MULTIPLIERS.length - 1, true, true)).toBe(0);
+  });
+
+  it('advances by one rung on quiet ticks until the cap', () => {
+    expect(nextBackoffLevel(0, false, true)).toBe(1);
+    expect(nextBackoffLevel(1, false, true)).toBe(2);
+    expect(nextBackoffLevel(2, false, true)).toBe(3);
+    // At the cap, stays at the cap.
+    expect(nextBackoffLevel(3, false, true)).toBe(3);
+    expect(nextBackoffLevel(POLL_BACKOFF_MULTIPLIERS.length - 1, false, true)).toBe(
+      POLL_BACKOFF_MULTIPLIERS.length - 1,
+    );
+  });
+
+  it('clamps negative or out-of-range current values to 0', () => {
+    expect(nextBackoffLevel(-1, false, true)).toBe(0);
+    expect(nextBackoffLevel(99, false, true)).toBe(POLL_BACKOFF_MULTIPLIERS.length - 1);
+  });
+
+  it('respects a custom maxLevel cap', () => {
+    expect(nextBackoffLevel(0, false, true, 1)).toBe(1);
+    expect(nextBackoffLevel(1, false, true, 1)).toBe(1);
+  });
+});
+
+describe('effectivePollMs', () => {
+  it('returns the base interval at level 0', () => {
+    expect(effectivePollMs(30_000, 0)).toBe(30_000);
+    expect(effectivePollMs(60_000, 0)).toBe(60_000);
+  });
+
+  it('multiplies by the ladder rungs at higher levels', () => {
+    // Default ladder is [1, 2, 4, 10] so 30s base → 30, 60, 120, 300s.
+    expect(effectivePollMs(30_000, 1)).toBe(60_000);
+    expect(effectivePollMs(30_000, 2)).toBe(120_000);
+    expect(effectivePollMs(30_000, 3)).toBe(300_000);
+  });
+
+  it('clamps levels above the ladder length to the cap', () => {
+    expect(effectivePollMs(30_000, 99)).toBe(30_000 * POLL_BACKOFF_MULTIPLIERS[POLL_BACKOFF_MULTIPLIERS.length - 1]!);
+  });
+
+  it('clamps negative levels to the base', () => {
+    expect(effectivePollMs(30_000, -1)).toBe(30_000);
+  });
+});
+
+describe('parseWatchArgs — backoff env wiring', () => {
+  it('defaults backoffEnabled to true when OUIJA_POLL_BACKOFF is unset', () => {
+    const result = parseWatchArgs(['o/r', '--agent', 'a'], baseEnv);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.config.backoffEnabled).toBe(true);
+  });
+
+  it('disables backoff when OUIJA_POLL_BACKOFF=off', () => {
+    const result = parseWatchArgs(
+      ['o/r', '--agent', 'a'],
+      { ...baseEnv, OUIJA_POLL_BACKOFF: 'off' },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.config.backoffEnabled).toBe(false);
   });
 });
