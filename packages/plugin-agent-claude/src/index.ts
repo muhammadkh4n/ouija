@@ -15,6 +15,10 @@
  * will detect silence and re-queue the job.
  */
 
+// Re-export the identity layer (Phase 3 Task 6) so the orchestrator
+// (Task 8) can import everything from `@ouija-dev/plugin-agent-claude`.
+export * from './identity/index.js';
+
 import { randomUUID } from 'node:crypto';
 import type {
   AgentPlugin,
