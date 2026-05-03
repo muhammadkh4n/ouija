@@ -62,6 +62,8 @@ export function transition(
       return handlePrMerged(state, trigger);
     case 'pr_review_received':
       return handlePrReviewReceived(state, trigger, config);
+    case 'manual_dispatch':
+      return handleManualDispatch(state, trigger, config);
     default: {
       const _exhaustive: never = trigger;
       return {
@@ -1102,6 +1104,88 @@ function handlePrReviewReceived(
         idempotencyKey: encodeJobId(['stall-review', String(newDispatchId)]),
       },
     ],
+  };
+}
+
+
+/**
+ * Administrative dispatch — bypasses kanban entirely. Carries the agentId +
+ * task text inline, so the agent worker can run without a `card_moved`
+ * event and without a real kanban entry. Used by
+ * `POST /api/v1/pipelines/dispatch` and (in Phase 3) by `ouija watch`.
+ *
+ * Allowed only from `idle` because the orchestrator pre-creates a fresh
+ * instance immediately before applying this trigger — any other status would
+ * mean a race between two callers (treat as a bug in the caller, not a state
+ * machine concession). Mirrors the kanban dispatch path otherwise:
+ * `dispatch_agent` + `enqueue_stall_check` side effects, dispatching state
+ * with the same fields the worker already understands.
+ *
+ * The dispatch_agent payload carries `taskTitle` + `workOrderDescription`
+ * inline so the work-order assembler doesn't need to call
+ * `kanbanPlugin.getCard(cardId)` for synthetic `manual/<uuid>` cardIds.
+ * This is the path the existing `taskTitle` field on `AgentDispatchJobData`
+ * (see `packages/bus/src/job-queue.ts`) was reserved for.
+ */
+function handleManualDispatch(
+  state: PipelineState,
+  trigger: Extract<PipelineTrigger, { type: 'manual_dispatch' }>,
+  config: PipelineConfig,
+): TransitionOutcome {
+  if (state.status !== 'idle') {
+    return {
+      rejected: true,
+      reason: `Cannot manually dispatch: pipeline is in state "${state.status}", expected "idle"`,
+    };
+  }
+
+  const newDispatchId = makeDispatchId(randomUUID());
+  const agentId = makeAgentId(trigger.agentId);
+  const now = new Date().toISOString();
+  const stallMs = config.defaultStallThresholdMs;
+
+  const nextState: PipelineState = {
+    status: 'dispatching',
+    dispatchId: newDispatchId,
+    agentId,
+    dispatchedAt: now,
+  };
+
+  const sideEffects: SideEffect[] = [
+    {
+      type: 'dispatch_agent',
+      payload: {
+        dispatchId: newDispatchId,
+        agentId,
+        taskTitle: trigger.title,
+        workOrderDescription: trigger.description,
+      },
+      idempotencyKey: encodeJobId(['dispatch', newDispatchId]),
+    },
+    {
+      type: 'enqueue_stall_check',
+      payload: { dispatchId: newDispatchId, delayMs: stallMs },
+      idempotencyKey: encodeJobId(['stall-check', newDispatchId]),
+    },
+  ];
+
+  return {
+    rejected: false,
+    nextState,
+    // instanceId + cardId are filled in by Orchestrator.applyTrigger via
+    // stampInstanceId — the pure transition has no instance context.
+    events: [
+      {
+        topic: 'pipeline.manually_dispatched',
+        payload: {
+          agentId: trigger.agentId,
+          taskTitle: trigger.title,
+          requestedBy: trigger.requestedBy,
+          dispatchedAt: now,
+        } as unknown as import('@ouija-dev/types').OuijaEventMap['pipeline.manually_dispatched'],
+      },
+    ],
+    sideEffects,
   };
 }
 

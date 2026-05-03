@@ -1222,4 +1222,177 @@ describe('Orchestrator — manual trigger mode', () => {
     // Confirm it's NOT the default agent
     expect(jobData.agentId).not.toBe(DEFAULT_AGENT_ID);
   });
+
+  // ---- Test 13: requestManualDispatch — admin dispatch end-to-end ----
+  //
+  // Phase 2 Task 7. Promotes the prior v0.3.4 scratch (do-not-ship branch) to
+  // a first-class entry point routed through `applyTrigger` (6th caller).
+  // Tests instantiate their own orchestrator + db so each can vary the
+  // boardConfig fixtures without touching the manual-trigger setup above.
+
+  function makeManualDispatchOrchestrator() {
+    const localDb = createMockDatabase();
+    const localBus = createMockEventBus();
+    const localJobQueue = createMockJobQueue();
+    const localKanban = createMockKanbanPlugin(new Map());
+    const localLogger = createMockLogger();
+    localDb._configs.set(String(BOARD_ID), CONFIG_WITH_DEFAULT_AGENT);
+    return {
+      db: localDb,
+      jobQueue: localJobQueue,
+      orchestrator: new Orchestrator(
+        localDb,
+        localBus,
+        localJobQueue,
+        localKanban,
+        localLogger,
+      ),
+    };
+  }
+
+  it('requestManualDispatch: creates fresh idle instance and dispatches the named agent', async () => {
+    const { db, jobQueue, orchestrator } = makeManualDispatchOrchestrator();
+    const outcome = await orchestrator.requestManualDispatch({
+      agentId: 'agent-test',
+      title: 'Bump deps',
+      description: 'Run npm-check-updates and open a PR.',
+      requestedBy: 'mk',
+    });
+
+    expect(outcome.kind).toBe('dispatched');
+    if (outcome.kind !== 'dispatched') return;
+    expect(outcome.cardId).toMatch(/^manual\//);
+    expect(outcome.boardId).toBe(String(BOARD_ID));
+    expect(outcome.dispatchId.length).toBeGreaterThan(0);
+
+    // Instance persisted with synthetic cardId, currently dispatching.
+    const persisted = db._instances.get(outcome.instanceId);
+    expect(persisted).toBeDefined();
+    expect(persisted!.state.status).toBe('dispatching');
+    expect(persisted!.cardId).toBe(outcome.cardId);
+    expect(persisted!.boardId).toBe(BOARD_ID);
+    // Anchor the dwell reconciler — applyTrigger stamps stateEnteredAt.
+    expect(typeof persisted!.stateEnteredAt).toBe('string');
+
+    // pipeline.manually_dispatched audit event emitted with instanceId + cardId.
+    const audit = db._events.filter(
+      (e) =>
+        e.instanceId === persisted!.id &&
+        e.topic === 'pipeline.manually_dispatched',
+    );
+    expect(audit).toHaveLength(1);
+    const auditPayload = audit[0]!.payload as Record<string, unknown>;
+    expect(auditPayload['instanceId']).toBe(persisted!.id);
+    expect(auditPayload['cardId']).toBe(outcome.cardId);
+    expect(auditPayload['agentId']).toBe('agent-test');
+    expect(auditPayload['taskTitle']).toBe('Bump deps');
+    expect(auditPayload['requestedBy']).toBe('mk');
+
+    // Routine pipeline.transitioned event also lands with the trigger name.
+    const transitions = db._events.filter(
+      (e) =>
+        e.instanceId === persisted!.id && e.topic === 'pipeline.transitioned',
+    );
+    expect(transitions).toHaveLength(1);
+    expect(
+      (transitions[0]!.payload as Record<string, unknown>)['trigger'],
+    ).toBe('manual_dispatch');
+
+    // dispatch_agent enqueued with inline task text + the right agent.
+    const dispatchJobs = jobQueue.enqueued.filter(
+      (j) => j.queue === QUEUE_NAMES.agentDispatch,
+    );
+    expect(dispatchJobs).toHaveLength(1);
+    const jobData = dispatchJobs[0]!.data as {
+      agentId: string;
+      taskTitle: string;
+      workOrderDescription: string;
+      cardId: string;
+    };
+    expect(jobData.agentId).toBe('agent-test');
+    expect(jobData.taskTitle).toBe('Bump deps');
+    expect(jobData.workOrderDescription).toBe(
+      'Run npm-check-updates and open a PR.',
+    );
+    expect(jobData.cardId).toBe(outcome.cardId);
+  });
+
+  it('requestManualDispatch: rejects empty agentId / title / description', async () => {
+    const { orchestrator } = makeManualDispatchOrchestrator();
+    expect(
+      (
+        await orchestrator.requestManualDispatch({
+          agentId: '',
+          title: 't',
+          description: 'd',
+          requestedBy: 'mk',
+        })
+      ).kind,
+    ).toBe('rejected');
+    expect(
+      (
+        await orchestrator.requestManualDispatch({
+          agentId: 'a',
+          title: '   ',
+          description: 'd',
+          requestedBy: 'mk',
+        })
+      ).kind,
+    ).toBe('rejected');
+    expect(
+      (
+        await orchestrator.requestManualDispatch({
+          agentId: 'a',
+          title: 't',
+          description: '',
+          requestedBy: 'mk',
+        })
+      ).kind,
+    ).toBe('rejected');
+  });
+
+  it('requestManualDispatch: returns no_board when no configs are registered', async () => {
+    const { db, orchestrator } = makeManualDispatchOrchestrator();
+    db._configs.clear();
+    const outcome = await orchestrator.requestManualDispatch({
+      agentId: 'agent-test',
+      title: 't',
+      description: 'd',
+      requestedBy: 'mk',
+    });
+    expect(outcome.kind).toBe('no_board');
+  });
+
+  it('requestManualDispatch: returns ambiguous_board when >1 config and no boardId is given', async () => {
+    const { db, orchestrator } = makeManualDispatchOrchestrator();
+    db._configs.set('board-other', {
+      ...CONFIG_WITH_DEFAULT_AGENT,
+      boardId: 'board-other' as never,
+    });
+    const outcome = await orchestrator.requestManualDispatch({
+      agentId: 'agent-test',
+      title: 't',
+      description: 'd',
+      requestedBy: 'mk',
+    });
+    expect(outcome.kind).toBe('ambiguous_board');
+    if (outcome.kind !== 'ambiguous_board') return;
+    expect(outcome.boardIds).toHaveLength(2);
+    expect(outcome.boardIds).toContain(String(BOARD_ID));
+    expect(outcome.boardIds).toContain('board-other');
+  });
+
+  it('requestManualDispatch: returns config_missing when explicit boardId has no config', async () => {
+    const { orchestrator } = makeManualDispatchOrchestrator();
+    const outcome = await orchestrator.requestManualDispatch({
+      agentId: 'agent-test',
+      title: 't',
+      description: 'd',
+      boardId: 'no-such-board',
+      requestedBy: 'mk',
+    });
+    expect(outcome.kind).toBe('config_missing');
+    if (outcome.kind !== 'config_missing') return;
+    expect(outcome.boardId).toBe('no-such-board');
+  });
 });
