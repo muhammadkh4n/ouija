@@ -72,3 +72,62 @@ export function isZeroTokenAnomaly(pipeline: ZeroTokenAnomalyInput): boolean {
   if (hasPr) return false;
   return true;
 }
+
+
+/**
+ * Subset of {@link import('./api-types.js').PipelineSummary} the dwell
+ * helpers consume. Structural so list and detail views can both pass their
+ * full summary without coupling to the format module.
+ */
+export interface DwellInput {
+  status: string;
+  stateEnteredAt: string;
+  dwellBudgetMs?: number | null;
+}
+
+/**
+ * Milliseconds the pipeline has spent in its current state. Returns 0 when
+ * `stateEnteredAt` is in the future (clock skew between client + server).
+ */
+export function dwellMs(input: DwellInput, now: Date = new Date()): number {
+  const entered = new Date(input.stateEnteredAt).getTime();
+  if (Number.isNaN(entered)) return 0;
+  return Math.max(0, now.getTime() - entered);
+}
+
+/**
+ * Render a dwell duration as a compact "2m 17s" / "1h 23m" / "3d 4h" label.
+ * Two units max, leading unit is the largest non-zero. <1s renders as "0s"
+ * so the badge always has stable width during the first reconciler tick.
+ */
+export function formatDwell(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '0s';
+  const totalSec = Math.floor(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const totalMin = Math.floor(totalSec / 60);
+  if (totalMin < 60) {
+    const sec = totalSec % 60;
+    return sec === 0 ? `${totalMin}m` : `${totalMin}m ${sec}s`;
+  }
+  const totalHr = Math.floor(totalMin / 60);
+  if (totalHr < 24) {
+    const min = totalMin % 60;
+    return min === 0 ? `${totalHr}h` : `${totalHr}h ${min}m`;
+  }
+  const day = Math.floor(totalHr / 24);
+  const hr = totalHr % 24;
+  return hr === 0 ? `${day}d` : `${day}d ${hr}h`;
+}
+
+/**
+ * True when the pipeline has overstayed its dwell budget. Mirrors the
+ * server-side {@link resolveDwellBudgetMs} envelope: a null/missing budget
+ * means "no budget enforced" → never over, regardless of dwell. Used to
+ * paint the dwell badge red and to predict (rather than lag) the engine's
+ * DwellReconciler next-tick action.
+ */
+export function isOverDwellBudget(input: DwellInput, now: Date = new Date()): boolean {
+  const budget = input.dwellBudgetMs;
+  if (budget === null || budget === undefined) return false;
+  return dwellMs(input, now) > budget;
+}

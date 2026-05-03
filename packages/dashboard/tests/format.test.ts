@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+  dwellMs,
+  formatDwell,
+  isInFlight,
+  isOverDwellBudget,
+  isZeroTokenAnomaly,
   relativeTime,
   shortId,
-  isInFlight,
-  isZeroTokenAnomaly,
 } from '../src/lib/format.js';
 
 describe('relativeTime', () => {
@@ -160,6 +163,109 @@ describe('isZeroTokenAnomaly', () => {
         tokensUsed: 42,
         prUrl: 'https://github.com/x/y/pull/1',
       }),
+    ).toBe(false);
+  });
+});
+
+describe('dwellMs', () => {
+  const now = new Date('2026-05-03T17:00:00.000Z');
+
+  it('returns the elapsed milliseconds since stateEnteredAt', () => {
+    const entered = new Date(now.getTime() - 137_000).toISOString();
+    expect(
+      dwellMs({ status: 'dispatching', stateEnteredAt: entered }, now),
+    ).toBe(137_000);
+  });
+
+  it('clamps to 0 when stateEnteredAt is in the future (clock skew)', () => {
+    const future = new Date(now.getTime() + 5_000).toISOString();
+    expect(
+      dwellMs({ status: 'dispatching', stateEnteredAt: future }, now),
+    ).toBe(0);
+  });
+
+  it('returns 0 when stateEnteredAt cannot be parsed', () => {
+    expect(
+      dwellMs({ status: 'dispatching', stateEnteredAt: 'not-a-date' }, now),
+    ).toBe(0);
+  });
+});
+
+describe('formatDwell', () => {
+  it('renders <60s as "Ns"', () => {
+    expect(formatDwell(0)).toBe('0s');
+    expect(formatDwell(900)).toBe('0s');
+    expect(formatDwell(45_000)).toBe('45s');
+  });
+
+  it('renders minutes with leftover seconds', () => {
+    expect(formatDwell(60_000)).toBe('1m');
+    expect(formatDwell(90_000)).toBe('1m 30s');
+    expect(formatDwell(137_000)).toBe('2m 17s');
+  });
+
+  it('renders hours with leftover minutes', () => {
+    expect(formatDwell(3_600_000)).toBe('1h');
+    expect(formatDwell(2 * 3_600_000 + 15 * 60_000)).toBe('2h 15m');
+  });
+
+  it('renders days with leftover hours', () => {
+    expect(formatDwell(86_400_000)).toBe('1d');
+    expect(formatDwell(86_400_000 + 5 * 3_600_000)).toBe('1d 5h');
+    expect(formatDwell(14 * 86_400_000)).toBe('14d');
+  });
+
+  it('handles invalid input by returning "0s"', () => {
+    expect(formatDwell(-1)).toBe('0s');
+    expect(formatDwell(Number.NaN)).toBe('0s');
+    expect(formatDwell(Number.POSITIVE_INFINITY)).toBe('0s');
+  });
+});
+
+describe('isOverDwellBudget', () => {
+  const now = new Date('2026-05-03T17:00:00.000Z');
+
+  it('returns true when dwell exceeds the budget', () => {
+    const entered = new Date(now.getTime() - 65_000).toISOString();
+    expect(
+      isOverDwellBudget(
+        { status: 'dispatching', stateEnteredAt: entered, dwellBudgetMs: 60_000 },
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it('returns false when dwell is at or below the budget', () => {
+    const atBudget = new Date(now.getTime() - 60_000).toISOString();
+    expect(
+      isOverDwellBudget(
+        { status: 'dispatching', stateEnteredAt: atBudget, dwellBudgetMs: 60_000 },
+        now,
+      ),
+    ).toBe(false);
+
+    const underBudget = new Date(now.getTime() - 30_000).toISOString();
+    expect(
+      isOverDwellBudget(
+        { status: 'dispatching', stateEnteredAt: underBudget, dwellBudgetMs: 60_000 },
+        now,
+      ),
+    ).toBe(false);
+  });
+
+  it('returns false when budget is null/undefined (no budget enforced)', () => {
+    const entered = new Date(now.getTime() - 14 * 86_400_000).toISOString();
+    expect(
+      isOverDwellBudget(
+        { status: 'idle', stateEnteredAt: entered, dwellBudgetMs: null },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      isOverDwellBudget(
+        { status: 'idle', stateEnteredAt: entered },
+        now,
+      ),
     ).toBe(false);
   });
 });
