@@ -863,6 +863,108 @@ describe('Orchestrator', () => {
     if (outcome.kind !== 'rejected') return;
     expect(outcome.reason).toContain('idle');
   });
+
+  // ---- Test 12: requestTimedOut — dwell-budget enforcement end-to-end ----
+  //
+  // Phase-2 Tasks 4 + 5. Drives a stuck `dispatching` instance through
+  // requestTimedOut, asserting the dual audit-log entries
+  // (`pipeline.transitioned` + `pipeline.timed_out`), instanceId stamping,
+  // attempt+1 bump, and side-effect fan-out. The reconciler is unit-tested
+  // separately; this test locks down the orchestrator-side contract.
+
+  it('requestTimedOut: dispatching past budget → failed (retryable) with audit + attempt bump', async () => {
+    await orchestrator.processTrigger(makeCardMovedEvent());
+    const instance = [...db._instances.values()][0]!;
+    const stuckDispatchId = dispatchId('disp-timeout-001');
+    instance.state = {
+      status: 'dispatching',
+      dispatchId: stuckDispatchId,
+      agentId: AGENT_ID,
+      dispatchedAt: new Date().toISOString(),
+    };
+    db._instances.set(String(instance.id), instance);
+    const startingAttempt = instance.attempt;
+
+    const outcome = await orchestrator.requestTimedOut(
+      String(instance.id),
+      'dispatching',
+      60_000,
+      90_000,
+    );
+
+    expect(outcome.kind).toBe('timed_out');
+    if (outcome.kind !== 'timed_out') return;
+    expect(outcome.prevStatus).toBe('dispatching');
+    expect(outcome.nextStatus).toBe('failed');
+
+    const updated = db._instances.get(String(instance.id))!;
+    expect(updated.state.status).toBe('failed');
+    if (updated.state.status === 'failed') {
+      expect(updated.state.retryable).toBe(true);
+    }
+    // attempt bumps so a future human_retry starts iteration N+1.
+    expect(updated.attempt).toBe(startingAttempt + 1);
+
+    const timeoutEvents = db._events.filter(
+      (e) => e.instanceId === instance.id && e.topic === 'pipeline.timed_out',
+    );
+    expect(timeoutEvents.length).toBe(1);
+    const timeoutPayload = timeoutEvents[0]!.payload as Record<string, unknown>;
+    expect(timeoutPayload['instanceId']).toBe(instance.id);
+    expect(timeoutPayload['fromStatus']).toBe('dispatching');
+    expect(timeoutPayload['budgetMs']).toBe(60_000);
+    expect(timeoutPayload['observedDwellMs']).toBe(90_000);
+    expect(typeof timeoutPayload['detectedAt']).toBe('string');
+
+    const transitionEvents = db._events.filter(
+      (e) => e.instanceId === instance.id && e.topic === 'pipeline.transitioned',
+    );
+    const lastTransition = transitionEvents[transitionEvents.length - 1]!;
+    const transitionPayload = lastTransition.payload as Record<string, unknown>;
+    expect(transitionPayload['fromStatus']).toBe('dispatching');
+    expect(transitionPayload['toStatus']).toBe('failed');
+    expect(transitionPayload['trigger']).toBe('timed_out');
+
+    expect(jobQueue.cancelled.some((c) => c.queue === QUEUE_NAMES.stallCheck)).toBe(true);
+    expect(
+      logger.calls.some(
+        (c) => c.level === 'info' && c.message === 'cancel_agent side effect recorded',
+      ),
+    ).toBe(true);
+    expect(eventBus.published.some((e) => e.topic === 'notification.send')).toBe(true);
+  });
+
+  it('requestTimedOut: returns not_found for unknown instance id', async () => {
+    const outcome = await orchestrator.requestTimedOut('does-not-exist', 'dispatching', 60_000, 90_000);
+    expect(outcome.kind).toBe('not_found');
+  });
+
+  it('requestTimedOut: rejects on state drift (live status moved out of fromStatus)', async () => {
+    await orchestrator.processTrigger(makeCardMovedEvent());
+    const instance = [...db._instances.values()][0]!;
+    // Reconciler observed `dispatching`; meanwhile the agent ack'd → running.
+    instance.state = {
+      status: 'running',
+      dispatchId: dispatchId('disp-drift-001'),
+      agentId: AGENT_ID,
+      dispatchedAt: new Date().toISOString(),
+      lastHeartbeatAt: new Date().toISOString(),
+    };
+    db._instances.set(String(instance.id), instance);
+
+    const outcome = await orchestrator.requestTimedOut(
+      String(instance.id),
+      'dispatching',
+      60_000,
+      90_000,
+    );
+    expect(outcome.kind).toBe('rejected');
+    if (outcome.kind !== 'rejected') return;
+    expect(outcome.reason).toContain('transitioned out of "dispatching"');
+
+    // Crucially, the live state must NOT have moved to failed.
+    expect(db._instances.get(String(instance.id))!.state.status).toBe('running');
+  });
 });
 
 // ---- card_assigned + AgentMemberLookup tests ----

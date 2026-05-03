@@ -182,7 +182,7 @@ async function main(): Promise<void> {
   });
 
   // 6. Wire kanban plugin — Plane, Fizzy, or placeholder
-  const { Orchestrator, StallMonitor } = await import('@ouija-dev/engine');
+  const { Orchestrator, StallMonitor, DwellReconciler } = await import('@ouija-dev/engine');
 
   let kanbanPlugin: import('@ouija-dev/types').KanbanPlugin;
   let planePluginInstance: import('@ouija-dev/plugin-plane').PlanePlugin | undefined;
@@ -675,13 +675,37 @@ async function main(): Promise<void> {
     app.log.info('Agent worker disabled via OUIJA_DISABLE_AGENT_WORKER=1');
   }
 
-  // 11. Start StallMonitor
+  // 11. Start StallMonitor + DwellReconciler
+  //
+  // StallMonitor catches heartbeat-based deaths in dispatching/running/
+  // provisioning. DwellReconciler complements it by enforcing per-state
+  // dwell budgets across every live status (incl. awaiting_review which
+  // the heartbeat layer can't see). Both run on the same 60s cadence.
   const stallMonitor = new StallMonitor(db, orchestrator, 300_000, {
     info: (msg: string, ctx?: Record<string, unknown>) => app.log.info(ctx ?? {}, msg),
     warn: (msg: string, ctx?: Record<string, unknown>) => app.log.warn(ctx ?? {}, msg),
     error: (msg: string, ctx?: Record<string, unknown>) => app.log.error(ctx ?? {}, msg),
   });
   stallMonitor.start(60_000);
+
+  const dwellReconciler = new DwellReconciler(
+    db,
+    orchestrator,
+    async (boardId) => {
+      const config = await db.boardConfigs.findByBoardId(
+        boardId as unknown as import('@ouija-dev/types').BoardId,
+      );
+      return config;
+    },
+    {
+      logger: {
+        info: (msg: string, ctx?: Record<string, unknown>) => app.log.info(ctx ?? {}, msg),
+        warn: (msg: string, ctx?: Record<string, unknown>) => app.log.warn(ctx ?? {}, msg),
+        error: (msg: string, ctx?: Record<string, unknown>) => app.log.error(ctx ?? {}, msg),
+      },
+    },
+  );
+  dwellReconciler.start();
 
   // 12. Start listening
   await app.listen({ port, host: '0.0.0.0' });
@@ -694,6 +718,7 @@ async function main(): Promise<void> {
 
     try {
       stallMonitor.stop();
+      dwellReconciler.stop();
       await app.close();
 
       // Stop agent worker before draining the queue

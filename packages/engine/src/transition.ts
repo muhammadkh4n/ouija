@@ -56,6 +56,8 @@ export function transition(
       return handleHumanCancel(state, trigger);
     case 'admin_reset':
       return handleAdminReset(state, trigger);
+    case 'timed_out':
+      return handleTimedOut(state, trigger);
     case 'pr_merged':
       return handlePrMerged(state, trigger);
     case 'pr_review_received':
@@ -803,6 +805,131 @@ function handleAdminReset(
           requestedBy: trigger.requestedBy,
           resetAt: now,
         } as unknown as import('@ouija-dev/types').OuijaEventMap['pipeline.admin_reset'],
+      },
+    ],
+    sideEffects,
+  };
+}
+
+
+function handleTimedOut(
+  state: PipelineState,
+  trigger: Extract<PipelineTrigger, { type: 'timed_out' }>,
+): TransitionOutcome {
+  // Reject from terminal / no-op states. `stalled` rejects too: the heartbeat
+  // monitor already classified the agent as dead; auto-progressing to `failed`
+  // would erase the operator's chance to inspect via `human_retry` /
+  // `admin_reset` first.
+  if (
+    state.status === 'idle' ||
+    state.status === 'succeeded' ||
+    state.status === 'failed' ||
+    state.status === 'cancelled' ||
+    state.status === 'stalled'
+  ) {
+    return {
+      rejected: true,
+      reason: `Cannot time out: pipeline is in state "${state.status}"`,
+    };
+  }
+
+  // Defence-in-depth: trigger.fromStatus is observed by the reconciler at
+  // query time but the instance may have transitioned in the gap before the
+  // orchestrator processed the trigger. Reject if the live state no longer
+  // matches what the reconciler saw — applyTrigger persists nothing.
+  if (state.status !== trigger.fromStatus) {
+    return {
+      rejected: true,
+      reason: `Cannot time out: pipeline transitioned out of "${trigger.fromStatus}" before the timeout was applied (now "${state.status}")`,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const sideEffects: SideEffect[] = [
+    {
+      type: 'send_notification',
+      payload: {
+        message: `Pipeline timed out after ${trigger.observedDwellMs}ms in "${state.status}" (budget ${trigger.budgetMs}ms)`,
+        budgetMs: trigger.budgetMs,
+        observedDwellMs: trigger.observedDwellMs,
+      },
+      idempotencyKey: encodeJobId(['notify-timeout', state.status, now]),
+    },
+  ];
+
+  // Tear down any in-flight dispatch the prior state owned. `awaiting_review`
+  // has no live process — the agent already exited; only the stall-check
+  // entry needs cancelling.
+  if (
+    state.status === 'provisioning' ||
+    state.status === 'dispatching' ||
+    state.status === 'running'
+  ) {
+    if (state.status === 'provisioning' && 'workspaceId' in state && state.workspaceId) {
+      sideEffects.push({
+        type: 'destroy_workspace',
+        payload: { workspaceId: state.workspaceId },
+        idempotencyKey: encodeJobId(['destroy-ws-timeout', state.dispatchId]),
+      });
+    }
+    sideEffects.push(
+      {
+        type: 'cancel_agent',
+        payload: { dispatchId: state.dispatchId },
+        idempotencyKey: encodeJobId(['cancel-agent-timeout', state.dispatchId]),
+      },
+      {
+        type: 'cancel_stall_check',
+        payload: { dispatchId: state.dispatchId },
+        idempotencyKey: encodeJobId(['cancel-stall-timeout', state.dispatchId]),
+      },
+    );
+  } else if (state.status === 'awaiting_review') {
+    sideEffects.push({
+      type: 'cancel_stall_check',
+      payload: { dispatchId: state.dispatchId },
+      idempotencyKey: encodeJobId(['cancel-stall-timeout', state.dispatchId]),
+    });
+  }
+
+  // awaiting_review timeout is review-loop death (no reviewer touched it for
+  // 14 days) — transition to `stalled` so the operator sees it on the
+  // dashboard's stalled list. Live states transition to `failed` (retryable)
+  // so `human_retry` can pick them up; the orchestrator bumps `attempt`.
+  let nextState: PipelineState;
+  if (state.status === 'awaiting_review') {
+    nextState = {
+      status: 'stalled',
+      dispatchId: state.dispatchId,
+      agentId: state.agentId,
+      stalledAt: now,
+      lastHeartbeatAt: state.enteredAt,
+      reason: `awaiting_review dwell budget exhausted (${trigger.observedDwellMs}ms / ${trigger.budgetMs}ms)`,
+    };
+  } else {
+    nextState = {
+      status: 'failed',
+      dispatchId: state.dispatchId,
+      agentId: state.agentId,
+      failedAt: now,
+      error: `Dwell budget exhausted in "${state.status}" (${trigger.observedDwellMs}ms / ${trigger.budgetMs}ms)`,
+      retryable: true,
+    };
+  }
+
+  return {
+    rejected: false,
+    nextState,
+    // instanceId is filled in by Orchestrator.applyTrigger via stampInstanceId.
+    events: [
+      {
+        topic: 'pipeline.timed_out',
+        payload: {
+          fromStatus: state.status,
+          budgetMs: trigger.budgetMs,
+          observedDwellMs: trigger.observedDwellMs,
+          detectedAt: now,
+        } as unknown as import('@ouija-dev/types').OuijaEventMap['pipeline.timed_out'],
       },
     ],
     sideEffects,

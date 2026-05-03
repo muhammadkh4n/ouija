@@ -1271,6 +1271,196 @@ describe('admin_reset rejected from non-recoverable states', () => {
   });
 });
 
+// ---- timed_out ----
+//
+// Phase 2 dwell-budget enforcement (friction-log #16 follow-on). Allowed
+// from {dispatching, provisioning, running} → failed (retryable=true) and
+// from awaiting_review → stalled. Rejected from terminal states + stalled
+// (operator decides) + idle (no-op) + drift (live state moved out of
+// trigger.fromStatus before applyTrigger fired).
+
+describe('timed_out accepted from live states', () => {
+  it('transitions running → failed (retryable) with cancel + stall + notify side effects', () => {
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'running',
+      budgetMs: 60_000,
+      observedDwellMs: 90_000,
+    };
+
+    const result = transition(running, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('failed');
+    if (result.nextState.status === 'failed') {
+      expect(result.nextState.retryable).toBe(true);
+      expect(result.nextState.error).toContain('Dwell budget exhausted');
+      expect(result.nextState.error).toContain('running');
+      expect(result.nextState.error).toContain('60000');
+      expect(result.nextState.error).toContain('90000');
+    }
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_stall_check')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'send_notification')).toBe(true);
+
+    expect(result.events.length).toBe(1);
+    expect(result.events[0]!.topic).toBe('pipeline.timed_out');
+    const payload = result.events[0]!.payload as Record<string, unknown>;
+    expect(payload['fromStatus']).toBe('running');
+    expect(payload['budgetMs']).toBe(60_000);
+    expect(payload['observedDwellMs']).toBe(90_000);
+    expect(typeof payload['detectedAt']).toBe('string');
+  });
+
+  it('transitions dispatching → failed (retryable) with cancel_agent', () => {
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'dispatching',
+      budgetMs: 60_000,
+      observedDwellMs: 75_000,
+    };
+    const result = transition(dispatching, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+    expect(result.nextState.status).toBe('failed');
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(true);
+  });
+
+  it('transitions provisioning → failed and destroys workspace when one was attached', () => {
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'provisioning',
+      budgetMs: 120_000,
+      observedDwellMs: 200_000,
+    };
+    const result = transition(provisioningWithWorkspace, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+    expect(result.nextState.status).toBe('failed');
+    expect(result.sideEffects.some((e) => e.type === 'destroy_workspace')).toBe(true);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(true);
+  });
+
+  it('transitions provisioning (no workspaceId) → failed without destroy_workspace', () => {
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'provisioning',
+      budgetMs: 120_000,
+      observedDwellMs: 130_000,
+    };
+    const result = transition(provisioning, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+    expect(result.nextState.status).toBe('failed');
+    expect(result.sideEffects.some((e) => e.type === 'destroy_workspace')).toBe(false);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(true);
+  });
+
+  it('transitions awaiting_review → stalled (review-loop death) without cancel_agent', () => {
+    const awaitingReview: PipelineState = {
+      status: 'awaiting_review',
+      dispatchId: dispatchId('d-1'),
+      agentId: agentId('agent-rex'),
+      prUrl: 'https://github.com/x/y/pull/1',
+      prId: prId('pr-1'),
+      iteration: 2,
+      enteredAt: '2026-04-01T11:00:00Z',
+    };
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'awaiting_review',
+      budgetMs: 14 * 24 * 60 * 60 * 1000,
+      observedDwellMs: 15 * 24 * 60 * 60 * 1000,
+    };
+    const result = transition(awaitingReview, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('stalled');
+    if (result.nextState.status === 'stalled') {
+      expect(result.nextState.reason).toContain('awaiting_review dwell budget exhausted');
+    }
+    expect(result.sideEffects.some((e) => e.type === 'cancel_agent')).toBe(false);
+    expect(result.sideEffects.some((e) => e.type === 'cancel_stall_check')).toBe(true);
+  });
+});
+
+describe('timed_out rejected', () => {
+  it('rejects when live state has drifted out of fromStatus', () => {
+    // Reconciler observed `dispatching` but instance has since moved to running.
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'dispatching',
+      budgetMs: 60_000,
+      observedDwellMs: 75_000,
+    };
+    const result = transition(running, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+    if (!result.rejected) return;
+    expect(result.reason).toContain('transitioned out of "dispatching"');
+  });
+
+  it('rejects from idle (no-op)', () => {
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'idle' as const,
+      budgetMs: 60_000,
+      observedDwellMs: 90_000,
+    };
+    const result = transition(idle, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+    if (!result.rejected) return;
+    expect(result.reason).toContain('idle');
+  });
+
+  it('rejects from succeeded (terminal)', () => {
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'succeeded',
+      budgetMs: 60_000,
+      observedDwellMs: 90_000,
+    };
+    const result = transition(succeeded, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+  });
+
+  it('rejects from failed (terminal)', () => {
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'failed',
+      budgetMs: 60_000,
+      observedDwellMs: 90_000,
+    };
+    const result = transition(failed, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+  });
+
+  it('rejects from cancelled (terminal)', () => {
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'cancelled',
+      budgetMs: 60_000,
+      observedDwellMs: 90_000,
+    };
+    const result = transition(cancelled, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+  });
+
+  it('rejects from stalled (operator decides — do not auto-progress to failed)', () => {
+    const trigger: PipelineTrigger = {
+      type: 'timed_out',
+      fromStatus: 'stalled',
+      budgetMs: 60_000,
+      observedDwellMs: 90_000,
+    };
+    const result = transition(stalled, trigger, testConfig);
+    expect(result.rejected).toBe(true);
+    if (!result.rejected) return;
+    expect(result.reason).toContain('stalled');
+  });
+});
+
 // ---- pr_merged ----
 
 describe('pr_merged → succeeded', () => {

@@ -1,5 +1,5 @@
 import type { CardId, InstanceId, BoardId } from './ids.js';
-import type { PipelineInstance, PipelineConfig } from './state-machine.js';
+import type { PipelineInstance, PipelineConfig, PipelineStatus } from './state-machine.js';
 import type { OuijaTopic, OuijaEventMap } from './events.js';
 
 // ---- Pagination cursors ----
@@ -62,6 +62,21 @@ export interface PipelineRepository {
    * Used by the Layer-2 stall scanner (StallMonitor) for crash recovery.
    */
   findStalledCandidates(cutoff: Date): Promise<PipelineInstance[]>;
+
+  /**
+   * Find instances currently in `status` whose `state_entered_at` predates
+   * `cutoff`, capped at `limit` rows. Used by the Phase-2 dwell reconciler
+   * (`DwellReconciler`) to enforce per-state dwell budgets — different from
+   * `findStalledCandidates`, which is heartbeat-based and only covers the
+   * dispatching/running/provisioning trio. The cap is the implementation's
+   * safety belt: a runaway reconciler with thousands of overdue rows still
+   * processes one bounded batch per tick.
+   */
+  findOverbudgetCandidates(
+    status: PipelineStatus,
+    cutoff: Date,
+    limit: number,
+  ): Promise<PipelineInstance[]>;
 }
 
 export interface PipelineEventRepository {

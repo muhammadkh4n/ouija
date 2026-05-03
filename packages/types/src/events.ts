@@ -184,6 +184,24 @@ export interface PipelineAdminResetPayload {
   resetAt: string;
 }
 
+/**
+ * Audit record emitted whenever the dwell-budget reconciler concludes a
+ * pipeline has overstayed its per-state budget and synthesises a `timed_out`
+ * trigger. Distinct from `pipeline.transitioned` (the routine post-hop event)
+ * so timeouts are queryable without scanning every status change.
+ */
+export interface PipelineTimedOutPayload {
+  instanceId: InstanceId;
+  /** Status the pipeline was in when the budget was exhausted. */
+  fromStatus: string;
+  /** Per-state budget in milliseconds the reconciler enforced. */
+  budgetMs: number;
+  /** Observed dwell time (now − stateEnteredAt) in milliseconds. */
+  observedDwellMs: number;
+  /** ISO-8601 instant the reconciler observed the overshoot. */
+  detectedAt: string;
+}
+
 export interface NotificationSendPayload {
   /** Short notification heading */
   title: string;
@@ -216,6 +234,7 @@ export interface OuijaEventMap {
   'notification.send': NotificationSendPayload;
   'pipeline.transitioned': PipelineTransitionedPayload;
   'pipeline.admin_reset': PipelineAdminResetPayload;
+  'pipeline.timed_out': PipelineTimedOutPayload;
 }
 
 export type OuijaTopic = keyof OuijaEventMap;

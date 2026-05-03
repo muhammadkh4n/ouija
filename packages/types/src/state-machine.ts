@@ -147,6 +147,29 @@ export type PipelineTrigger =
    * the pipeline back at the start so it can be re-dispatched without SQL.
    */
   | { type: 'admin_reset'; requestedBy: string }
+  /**
+   * Dwell-budget exhaustion. Phase 2: emitted by `DwellReconciler` when an
+   * instance has spent longer than its per-state budget (see
+   * `engine/src/dwell-budgets.ts`). Stricter than the heartbeat-based
+   * `stall_detected`, which only catches dispatching/running/provisioning
+   * via `lastHeartbeatAt` drift. `timed_out` covers all live states (incl.
+   * `awaiting_review` review-loop death) by anchoring on
+   * `instance.stateEnteredAt`. Transitions:
+   *   - `dispatching` / `provisioning` / `running` → `failed` (retryable: true,
+   *     attempt+1 stamped by the orchestrator) so an operator's `human_retry`
+   *     or a future auto-retry policy can pick up.
+   *   - `awaiting_review` → `stalled` (review-loop has died; operator must
+   *     `admin_reset`).
+   *   - `stalled` → reject (already stalled; do not auto-progress to failed —
+   *     the operator decides).
+   *   - terminal/no-op states reject.
+   */
+  | {
+      type: 'timed_out';
+      fromStatus: PipelineStatus;
+      budgetMs: number;
+      observedDwellMs: number;
+    }
   | { type: 'pr_merged'; prId: PrId; mergedAt: string }
   | { type: 'pr_review_received'; prUrl: string; prId: PrId; bundle: ReviewBundle };
 
@@ -299,6 +322,14 @@ export interface PipelineInstance {
    * never overwrites an existing value. See migration 007.
    */
   sessionLogPath?: string;
+  /**
+   * ISO-8601 instant the instance entered its current `state.status`. Stamped
+   * by `Orchestrator.applyTrigger` whenever the status changes; the dwell
+   * reconciler reads it as the dwell-time anchor. Backfilled from the latest
+   * `pipeline.transitioned` event on existing rows, falling back to
+   * `createdAt` for instances that never transitioned. See migration 008.
+   */
+  stateEnteredAt: string;
   createdAt: string;
   updatedAt: string;
 }
