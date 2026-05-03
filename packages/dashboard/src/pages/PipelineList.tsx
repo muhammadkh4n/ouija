@@ -18,6 +18,7 @@ import {
 import { Header } from '../components/Header.js';
 import { StatusDot } from '../components/StatusDot.js';
 import { EmptyState } from '../components/EmptyState.js';
+import { RunAgentButton } from '../components/RunAgentButton.js';
 import {
   dwellMs,
   formatDwell,
@@ -156,33 +157,39 @@ function SectionHeader({
         </span>
       </div>
 
-      {boards.length > 1 && selectedBoardId !== null && (
-        <label
-          className="flex items-center gap-2"
-          style={{ fontSize: 'var(--text-xs)' }}
-        >
-          <span className="dim mono uppercase tracking-wide">board</span>
-          <select
-            value={selectedBoardId}
-            onChange={(e) => onSelectBoard(e.target.value)}
-            className="mono sunken"
-            style={{
-              padding: 'var(--space-2) var(--space-3)',
-              color: 'var(--color-text)',
-              fontSize: 'var(--text-sm)',
-              border: '1px solid var(--color-border-strong)',
-              borderRadius: 'var(--radius-sm)',
-              outline: 'none',
-            }}
+      <div
+        className="flex items-center"
+        style={{ gap: 'var(--space-3)' }}
+      >
+        {boards.length > 1 && selectedBoardId !== null && (
+          <label
+            className="flex items-center gap-2"
+            style={{ fontSize: 'var(--text-xs)' }}
           >
-            {boards.map((b) => (
-              <option key={b.boardId} value={b.boardId}>
-                {b.boardId}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+            <span className="dim mono uppercase tracking-wide">board</span>
+            <select
+              value={selectedBoardId}
+              onChange={(e) => onSelectBoard(e.target.value)}
+              className="mono sunken"
+              style={{
+                padding: 'var(--space-2) var(--space-3)',
+                color: 'var(--color-text)',
+                fontSize: 'var(--text-sm)',
+                border: '1px solid var(--color-border-strong)',
+                borderRadius: 'var(--radius-sm)',
+                outline: 'none',
+              }}
+            >
+              {boards.map((b) => (
+                <option key={b.boardId} value={b.boardId}>
+                  {b.boardId}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {selectedBoardId !== null && <RunAgentButton boardId={selectedBoardId} />}
+      </div>
     </div>
   );
 }

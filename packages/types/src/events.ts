@@ -185,6 +185,27 @@ export interface PipelineAdminResetPayload {
 }
 
 /**
+ * Audit record emitted whenever an operator dispatches an agent without a
+ * kanban round-trip (`POST /api/v1/pipelines/dispatch`). Distinct from
+ * `pipeline.transitioned` (which the orchestrator also appends for the same
+ * idle → dispatching hop) so admin-driven dispatches are queryable without
+ * scanning every dispatch hop. Closes friction-log #17.
+ */
+export interface PipelineManuallyDispatchedPayload {
+  instanceId: InstanceId;
+  /** Synthetic `manual/<uuid>` cardId stamped at instance creation. */
+  cardId: string;
+  /** Agent profile id selected at dispatch time. */
+  agentId: string;
+  /** Verbatim title forwarded into the WorkOrder prompt. */
+  taskTitle: string;
+  /** Identifier of the operator who issued the dispatch (session userId or 'api'). */
+  requestedBy: string;
+  /** ISO-8601 instant the dispatch side-effect data was generated. */
+  dispatchedAt: string;
+}
+
+/**
  * Audit record emitted whenever the dwell-budget reconciler concludes a
  * pipeline has overstayed its per-state budget and synthesises a `timed_out`
  * trigger. Distinct from `pipeline.transitioned` (the routine post-hop event)
@@ -234,6 +255,7 @@ export interface OuijaEventMap {
   'notification.send': NotificationSendPayload;
   'pipeline.transitioned': PipelineTransitionedPayload;
   'pipeline.admin_reset': PipelineAdminResetPayload;
+  'pipeline.manually_dispatched': PipelineManuallyDispatchedPayload;
   'pipeline.timed_out': PipelineTimedOutPayload;
 }
 

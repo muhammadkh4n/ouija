@@ -1948,3 +1948,93 @@ describe('review loop — agent_pr_ready → awaiting_review → dispatching →
     expect(result.nextState.status).toBe('cancelled');
   });
 });
+
+// ---- manual_dispatch ----
+//
+// Phase 2 Task 7. Drives idle → dispatching directly, carrying the
+// agentId + task text inline. Used by `POST /api/v1/pipelines/dispatch`
+// and (Phase 3+) by `ouija watch`.
+describe('manual_dispatch from idle → dispatching', () => {
+  it('produces dispatch_agent + enqueue_stall_check side effects with inline task text', () => {
+    const trigger: PipelineTrigger = {
+      type: 'manual_dispatch',
+      agentId: 'agent-test',
+      title: 'Fix the dwell badge color',
+      description: 'The CSS variable falls back to text-color when missing.',
+      requestedBy: 'mk',
+    };
+
+    const result = transition(idle, trigger, testConfig);
+
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+
+    expect(result.nextState.status).toBe('dispatching');
+    if (result.nextState.status !== 'dispatching') return;
+    expect(String(result.nextState.agentId)).toBe('agent-test');
+    expect(String(result.nextState.dispatchId).length).toBeGreaterThan(0);
+
+    const dispatch = result.sideEffects.find((e) => e.type === 'dispatch_agent');
+    expect(dispatch).toBeDefined();
+    expect(dispatch?.payload['agentId']).toBe('agent-test');
+    expect(dispatch?.payload['taskTitle']).toBe('Fix the dwell badge color');
+    expect(dispatch?.payload['workOrderDescription']).toBe(
+      'The CSS variable falls back to text-color when missing.',
+    );
+
+    const stall = result.sideEffects.find((e) => e.type === 'enqueue_stall_check');
+    expect(stall).toBeDefined();
+    expect(stall?.payload['delayMs']).toBe(testConfig.defaultStallThresholdMs);
+
+    expect(result.events.length).toBe(1);
+    expect(result.events[0]!.topic).toBe('pipeline.manually_dispatched');
+    const payload = result.events[0]!.payload as Record<string, unknown>;
+    expect(payload['agentId']).toBe('agent-test');
+    expect(payload['taskTitle']).toBe('Fix the dwell badge color');
+    expect(payload['requestedBy']).toBe('mk');
+    expect(typeof payload['dispatchedAt']).toBe('string');
+  });
+
+  it('uses the same dispatchId in nextState and the dispatch_agent payload', () => {
+    const trigger: PipelineTrigger = {
+      type: 'manual_dispatch',
+      agentId: 'agent-test',
+      title: 't',
+      description: 'd',
+      requestedBy: 'mk',
+    };
+    const result = transition(idle, trigger, testConfig);
+    expect(result.rejected).toBe(false);
+    if (result.rejected) return;
+    if (result.nextState.status !== 'dispatching') return;
+
+    const dispatch = result.sideEffects.find((e) => e.type === 'dispatch_agent');
+    expect(dispatch?.payload['dispatchId']).toBe(result.nextState.dispatchId);
+  });
+});
+
+describe('manual_dispatch rejected from non-idle states', () => {
+  const cases: Array<[string, PipelineState]> = [
+    ['dispatching', dispatching],
+    ['running', running],
+    ['stalled', stalled],
+    ['succeeded', succeeded],
+  ];
+
+  for (const [name, state] of cases) {
+    it(`rejects from "${name}" with a reason mentioning the current status`, () => {
+      const trigger: PipelineTrigger = {
+        type: 'manual_dispatch',
+        agentId: 'agent-test',
+        title: 't',
+        description: 'd',
+        requestedBy: 'mk',
+      };
+      const result = transition(state, trigger, testConfig);
+      expect(result.rejected).toBe(true);
+      if (!result.rejected) return;
+      expect(result.reason).toContain(name);
+      expect(result.reason).toContain('idle');
+    });
+  }
+});

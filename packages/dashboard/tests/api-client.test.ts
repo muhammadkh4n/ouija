@@ -33,6 +33,7 @@ const {
   listBoards,
   listPipelines,
   resetPipeline,
+  runAgent,
 } = await import('../src/lib/api-client.js');
 
 describe('getApiKey / setApiKey', () => {
@@ -199,5 +200,100 @@ describe('resetPipeline', () => {
     expect(fetchMock.mock.calls[0]![0]).toBe(
       '/api/v1/pipelines/inst%2Fabc/reset',
     );
+  });
+});
+
+describe('runAgent', () => {
+  it('POSTs to /dispatch with the body and returns the parsed envelope', async () => {
+    setApiKey('ouija_admin');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          instanceId: 'inst_x',
+          cardId: 'manual/aaaa',
+          boardId: 'board_y',
+          dispatchId: 'disp_z',
+        }),
+        { status: 202, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await runAgent({
+      agentId: 'agent-test',
+      title: 'Bump deps',
+      description: 'Run npm-check-updates and open a PR.',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.instanceId).toBe('inst_x');
+    expect(result.cardId).toBe('manual/aaaa');
+    expect(result.dispatchId).toBe('disp_z');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/api/v1/pipelines/dispatch');
+    expect(init.method).toBe('POST');
+    expect((init.headers as Headers).get('Authorization')).toBe(
+      'Bearer ouija_admin',
+    );
+    expect((init.headers as Headers).get('Content-Type')).toBe(
+      'application/json',
+    );
+    expect(JSON.parse(init.body as string)).toEqual({
+      agentId: 'agent-test',
+      title: 'Bump deps',
+      description: 'Run npm-check-updates and open a PR.',
+    });
+  });
+
+  it('forwards an explicit boardId override', async () => {
+    setApiKey('ouija_admin');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          instanceId: 'i',
+          cardId: 'manual/c',
+          boardId: 'board_picked',
+          dispatchId: 'd',
+        }),
+        { status: 202, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await runAgent({
+      agentId: 'agent-test',
+      title: 't',
+      description: 'd',
+      boardId: 'board_picked',
+    });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(JSON.parse(init.body as string).boardId).toBe('board_picked');
+  });
+
+  it('throws ApiError with the structured code on 400 (BOARD_ID_REQUIRED)', async () => {
+    setApiKey('ouija_admin');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'BOARD_ID_REQUIRED',
+            message: 'Multiple boards configured; pass boardId.',
+          },
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      runAgent({ agentId: 'a', title: 't', description: 'd' }),
+    ).rejects.toMatchObject({
+      status: 400,
+      code: 'BOARD_ID_REQUIRED',
+    });
   });
 });

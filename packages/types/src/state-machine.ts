@@ -171,7 +171,24 @@ export type PipelineTrigger =
       observedDwellMs: number;
     }
   | { type: 'pr_merged'; prId: PrId; mergedAt: string }
-  | { type: 'pr_review_received'; prUrl: string; prId: PrId; bundle: ReviewBundle };
+  | { type: 'pr_review_received'; prUrl: string; prId: PrId; bundle: ReviewBundle }
+  /**
+   * Administrative dispatch — bypasses kanban entirely. Carries the agentId
+   * + task title + free-form description directly. The orchestrator
+   * pre-creates a fresh `idle` instance (synthetic `cardId = manual/<uuid>`)
+   * and applies this trigger. State machine is otherwise identical to the
+   * kanban `card_moved` → `dispatching` path. Used by
+   * `POST /api/v1/pipelines/dispatch` and future CLI-driven flows that
+   * skip the kanban round-trip. Closes friction-log #17 (no path to first
+   * dispatch when kanban is broken or absent).
+   */
+  | {
+      type: 'manual_dispatch';
+      agentId: string;
+      title: string;
+      description: string;
+      requestedBy: string;
+    };
 
 /**
  * Aggregated PR feedback — reviews + comments + CI failures — flushed from the

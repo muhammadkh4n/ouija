@@ -121,6 +121,33 @@ export function resetPipeline(id: string): Promise<ResetPipelineResponse> {
   );
 }
 
+export interface RunAgentRequest {
+  agentId: string;
+  title: string;
+  description: string;
+  boardId?: string;
+}
+
+export interface RunAgentResponse {
+  ok: true;
+  instanceId: string;
+  cardId: string;
+  boardId: string;
+  dispatchId: string;
+}
+
+/**
+ * Phase 2 Task 7. Drives `POST /api/v1/pipelines/dispatch` — the
+ * first-class admin dispatch endpoint that bypasses kanban. Used by
+ * the dashboard's "Run Agent" button.
+ */
+export function runAgent(body: RunAgentRequest): Promise<RunAgentResponse> {
+  return request<RunAgentResponse>('/api/v1/pipelines/dispatch', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 // ---- Agents ----
 
 export function listAgents(includeInactive = false): Promise<AgentListResponse> {

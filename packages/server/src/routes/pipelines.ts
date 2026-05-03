@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import type { Database, OuijaEvent } from '@ouija-dev/types';
 import { instanceId as makeInstanceId } from '@ouija-dev/types';
 import { ApiError } from '@ouija-dev/types';
-import type { Orchestrator } from '@ouija-dev/engine';
+import type { Orchestrator, ManualDispatchOutcome } from '@ouija-dev/engine';
 import { resolveDwellBudgetMs } from '@ouija-dev/engine';
 import { requireAuth } from '../middleware/auth.js';
 import { apiAdminRateLimit } from '../middleware/rate-limit.js';
@@ -279,6 +279,109 @@ export async function pipelineRoutes(
       });
 
       return reply.status(202).send({ ok: true, instanceId: request.params.id });
+    },
+  );
+
+  // ---- POST /api/v1/pipelines/dispatch ----
+  //
+  // Phase 2 Task 7. Promotes the prior v0.3.4 do-not-ship scratch
+  // (`fix/v0.3.4-dispatch-endpoint` at `94f20a1`) into a first-class route.
+  // Drives the new `manual_dispatch` trigger through `applyTrigger` (6th
+  // caller), creating a fresh idle pipeline instance with a synthetic
+  // `manual/<uuid>` cardId and immediately dispatching it. Closes
+  // friction-log #17 ("no path to first dispatch when kanban is broken").
+  //
+  // Path is `/dispatch` (not `/:id/dispatch`) because the route is what
+  // creates the instance. Auth-gated; rate-limited under
+  // `apiAdminRateLimit` to mirror the reset endpoint — manual dispatch
+  // is an operator action, not a hot path.
+  app.post<{
+    Body: {
+      agentId: string;
+      title: string;
+      description: string;
+      boardId?: string;
+      requestedBy?: string;
+    };
+  }>(
+    '/api/v1/pipelines/dispatch',
+    {
+      preHandler: requireAuth,
+      ...apiAdminRateLimit,
+      schema: {
+        body: {
+          type: 'object',
+          properties: {
+            agentId: { type: 'string', minLength: 1, maxLength: 200 },
+            title: { type: 'string', minLength: 1, maxLength: 300 },
+            description: { type: 'string', minLength: 1, maxLength: 10_000 },
+            boardId: { type: 'string', minLength: 1, maxLength: 200, nullable: true },
+            requestedBy: { type: 'string', maxLength: 200, nullable: true },
+          },
+          required: ['agentId', 'title', 'description'],
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { agentId, title, description, boardId } = request.body;
+      const requestedBy =
+        (request.body.requestedBy && request.body.requestedBy.trim()) ||
+        request.user?.userId ||
+        'api';
+
+      const outcome: ManualDispatchOutcome = await orchestrator.requestManualDispatch({
+        agentId,
+        title,
+        description,
+        ...(boardId !== undefined ? { boardId } : {}),
+        requestedBy,
+      });
+
+      switch (outcome.kind) {
+        case 'dispatched':
+          return reply.status(202).send({
+            ok: true,
+            instanceId: outcome.instanceId,
+            cardId: outcome.cardId,
+            boardId: outcome.boardId,
+            dispatchId: outcome.dispatchId,
+          });
+        case 'no_board':
+          throw new ApiError(
+            'NO_BOARD_CONFIGURED',
+            'No board is configured. Add at least one board to ouija.config.yaml before dispatching.',
+            409,
+            false,
+          );
+        case 'ambiguous_board':
+          throw new ApiError(
+            'BOARD_ID_REQUIRED',
+            `Multiple boards configured (${outcome.boardIds.join(', ')}); pass boardId in the request body.`,
+            400,
+            false,
+            outcome.boardIds.map((id) => ({ field: 'boardId', message: `candidate: ${id}` })),
+          );
+        case 'config_missing':
+          throw new ApiError(
+            'PIPELINE_CONFIG_MISSING',
+            `No board config for ${outcome.boardId}; cannot dispatch.`,
+            500,
+            false,
+          );
+        case 'rejected':
+          throw new ApiError('DISPATCH_REJECTED', outcome.reason, 409, false);
+        default: {
+          const _exhaustive: never = outcome;
+          void _exhaustive;
+          throw new ApiError(
+            'INTERNAL_ERROR',
+            'Unknown manual-dispatch outcome',
+            500,
+            false,
+          );
+        }
+      }
     },
   );
 

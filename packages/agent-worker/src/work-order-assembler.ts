@@ -155,8 +155,24 @@ export async function assembleWorkOrder(
     }
   }
 
-  // 3. Fetch card details from kanban plugin
-  const card = await deps.getCardDetails(jobData.cardId);
+  // 3. Fetch card details from kanban plugin OR — for manual dispatches —
+  // synthesize a card object from the inline jobData. Manual cardIds are
+  // produced by `Orchestrator.requestManualDispatch` as `manual/<uuid>` so
+  // there is nothing for `getCardDetails` to look up; calling it would either
+  // throw or return an empty card depending on the plugin. The dispatch
+  // payload carries the verbatim `taskTitle` + `workOrderDescription`
+  // already, so use them directly. Friction-log #17 follow-up.
+  const isManualCard = jobData.cardId.startsWith('manual/');
+  const card = isManualCard
+    ? {
+        title:
+          typeof jobData.taskTitle === 'string' && jobData.taskTitle.trim().length > 0
+            ? jobData.taskTitle
+            : `Manual dispatch ${jobData.cardId}`,
+        description: jobData.workOrderDescription,
+        acceptanceCriteria: [] as string[],
+      }
+    : await deps.getCardDetails(jobData.cardId);
 
   // 3a. Sanitize the description before it flows into the WorkOrder and
   // ultimately the agent prompt. The orchestrator's _fetchGuardContext runs
