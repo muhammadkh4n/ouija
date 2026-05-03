@@ -15,6 +15,7 @@ import { runStatus } from './commands/status.js';
 import { runDoctor } from './commands/doctor.js';
 import { runWatch } from './commands/watch.js';
 import { runGithubConnect } from './commands/github-connect.js';
+import { runTunnel } from './commands/tunnel.js';
 import { log } from './lib/logger.js';
 
 const VERSION = '0.1.0';
@@ -54,6 +55,8 @@ async function main(argv: readonly string[]): Promise<number> {
       log.info('  available: ouija github connect <owner/repo> --server-url <url>');
       return 1;
     }
+    case 'tunnel':
+      return runTunnel(rest);
     default:
       log.error(`Unknown command: ${command}`);
       printHelp();
@@ -80,6 +83,8 @@ Commands:
                               @ouija mentions; dispatch via the server
   github connect <owner/repo> Register the Ouija webhook on a GitHub
                               repo (idempotent)
+  tunnel                      Run a cloudflared quick tunnel; auto-connect
+                              with --connect <owner/repo>
   version                     Print the CLI version
   help                        Show this message
 
