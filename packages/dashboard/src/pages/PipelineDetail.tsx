@@ -24,10 +24,13 @@ import { Header } from '../components/Header.js';
 import { StatusDot } from '../components/StatusDot.js';
 import { useToast } from '../components/Toast.js';
 import {
-  relativeTime,
-  shortId,
+  formatCostUsd,
+  formatTokens,
   isInFlight,
   isZeroTokenAnomaly,
+  readDispatchOutcomeMetrics,
+  relativeTime,
+  shortId,
 } from '../lib/format.js';
 import type {
   PipelineDetailResponse,
@@ -730,35 +733,205 @@ function TimelineRow({ event }: { event: TimelineEvent }) {
   const head = segments.slice(0, -1).join('.');
   const tail = segments[segments.length - 1] ?? event.topic;
 
+  const metrics = event.topic === 'dispatch.outcome'
+    ? readDispatchOutcomeMetrics(event.payload)
+    : null;
+  const transitionLabel = event.topic === 'pipeline.transitioned'
+    ? readTransitionLabel(event.payload)
+    : null;
+
   return (
     <li
-      className="grid items-baseline"
+      className="flex flex-col"
       style={{
-        gridTemplateColumns: '3rem 1fr 7rem',
-        gap: 'var(--space-3)',
+        gap: 'var(--space-2)',
         paddingBottom: 'var(--space-3)',
         borderBottom: '1px dashed var(--color-border)',
       }}
     >
-      <span
-        className="mono faint"
-        style={{ fontSize: 'var(--text-xs)', textAlign: 'right' }}
+      <div
+        className="grid items-baseline"
+        style={{
+          gridTemplateColumns: '3rem 1fr 7rem',
+          gap: 'var(--space-3)',
+        }}
       >
-        #{event.sequence}
-      </span>
-      <span className="mono" style={{ fontSize: 'var(--text-sm)' }}>
-        <span className="faint">{head}.</span>
-        <span style={{ color: 'var(--color-accent)' }}>{tail}</span>
-      </span>
-      <span
-        className="faint mono"
-        style={{ fontSize: 'var(--text-xs)', textAlign: 'right' }}
-        title={event.occurredAt}
-      >
-        {relativeTime(event.occurredAt)}
-      </span>
+        <span
+          className="mono faint"
+          style={{ fontSize: 'var(--text-xs)', textAlign: 'right' }}
+        >
+          #{event.sequence}
+        </span>
+        <span className="mono" style={{ fontSize: 'var(--text-sm)' }}>
+          <span className="faint">{head}.</span>
+          <span style={{ color: 'var(--color-accent)' }}>{tail}</span>
+          {transitionLabel !== null && (
+            <span
+              className="faint"
+              style={{
+                marginLeft: 'var(--space-2)',
+                fontSize: 'var(--text-xs)',
+              }}
+            >
+              {transitionLabel}
+            </span>
+          )}
+        </span>
+        <span
+          className="faint mono"
+          style={{ fontSize: 'var(--text-xs)', textAlign: 'right' }}
+          title={event.occurredAt}
+        >
+          {relativeTime(event.occurredAt)}
+        </span>
+      </div>
+      {metrics !== null && (
+        <DispatchOutcomeChips metrics={metrics} sequence={event.sequence} />
+      )}
     </li>
   );
+}
+
+interface DispatchOutcomeChipsProps {
+  metrics: NonNullable<ReturnType<typeof readDispatchOutcomeMetrics>>;
+  sequence: number;
+}
+
+function DispatchOutcomeChips({ metrics, sequence }: DispatchOutcomeChipsProps) {
+  const cost = formatCostUsd(metrics.costUsd);
+  const tokensIn = formatTokens(metrics.tokensIn);
+  const tokensOut = formatTokens(metrics.tokensOut);
+  const tokensTotal =
+    metrics.tokensIn !== null || metrics.tokensOut !== null
+      ? formatTokens((metrics.tokensIn ?? 0) + (metrics.tokensOut ?? 0))
+      : null;
+  const acceptedTone = metrics.accepted === false
+    ? 'var(--color-status-failed, #bf616a)'
+    : 'var(--color-text-faint, var(--color-text))';
+
+  // Suppress the chip row if absolutely nothing meaningful is present —
+  // pre-v0.4.0 historical rows or runners that didn't report any of the
+  // observable fields. The status header alone is the right signal there.
+  const anySignal =
+    cost !== null ||
+    tokensTotal !== null ||
+    metrics.commitsPushed !== null ||
+    metrics.toolCallsMade !== null ||
+    metrics.prUrl !== null ||
+    metrics.accepted === false;
+  if (!anySignal) return null;
+
+  return (
+    <div
+      className="flex"
+      data-testid={`dispatch-outcome-chips-${sequence}`}
+      style={{
+        gap: 'var(--space-2)',
+        flexWrap: 'wrap',
+        marginLeft: 'calc(3rem + var(--space-3))',
+      }}
+    >
+      {cost !== null && <Chip label="cost" value={cost} />}
+      {tokensTotal !== null && (
+        <Chip
+          label="tokens"
+          value={tokensTotal}
+          title={
+            tokensIn !== null && tokensOut !== null
+              ? `${tokensIn} in / ${tokensOut} out`
+              : undefined
+          }
+        />
+      )}
+      {metrics.commitsPushed !== null && metrics.commitsPushed > 0 && (
+        <Chip label="commits" value={String(metrics.commitsPushed)} />
+      )}
+      {metrics.toolCallsMade !== null && metrics.toolCallsMade > 0 && (
+        <Chip label="tools" value={String(metrics.toolCallsMade)} />
+      )}
+      {metrics.prUrl !== null && (
+        <Chip
+          label="pr"
+          value="open ↗"
+          href={metrics.prUrl}
+          title={metrics.prUrl}
+        />
+      )}
+      {metrics.accepted === false && (
+        <Chip
+          label="outcome"
+          value="rejected"
+          tone={acceptedTone}
+          title="Run produced no observable evidence (no PR, no commits, no tool calls). Transition rejected by positive-evidence gate (Phase 1 Task 4)."
+        />
+      )}
+    </div>
+  );
+}
+
+interface ChipProps {
+  label: string;
+  value: string;
+  title?: string | undefined;
+  href?: string | undefined;
+  tone?: string | undefined;
+}
+
+function Chip({ label, value, title, href, tone }: ChipProps) {
+  const color = tone ?? 'var(--color-text)';
+  const inner = (
+    <span
+      className="mono"
+      style={{
+        fontSize: 'var(--text-xs)',
+        padding: '2px var(--space-2)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-sm)',
+        background: 'var(--color-bg-sunken)',
+        color,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span className="faint" style={{ marginRight: 'var(--space-1)' }}>
+        {label}
+      </span>
+      <span style={{ fontWeight: 600 }}>{value}</span>
+    </span>
+  );
+  if (href !== undefined) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        title={title}
+        style={{ textDecoration: 'none' }}
+      >
+        {inner}
+      </a>
+    );
+  }
+  return <span title={title}>{inner}</span>;
+}
+
+/**
+ * Read the trigger name out of a `pipeline.transitioned` event payload, when
+ * available. Helps disambiguate the review-loop hops in the timeline:
+ * `awaiting_review → dispatching` driven by `pr_review_received` looks the
+ * same as one driven by `human_retry` without the trigger annotation.
+ */
+function readTransitionLabel(payload: unknown): string | null {
+  if (payload === null || typeof payload !== 'object') return null;
+  const p = payload as { fromStatus?: unknown; toStatus?: unknown; trigger?: unknown };
+  const trigger = typeof p.trigger === 'string' ? p.trigger : null;
+  const fromStatus = typeof p.fromStatus === 'string' ? p.fromStatus : null;
+  const toStatus = typeof p.toStatus === 'string' ? p.toStatus : null;
+  if (trigger === null && fromStatus === null && toStatus === null) return null;
+  const hop = fromStatus !== null && toStatus !== null ? `${fromStatus} → ${toStatus}` : null;
+  if (hop !== null && trigger !== null) return `${hop} via ${trigger}`;
+  if (hop !== null) return hop;
+  if (trigger !== null) return `via ${trigger}`;
+  return null;
 }
 
 // ---------------------------------------------------------------------------

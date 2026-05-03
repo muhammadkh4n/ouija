@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   dwellMs,
+  formatCostUsd,
   formatDwell,
+  formatTokens,
   isInFlight,
   isOverDwellBudget,
   isZeroTokenAnomaly,
+  readDispatchOutcomeMetrics,
   relativeTime,
   shortId,
 } from '../src/lib/format.js';
@@ -267,5 +270,113 @@ describe('isOverDwellBudget', () => {
         now,
       ),
     ).toBe(false);
+  });
+});
+
+describe('formatCostUsd', () => {
+  it('renders <1¢ as "<$0.01" so the chip never shows "$0.0000"', () => {
+    expect(formatCostUsd(0.0042)).toBe('<$0.01');
+    expect(formatCostUsd(0.001)).toBe('<$0.01');
+  });
+
+  it('renders three decimals for cents', () => {
+    expect(formatCostUsd(0.123)).toBe('$0.123');
+    expect(formatCostUsd(0.99)).toBe('$0.990');
+  });
+
+  it('renders two decimals for dollars+', () => {
+    expect(formatCostUsd(1)).toBe('$1.00');
+    expect(formatCostUsd(12.345)).toBe('$12.35');
+  });
+
+  it('renders zero / negative / NaN / null / undefined as null or "$0"', () => {
+    expect(formatCostUsd(0)).toBe('$0');
+    expect(formatCostUsd(-1)).toBe('$0');
+    expect(formatCostUsd(Number.NaN)).toBeNull();
+    expect(formatCostUsd(null)).toBeNull();
+    expect(formatCostUsd(undefined)).toBeNull();
+  });
+});
+
+describe('formatTokens', () => {
+  it('renders <1k as locale-formatted integers', () => {
+    expect(formatTokens(0)).toBe('0');
+    expect(formatTokens(999)).toBe('999');
+  });
+
+  it('renders thousands as "Nk" with one decimal', () => {
+    expect(formatTokens(1_000)).toBe('1.0k');
+    expect(formatTokens(12_400)).toBe('12.4k');
+    expect(formatTokens(999_999)).toBe('1000.0k');
+  });
+
+  it('renders millions as "N.NNM"', () => {
+    expect(formatTokens(1_000_000)).toBe('1.00M');
+    expect(formatTokens(1_234_567)).toBe('1.23M');
+  });
+
+  it('returns null for null/undefined/NaN', () => {
+    expect(formatTokens(null)).toBeNull();
+    expect(formatTokens(undefined)).toBeNull();
+    expect(formatTokens(Number.NaN)).toBeNull();
+  });
+});
+
+describe('readDispatchOutcomeMetrics', () => {
+  it('extracts every reported metric from a full payload', () => {
+    const payload = {
+      outcome: {
+        tokensIn: 1200,
+        tokensOut: 800,
+        costUsd: 0.42,
+        commitsPushed: 3,
+        toolCallsMade: 18,
+        durationMs: 45_000,
+        prUrl: 'https://github.com/x/y/pull/1',
+      },
+      accepted: true,
+    };
+    const metrics = readDispatchOutcomeMetrics(payload);
+    expect(metrics).not.toBeNull();
+    expect(metrics?.tokensIn).toBe(1200);
+    expect(metrics?.tokensOut).toBe(800);
+    expect(metrics?.costUsd).toBe(0.42);
+    expect(metrics?.commitsPushed).toBe(3);
+    expect(metrics?.toolCallsMade).toBe(18);
+    expect(metrics?.durationMs).toBe(45_000);
+    expect(metrics?.prUrl).toBe('https://github.com/x/y/pull/1');
+    expect(metrics?.accepted).toBe(true);
+  });
+
+  it('returns null for non-object payloads', () => {
+    expect(readDispatchOutcomeMetrics(null)).toBeNull();
+    expect(readDispatchOutcomeMetrics(undefined)).toBeNull();
+    expect(readDispatchOutcomeMetrics('a string')).toBeNull();
+    expect(readDispatchOutcomeMetrics(42)).toBeNull();
+  });
+
+  it('returns null when the outcome wrapper is absent', () => {
+    expect(readDispatchOutcomeMetrics({ accepted: true })).toBeNull();
+    expect(readDispatchOutcomeMetrics({ outcome: null })).toBeNull();
+    expect(readDispatchOutcomeMetrics({ outcome: 'string' })).toBeNull();
+  });
+
+  it('returns null fields when the outcome has them at wrong types', () => {
+    const metrics = readDispatchOutcomeMetrics({
+      outcome: {
+        tokensIn: 'not a number',
+        prUrl: 42,
+      },
+      accepted: 'truthy',
+    });
+    expect(metrics).not.toBeNull();
+    expect(metrics?.tokensIn).toBeNull();
+    expect(metrics?.prUrl).toBeNull();
+    expect(metrics?.accepted).toBeNull();
+  });
+
+  it('treats empty-string prUrl as no URL', () => {
+    const metrics = readDispatchOutcomeMetrics({ outcome: { prUrl: '' } });
+    expect(metrics?.prUrl).toBeNull();
   });
 });
