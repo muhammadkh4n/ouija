@@ -20,14 +20,24 @@
  *
  * **Why quick tunnels and not named tunnels.** Quick tunnels need no
  * Cloudflare account / DNS setup — fits the "fresh-checkout to merged
- * PR in <10 minutes" definition-of-bridged criterion. Their tradeoff is
- * URL churn on every restart; Task 5 wires re-registering the GitHub
- * webhook automatically. Named tunnels (advanced-user path) are
- * documented in `docs/getting-started.md` per Task 13.
+ * PR in <10 minutes" definition-of-bridged criterion. Their tradeoff
+ * is URL churn on every restart; Task 5 (this command, post-Task-4)
+ * persists the last-seen URL + every `<owner/repo>` we connected via
+ * `~/.ouija/tunnel-state.json` and auto-re-PATCHes each webhook on
+ * URL drift, so a quick-tunnel restart stays a single command. Named
+ * tunnels (advanced-user path) are documented in
+ * `docs/getting-started.md`.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { log } from '../lib/logger.js';
+import {
+  buildState,
+  detectUrlDrift,
+  loadTunnelState,
+  saveTunnelState,
+  tunnelStatePath,
+} from '../lib/tunnel-state.js';
 import { runGithubConnect } from './github-connect.js';
 
 // ---- Pure types + helpers (unit-tested) ----
@@ -183,10 +193,22 @@ export async function runTunnel(argv: readonly string[]): Promise<number> {
   }
   const config = parsed.config;
 
+  // Tunnel state: persisted across runs so a quick-tunnel restart with
+  // a fresh `*.trycloudflare.com` URL can auto-PATCH every webhook we
+  // registered through this tunnel before. Failure to read is non-
+  // fatal — `null` means "no prior state, treat as first run".
+  const statePath = tunnelStatePath(process.env);
+  const previousState = await loadTunnelState(statePath);
+
   log.step('ouija tunnel');
   log.info(`forwarding ${config.target} via cloudflared quick tunnel`);
   if (config.connectRepo !== undefined) {
     log.info(`will auto-connect ${config.connectRepo} once the URL is live`);
+  }
+  if (previousState !== null && previousState.connectedRepos.length > 0) {
+    log.info(
+      `remembered ${previousState.connectedRepos.length} connected repo(s) from previous run: ${previousState.connectedRepos.join(', ')}`,
+    );
   }
 
   let child: ChildProcess;
@@ -208,23 +230,57 @@ export async function runTunnel(argv: readonly string[]): Promise<number> {
   const onLine = async (line: string, source: 'stdout' | 'stderr'): Promise<void> => {
     if (line.length === 0) return;
     log.dim(`[cloudflared:${source}] ${line}`);
-    if (detectedUrl === null) {
-      const url = extractTunnelUrl(line);
-      if (url !== null) {
-        detectedUrl = url;
-        log.success(`tunnel live: ${url}`);
-        log.info(`webhook target → ${url}/hooks/github/<secret>`);
-        if (config.connectRepo !== undefined) {
-          log.info(`running: ouija github connect ${config.connectRepo} --server-url ${url}`);
-          const code = await runGithubConnect([
-            config.connectRepo,
-            '--server-url',
-            url,
-          ]);
-          if (code !== 0) {
-            log.error(`auto-connect exited ${code}; the tunnel itself stays up so you can retry manually`);
-          }
-        }
+    if (detectedUrl !== null) return;
+
+    const url = extractTunnelUrl(line);
+    if (url === null) return;
+
+    detectedUrl = url;
+    log.success(`tunnel live: ${url}`);
+    log.info(`webhook target → ${url}/hooks/github/<secret>`);
+
+    // Compute drift against the persisted state. On drift, we re-PATCH
+    // every previously-connected repo even if `--connect` wasn't passed
+    // this run — they'd otherwise still point at the stale URL. On a
+    // first ever run (state = null), drift is false and we only honour
+    // an explicit `--connect`.
+    const drift = detectUrlDrift(previousState, url);
+    const previousRepos = previousState?.connectedRepos ?? [];
+
+    const connectTargets: string[] = [];
+    if (config.connectRepo !== undefined) connectTargets.push(config.connectRepo);
+    if (drift.drifted) {
+      log.warn(
+        `tunnel URL drifted from ${drift.previousUrl} → ${url}; re-registering ${previousRepos.length} webhook(s)`,
+      );
+      for (const repo of previousRepos) {
+        if (!connectTargets.includes(repo)) connectTargets.push(repo);
+      }
+    }
+
+    // Persist the new state BEFORE running connects. If a connect call
+    // fails mid-flight (network blip, GitHub rate-limit), we still want
+    // the next run to compare against the current URL rather than the
+    // stale one — otherwise it would look like another drift on every
+    // restart and trigger redundant PATCHes.
+    const nextState = buildState({
+      url,
+      previousRepos,
+      newRepo: config.connectRepo,
+    });
+    try {
+      await saveTunnelState(statePath, nextState);
+    } catch (err) {
+      log.warn(
+        `could not write tunnel state file at ${statePath} — ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    for (const repo of connectTargets) {
+      log.info(`running: ouija github connect ${repo} --server-url ${url}`);
+      const code = await runGithubConnect([repo, '--server-url', url]);
+      if (code !== 0) {
+        log.error(`auto-connect for ${repo} exited ${code}; the tunnel itself stays up so you can retry manually`);
       }
     }
   };

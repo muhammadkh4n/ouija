@@ -271,6 +271,55 @@ Once ready:
 
 ---
 
+## Tunnels for GitHub webhooks
+
+GitHub needs a public URL to deliver webhook events; if Ouija is on your laptop or
+a private VPS, you'll need a tunnel. Two paths:
+
+### Quick tunnels (default — zero setup)
+
+```bash
+npx @ouija-dev/cli tunnel --connect <owner/repo>
+```
+
+Wraps `cloudflared tunnel --url http://localhost:4000` and pipes the generated
+`*.trycloudflare.com` URL into `ouija github connect`. No Cloudflare account, no
+DNS, no router config.
+
+**Tradeoff:** Cloudflare assigns a fresh random hostname every time `cloudflared`
+restarts. Ouija mitigates this — it persists the last-seen URL to
+`~/.ouija/tunnel-state.json` and auto-PATCHes the registered webhook against the
+new URL the next time you run `ouija tunnel`. So a restart is "ouija tunnel" again,
+not "manually edit the webhook URL in GitHub settings".
+
+The state file remembers every `<owner/repo>` you've connected through this
+tunnel, so a single `ouija tunnel` (no `--connect` flag) re-registers all of
+them on the new URL.
+
+### Named tunnels (advanced — persistent URL)
+
+If quick-tunnel restarts annoy you and you don't mind a five-minute setup,
+named tunnels give you a stable hostname under your own DNS:
+
+1. Create a [free Cloudflare account](https://dash.cloudflare.com/sign-up) and
+   add a domain you control.
+2. `cloudflared login` (one-time browser auth).
+3. `cloudflared tunnel create ouija` — creates a persistent tunnel + writes a
+   credentials JSON.
+4. `cloudflared tunnel route dns ouija ouija.your-domain.com` — points a CNAME
+   at the tunnel.
+5. Run with the tunnel name instead of the quick `--url` form:
+   ```bash
+   cloudflared tunnel --config ~/.cloudflared/config.yml run ouija
+   ```
+6. `ouija github connect <owner/repo> --server-url https://ouija.your-domain.com`
+   once. The URL never changes again.
+
+Named tunnels don't churn, so the state-file machinery is moot — you skip
+`ouija tunnel` entirely.
+
+---
+
 ## What to read next
 
 - [configuration.md](configuration.md) — every field in `ouija.config.yaml`
