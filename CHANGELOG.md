@@ -2,6 +2,52 @@
 
 All notable changes to Ouija are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow [SemVer](https://semver.org).
 
+## [0.4.1] — Trigger Primitive + Recovery — 2026-05-03
+
+The v0.4.1 release closes Phase 2 of the bridge plan: every orchestrator entry point now routes through one persist-+-side-effect primitive, stuck pipelines have an explicit recovery vocabulary, and the dashboard surfaces the dwell + cost telemetry that operators need to drive the loop without SQL access.
+
+### Added
+
+- **`POST /api/v1/pipelines/dispatch` (first-class).** Admin dispatch route. Bypasses kanban — creates a fresh `idle` pipeline instance with a synthetic `manual/<uuid>` cardId and immediately drives it into `dispatching` via the new `manual_dispatch` trigger. Auth-gated via `requireAuth`, throttled with `apiAdminRateLimit` (30/min/session). Body: `{ agentId, title, description, boardId?, requestedBy? }`. Outcome → status mapping: 202 dispatched, 400 `BOARD_ID_REQUIRED` (with candidate hints when >1 board configured), 409 `NO_BOARD_CONFIGURED` / `DISPATCH_REJECTED`, 500 `PIPELINE_CONFIG_MISSING`. The `taskTitle` field on `AgentDispatchJobData` is now populated from the side-effect payload, and `assembleWorkOrder` short-circuits the kanban `getCardDetails` lookup for synthetic `manual/...` cardIds. Closes friction-log #17 (no path to first agent run when kanban is broken or absent). (#74)
+- **`POST /api/v1/pipelines/:id/reset` (admin recovery).** Returns any "stuck-recoverable" pipeline (`provisioning` / `dispatching` / `running` / `awaiting_review` / `stalled`) to `idle`. Cancels in-flight agent + stall check + workspace as applicable; emits a dedicated `pipeline.admin_reset` audit event alongside the routine `pipeline.transitioned`. Auth-gated + rate-limited identically to `/dispatch`. Closes friction-log #16. (#70)
+- **Dwell-budget reconciler (`DwellReconciler`).** New 60s loop, complementary to the heartbeat-based `StallMonitor`. Per-state budgets table in `packages/engine/src/dwell-budgets.ts`: `dispatching: 60s`, `provisioning: 120s`, `awaiting_review: 14d`, `running: defaultStallThresholdMs * 4` capped at `RUNNING_HARD_CAP_MS = 6h`. Overstayed instances get a synthesized `timed_out` trigger: live states → `failed (retryable=true, attempt+1)`, `awaiting_review` → `stalled`. Drift-safe: rejects when live state has moved out of `trigger.fromStatus` between query and transaction. (#72)
+- **Migration 008 — `state_entered_at TIMESTAMPTZ` on `pipeline_instances`.** NOT NULL after backfill from latest `pipeline.transitioned` event (falling back to `created_at`). Composite index on `(status, state_entered_at)` keeps the reconciler scan sub-100ms. `Orchestrator.applyTrigger` stamps it on every status change. (#72)
+- **Dashboard dwell-time badges + Reset button.** New `dwell` column between status dot and id, monospace + tabular-nums, painted red + bold when over budget. Tooltip surfaces full duration + budget + over-budget hint. The `reset` allowedAction renders as a real `<button>` with proper `preventDefault`/`stopPropagation` (row is wrapped in `<Link>`); `useMutation` invalidates `['pipelines', boardId]` on success; failures surface in an inline `role="alert"` banner. Server now ships `stateEnteredAt` + `dwellBudgetMs` per pipeline so the dashboard never duplicates the budget table (Tenet 4). (#73)
+- **Dashboard Run Agent button.** Header-mounted button expanding to an inline form (agent picker, title input ≤300, description textarea ≤10k). Targets `POST /api/v1/pipelines/dispatch`. Closes Plan-README definition-of-bridged item: dispatch is reachable from the dashboard without kanban. (#74)
+- **Dashboard timeline cost + tokens chips.** Per-iteration chips on every `dispatch.outcome` event: cost (sub-cent → `<$0.01`), tokens (combined in+out, tooltip with split), commits, tools, PR link, red `outcome rejected` chip when the positive-evidence gate refused the run. `pipeline.transitioned` events annotate inline with `from → to via trigger` to disambiguate review-loop iterations. (#75)
+- **Audit events.** `pipeline.admin_reset { instanceId, fromStatus, requestedBy, resetAt }`, `pipeline.timed_out { instanceId, fromStatus, budgetMs, observedDwellMs, detectedAt }`, `pipeline.manually_dispatched { instanceId, cardId, agentId, taskTitle, requestedBy, dispatchedAt }`. All instanceId-stamping centralized in `Orchestrator.applyTrigger.stampInstanceId`. (#70, #72, #74)
+- **Trigger types.** `admin_reset`, `timed_out`, `manual_dispatch`. (#70, #72, #74)
+- **Error codes.** `PIPELINE_NOT_RESETTABLE`, `PIPELINE_CONFIG_MISSING`, `NO_BOARD_CONFIGURED`, `BOARD_ID_REQUIRED`, `DISPATCH_REJECTED`. (#70, #74)
+
+### Changed
+
+- **`Orchestrator.applyTrigger` is now the single persist-+-side-effect primitive across 6 callers** (was 3 before Task 1, then grew to 6: `processTrigger` / `processStallDetected` / `processReviewBundle` / `requestAdminReset` / `requestTimedOut` / `requestManualDispatch`). One implementation of the event append, state save, and side-effect fan-out. Tenet 7 fully realised. (#64, #70, #72, #74)
+- **`PipelineInstance.stateEnteredAt: string` (NOT NULL).** New required field; populated by migration 008 on existing rows. (#72)
+- **`PipelineSummary` wire shape adds `stateEnteredAt` + `dwellBudgetMs`; `PipelineAction` widened to `'retry' | 'cancel' | 'reset'`.** (#73)
+- **`TimelineEvent` wire shape adds `payload?: unknown`.** Defensive structural narrowing per topic. (#75)
+
+### Fixed
+
+- **Vite 8 strict ESM resolution failed on cold checkouts.** Workspace packages whose `exports`/`main` point at `dist/` couldn't be resolved by vitest before `turbo run build`. Fix: vitest-only `resolve.alias` (`@ouija-dev/<pkg>[/sub]` → source TypeScript) so vitest doesn't depend on prior builds; production runtime keeps using each package's `exports` → compiled `dist/`. Replaces an earlier attempt that pointed `default` at `./src/index.ts` and broke production Docker resolution (`fresh-install-smoke` faithfully reported the production crash). (#71)
+
+### Acceptance criteria — all met
+
+- All four orchestrator entry points share `applyTrigger`. ✅ (today's count is 6.)
+- Integration test: pipeline wedged in `dispatching` past its budget → reconciler fires `timed_out` → pipeline moves to `failed` or retries. ✅
+- Integration test: `POST /api/v1/pipelines/:id/reset` on a stalled pipeline → state returns to `idle` + audit event written. ✅
+- Dashboard shows the dwell-time badge on every in-flight pipeline; Reset button is visible and functional. ✅
+- Friction-log #16 (stuck-state recovery) ✅. Friction-log #17 (no path to first dispatch) ✅ (bonus).
+
+### Tests
+
+1015 passed / 43 skipped (was 920 passed at v0.4.0 cut). +95 net additions across the phase.
+
+### Migration notes for v0.4.0 → v0.4.1
+
+- **Database:** apply migration 008 before starting v0.4.1. Backfill is idempotent and tolerates instances with no `pipeline.transitioned` events (uses `created_at`).
+- **No breaking type changes.** `PipelineInstance.stateEnteredAt` is required after the migration; readers compiled against v0.4.0 keep working because the migration runs before the new code reads the field.
+- **Dashboard caches:** the React-Query keys are unchanged — no client-side cache reset needed.
+
 ## [0.4.0] — Kill Silent Failures — 2026-04-22
 
 The v0.4.0 release closes eight distinct silent-failure classes the 2026-04-19 smoke uncovered, plus one more found while attempting the phase's live smoke. Headline: a dispatch that reports `succeeded` with no observable evidence is no longer possible.
