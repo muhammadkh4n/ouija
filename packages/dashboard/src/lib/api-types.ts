@@ -69,6 +69,16 @@ export interface TimelineEvent {
   topic: string;
   occurredAt: string;
   sequence: number;
+  /**
+   * Topic-specific payload. The wire is unstructured because the union
+   * lives in `@ouija-dev/types` and we don't import that across the
+   * dashboard build boundary; consumers of the timeline narrow per-topic
+   * with a structural guard. Examples:
+   * - `dispatch.outcome`: `{ outcome: { tokensIn, tokensOut, costUsd, ... }, accepted }`
+   * - `pipeline.transitioned`: `{ fromStatus, toStatus, trigger }`
+   * - `pipeline.manually_dispatched`: `{ agentId, taskTitle, requestedBy }`
+   */
+  payload?: unknown;
 }
 
 export interface PipelineDetailResponse {

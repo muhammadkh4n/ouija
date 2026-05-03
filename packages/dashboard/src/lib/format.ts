@@ -131,3 +131,91 @@ export function isOverDwellBudget(input: DwellInput, now: Date = new Date()): bo
   if (budget === null || budget === undefined) return false;
   return dwellMs(input, now) > budget;
 }
+
+
+/**
+ * Format a USD cost as a fixed-precision string. Below 1¢ rounds to "<$0.01"
+ * so the badge never renders "$0.0000" — operators care about visible spend.
+ */
+export function formatCostUsd(usd: number | null | undefined): string | null {
+  if (usd === null || usd === undefined || !Number.isFinite(usd)) return null;
+  if (usd <= 0) return '$0';
+  if (usd < 0.01) return '<$0.01';
+  if (usd < 1) return `$${usd.toFixed(3)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+/**
+ * Compact token-count formatting: "12.4k" / "1.2M". Plain integers for <1000
+ * so small dispatches don't render as "0.5k".
+ */
+export function formatTokens(n: number | null | undefined): string | null {
+  if (n === null || n === undefined || !Number.isFinite(n)) return null;
+  if (n < 1000) return n.toLocaleString();
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
+/**
+ * Structural shape of the `dispatch.outcome` event payload that the
+ * dashboard cares about. Mirrors `DispatchOutcomePayload` in
+ * `@ouija-dev/types/events.ts` minus the branded ids; defined here to
+ * keep the dashboard from importing across the package boundary (see
+ * api-types docstring). The narrowing helper handles missing fields.
+ */
+export interface DispatchOutcomeEventPayload {
+  outcome?: {
+    tokensIn?: number;
+    tokensOut?: number;
+    costUsd?: number;
+    commitsPushed?: number;
+    toolCallsMade?: number;
+    durationMs?: number;
+    prUrl?: string;
+  };
+  accepted?: boolean;
+}
+
+/**
+ * Narrowing predicate + accessor for `dispatch.outcome` payloads. Returns
+ * a metrics object the timeline row renders, or null when the payload
+ * doesn't match the expected shape (defensive against schema drift).
+ */
+export function readDispatchOutcomeMetrics(payload: unknown): {
+  tokensIn: number | null;
+  tokensOut: number | null;
+  costUsd: number | null;
+  commitsPushed: number | null;
+  toolCallsMade: number | null;
+  durationMs: number | null;
+  prUrl: string | null;
+  accepted: boolean | null;
+} | null {
+  if (payload === null || typeof payload !== 'object') return null;
+  const p = payload as DispatchOutcomEventPayloadShape;
+  const o = p.outcome;
+  if (o === undefined || o === null || typeof o !== 'object') return null;
+  return {
+    tokensIn: typeof o.tokensIn === 'number' ? o.tokensIn : null,
+    tokensOut: typeof o.tokensOut === 'number' ? o.tokensOut : null,
+    costUsd: typeof o.costUsd === 'number' ? o.costUsd : null,
+    commitsPushed: typeof o.commitsPushed === 'number' ? o.commitsPushed : null,
+    toolCallsMade: typeof o.toolCallsMade === 'number' ? o.toolCallsMade : null,
+    durationMs: typeof o.durationMs === 'number' ? o.durationMs : null,
+    prUrl: typeof o.prUrl === 'string' && o.prUrl.length > 0 ? o.prUrl : null,
+    accepted: typeof p.accepted === 'boolean' ? p.accepted : null,
+  };
+}
+
+interface DispatchOutcomEventPayloadShape {
+  outcome?: {
+    tokensIn?: unknown;
+    tokensOut?: unknown;
+    costUsd?: unknown;
+    commitsPushed?: unknown;
+    toolCallsMade?: unknown;
+    durationMs?: unknown;
+    prUrl?: unknown;
+  };
+  accepted?: unknown;
+}
