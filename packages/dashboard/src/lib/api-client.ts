@@ -107,6 +107,20 @@ export function cancelPipeline(id: string): Promise<{ ok: true; instanceId: stri
   return request(`/api/v1/pipelines/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
 }
 
+export interface ResetPipelineResponse {
+  ok: true;
+  instanceId: string;
+  prevStatus: string;
+  nextStatus: 'idle';
+}
+
+export function resetPipeline(id: string): Promise<ResetPipelineResponse> {
+  return request<ResetPipelineResponse>(
+    `/api/v1/pipelines/${encodeURIComponent(id)}/reset`,
+    { method: 'POST' },
+  );
+}
+
 // ---- Agents ----
 
 export function listAgents(includeInactive = false): Promise<AgentListResponse> {

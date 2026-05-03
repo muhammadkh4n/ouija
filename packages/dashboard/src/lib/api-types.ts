@@ -18,7 +18,7 @@ export type PipelineStatus =
   | 'stalled'
   | 'cancelled';
 
-export type PipelineAction = 'retry' | 'cancel';
+export type PipelineAction = 'retry' | 'cancel' | 'reset';
 
 export interface PipelineSummary {
   id: string;
@@ -40,6 +40,22 @@ export interface PipelineSummary {
   iteration?: number | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * ISO-8601 instant the pipeline entered its current `status`. Anchor for
+   * the dwell-time badge — the dashboard renders "in dispatching for 2m 17s"
+   * by diffing this against the wall clock. Stamped server-side by
+   * `Orchestrator.applyTrigger` on every status change (Phase 2 Task 5).
+   */
+  stateEnteredAt: string;
+  /**
+   * Effective dwell budget for the current status, in milliseconds. `null`
+   * for terminal/idle states (no budget) or when the server can't resolve a
+   * board config. The dashboard renders the dwell badge in red when
+   * `now - stateEnteredAt > dwellBudgetMs`. Mirrors what the engine's
+   * DwellReconciler will act on, so the badge predicts (rather than lags)
+   * the next reconciler tick. See `packages/engine/src/dwell-budgets.ts`.
+   */
+  dwellBudgetMs?: number | null;
   allowedActions: PipelineAction[];
 }
 

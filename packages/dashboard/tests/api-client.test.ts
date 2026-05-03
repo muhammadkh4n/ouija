@@ -32,6 +32,7 @@ const {
   setApiKey,
   listBoards,
   listPipelines,
+  resetPipeline,
 } = await import('../src/lib/api-client.js');
 
 describe('getApiKey / setApiKey', () => {
@@ -124,5 +125,79 @@ describe('error handling', () => {
     const err = await listPipelines('b1').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as InstanceType<typeof ApiError>).status).toBe(500);
+  });
+});
+
+describe('resetPipeline', () => {
+  it('POSTs to /reset, returns the parsed envelope, and includes the bearer', async () => {
+    setApiKey('ouija_admin_test');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          instanceId: 'inst_x',
+          prevStatus: 'stalled',
+          nextStatus: 'idle',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await resetPipeline('inst_x');
+    expect(result.ok).toBe(true);
+    expect(result.instanceId).toBe('inst_x');
+    expect(result.prevStatus).toBe('stalled');
+    expect(result.nextStatus).toBe('idle');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('/api/v1/pipelines/inst_x/reset');
+    expect(init.method).toBe('POST');
+    expect((init.headers as Headers).get('Authorization')).toBe(
+      'Bearer ouija_admin_test',
+    );
+  });
+
+  it('throws ApiError with the structured code on 409', async () => {
+    setApiKey('ouija_admin_test');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 'PIPELINE_NOT_RESETTABLE',
+            message: 'Cannot reset from "idle".',
+          },
+        }),
+        { status: 409, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(resetPipeline('inst_idle')).rejects.toMatchObject({
+      status: 409,
+      code: 'PIPELINE_NOT_RESETTABLE',
+    });
+  });
+
+  it('URL-encodes the pipeline id', async () => {
+    setApiKey('ouija_admin_test');
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          instanceId: 'inst/abc',
+          prevStatus: 'stalled',
+          nextStatus: 'idle',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await resetPipeline('inst/abc');
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      '/api/v1/pipelines/inst%2Fabc/reset',
+    );
   });
 });

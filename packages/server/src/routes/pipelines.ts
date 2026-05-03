@@ -17,6 +17,7 @@ import type { Database, OuijaEvent } from '@ouija-dev/types';
 import { instanceId as makeInstanceId } from '@ouija-dev/types';
 import { ApiError } from '@ouija-dev/types';
 import type { Orchestrator } from '@ouija-dev/engine';
+import { resolveDwellBudgetMs } from '@ouija-dev/engine';
 import { requireAuth } from '../middleware/auth.js';
 import { apiAdminRateLimit } from '../middleware/rate-limit.js';
 import { revokeJWT } from '../jwt.js';
@@ -28,7 +29,10 @@ export interface PipelineRouteOptions {
 
 // ---- Response serializers ----
 
-function serializePipeline(instance: import('@ouija-dev/types').PipelineInstance) {
+function serializePipeline(
+  instance: import('@ouija-dev/types').PipelineInstance,
+  boardConfig: import('@ouija-dev/types').PipelineConfig | undefined,
+) {
   const state = instance.state;
   // allowed_actions depends on current status
   const allowedActions: string[] = [];
@@ -55,6 +59,13 @@ function serializePipeline(instance: import('@ouija-dev/types').PipelineInstance
   const iteration =
     'iteration' in state && typeof state.iteration === 'number' ? state.iteration : null;
 
+  // Dwell budget mirrors the DwellReconciler's resolution so the dashboard
+  // can render an "over budget" badge identical to what the reconciler will
+  // act on. `null` means no budget (terminal/idle/stalled — operator-driven)
+  // or no board config available.
+  const dwellBudgetMs =
+    boardConfig !== undefined ? (resolveDwellBudgetMs(state.status, boardConfig) ?? null) : null;
+
   return {
     id: String(instance.id),
     cardId: String(instance.cardId),
@@ -69,6 +80,8 @@ function serializePipeline(instance: import('@ouija-dev/types').PipelineInstance
     iteration,
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
+    stateEnteredAt: instance.stateEnteredAt,
+    dwellBudgetMs,
     allowedActions,
   };
 }
@@ -114,8 +127,18 @@ export async function pipelineRoutes(
         limit,
       );
 
+      // One config lookup per list call: every row in the page belongs to
+      // the same board so we resolve once and pass through to the
+      // serializer. Skips the lookup when the page is empty.
+      const boardConfig =
+        page.items.length > 0
+          ? await db.boardConfigs.findByBoardId(
+              boardIdFilter as import('@ouija-dev/types').BoardId,
+            )
+          : undefined;
+
       return reply.status(200).send({
-        items: page.items.map(serializePipeline),
+        items: page.items.map((p) => serializePipeline(p, boardConfig)),
         nextCursor: page.nextCursor,
       });
     },
@@ -138,8 +161,10 @@ export async function pipelineRoutes(
 
       const timeline = await db.pipelineEvents.listByInstance(makeInstanceId(request.params.id));
 
+      const boardConfig = await db.boardConfigs.findByBoardId(instance.boardId);
+
       return reply.status(200).send({
-        pipeline: serializePipeline(instance),
+        pipeline: serializePipeline(instance, boardConfig),
         timeline: timeline.map((e) => ({
           id: e.id,
           topic: e.topic,

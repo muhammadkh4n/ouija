@@ -7,13 +7,25 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { listBoards, listPipelines } from '../lib/api-client.js';
+import {
+  ApiError,
+  listBoards,
+  listPipelines,
+  resetPipeline,
+} from '../lib/api-client.js';
 import { Header } from '../components/Header.js';
 import { StatusDot } from '../components/StatusDot.js';
 import { EmptyState } from '../components/EmptyState.js';
-import { relativeTime, shortId, isZeroTokenAnomaly } from '../lib/format.js';
+import {
+  dwellMs,
+  formatDwell,
+  isOverDwellBudget,
+  isZeroTokenAnomaly,
+  relativeTime,
+  shortId,
+} from '../lib/format.js';
 import type { PipelineSummary } from '../lib/api-types.js';
 
 const BOARD_STORAGE_KEY = 'ouija:selectedBoardId';
@@ -98,7 +110,7 @@ export function PipelineList() {
             hint="Move a card into a dispatch column in your kanban board. Ouija will create a pipeline and it will appear here."
           />
         ) : (
-          <PipelineTable pipelines={pipelines} />
+          <PipelineTable pipelines={pipelines} selectedBoardId={selectedBoardId!} />
         )}
       </main>
     </div>
@@ -179,22 +191,49 @@ function SectionHeader({
 // Pipeline table — editorial list, not a stock card grid
 // ---------------------------------------------------------------------------
 
-function PipelineTable({ pipelines }: { pipelines: PipelineSummary[] }) {
+function PipelineTable({
+  pipelines,
+  selectedBoardId,
+}: {
+  pipelines: PipelineSummary[];
+  selectedBoardId: string;
+}) {
   // Sort most-recent first.
   const sorted = useMemo(
     () => [...pipelines].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     [pipelines],
   );
 
+  const queryClient = useQueryClient();
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  const resetMutation = useMutation({
+    mutationFn: (id: string) => resetPipeline(id),
+    onSuccess: async () => {
+      setResetError(null);
+      await queryClient.invalidateQueries({
+        queryKey: ['pipelines', selectedBoardId],
+      });
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ApiError) {
+        setResetError(`${err.code}: ${err.message}`);
+      } else if (err instanceof Error) {
+        setResetError(err.message);
+      } else {
+        setResetError('Reset failed — see console.');
+      }
+    },
+  });
+
+  const COLUMNS = '2.5rem 7rem 9rem 1fr 4rem 6rem 9rem';
+
   return (
-    <div
-      className="surface"
-      style={{ overflow: 'hidden' }}
-    >
+    <div className="surface" style={{ overflow: 'hidden' }}>
       <div
         className="grid faint mono uppercase tracking-wide"
         style={{
-          gridTemplateColumns: '2.5rem 10rem 1fr 4rem 6rem 8rem',
+          gridTemplateColumns: COLUMNS,
           gap: 'var(--space-4)',
           padding: 'var(--space-3) var(--space-5)',
           fontSize: 'var(--text-xs)',
@@ -202,29 +241,74 @@ function PipelineTable({ pipelines }: { pipelines: PipelineSummary[] }) {
         }}
       >
         <span />
+        <span>dwell</span>
         <span>id</span>
         <span>card</span>
         <span style={{ textAlign: 'right' }}>attempt</span>
         <span>updated</span>
         <span style={{ textAlign: 'right' }}>actions</span>
       </div>
+      {resetError !== null && (
+        <div
+          role="alert"
+          className="mono"
+          style={{
+            padding: 'var(--space-2) var(--space-5)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--color-status-failed, #bf616a)',
+            background: 'rgba(191, 97, 106, 0.08)',
+            borderBottom: '1px solid var(--color-border)',
+          }}
+        >
+          reset failed — {resetError}
+        </div>
+      )}
       <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
         {sorted.map((p) => (
-          <PipelineRow key={p.id} pipeline={p} />
+          <PipelineRow
+            key={p.id}
+            pipeline={p}
+            columns={COLUMNS}
+            isResetting={resetMutation.isPending && resetMutation.variables === p.id}
+            onReset={(id) => {
+              setResetError(null);
+              resetMutation.mutate(id);
+            }}
+          />
         ))}
       </ul>
     </div>
   );
 }
 
-function PipelineRow({ pipeline }: { pipeline: PipelineSummary }) {
+interface PipelineRowProps {
+  pipeline: PipelineSummary;
+  columns: string;
+  isResetting: boolean;
+  onReset: (id: string) => void;
+}
+
+function PipelineRow({ pipeline, columns, isResetting, onReset }: PipelineRowProps) {
+  const overBudget = isOverDwellBudget(pipeline);
+  const dwellLabel = pipelineHasDwell(pipeline) ? formatDwell(dwellMs(pipeline)) : '—';
+  const dwellColor = overBudget
+    ? 'var(--color-status-failed, #bf616a)'
+    : 'var(--color-text-faint, var(--color-text))';
+  const dwellTitle = pipelineHasDwell(pipeline)
+    ? `in ${pipeline.status} for ${formatDwell(dwellMs(pipeline))}` +
+      (pipeline.dwellBudgetMs !== null && pipeline.dwellBudgetMs !== undefined
+        ? ` — budget ${formatDwell(pipeline.dwellBudgetMs)}` +
+          (overBudget ? ' (over budget; reconciler will time out next tick)' : '')
+        : '')
+    : `${pipeline.status} — no dwell budget`;
+
   return (
     <li style={{ borderTop: '1px solid var(--color-border)' }}>
       <Link
         to={`/pipelines/${pipeline.id}`}
         className="grid items-center"
         style={{
-          gridTemplateColumns: '2.5rem 10rem 1fr 4rem 6rem 8rem',
+          gridTemplateColumns: columns,
           gap: 'var(--space-4)',
           padding: 'var(--space-3) var(--space-5)',
           color: 'var(--color-text)',
@@ -239,6 +323,24 @@ function PipelineRow({ pipeline }: { pipeline: PipelineSummary }) {
         }
       >
         <StatusDot status={pipeline.status} />
+
+        <span
+          className="mono"
+          title={dwellTitle}
+          data-testid="dwell-badge"
+          data-over-budget={overBudget ? 'true' : 'false'}
+          style={{
+            fontSize: 'var(--text-xs)',
+            color: dwellColor,
+            fontVariantNumeric: 'tabular-nums',
+            whiteSpace: 'nowrap',
+            ...(overBudget && {
+              fontWeight: 600,
+            }),
+          }}
+        >
+          {dwellLabel}
+        </span>
 
         <span
           className="mono dim"
@@ -305,18 +407,75 @@ function PipelineRow({ pipeline }: { pipeline: PipelineSummary }) {
               pr →
             </span>
           )}
-          {pipeline.allowedActions.map((action) => (
-            <span
-              key={action}
-              className="mono faint"
-              style={{ textTransform: 'uppercase' }}
-            >
-              {action}
-            </span>
-          ))}
+          {pipeline.allowedActions.map((action) => {
+            if (action === 'reset') {
+              return (
+                <button
+                  key={action}
+                  type="button"
+                  data-testid="reset-button"
+                  disabled={isResetting}
+                  aria-label={`Reset pipeline ${shortId(pipeline.id)} to idle`}
+                  title={`Admin reset → idle. Cancels in-flight agent + workspace; emits pipeline.admin_reset audit event. From state "${pipeline.status}".`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onReset(pipeline.id);
+                  }}
+                  className="mono"
+                  style={{
+                    padding: '2px var(--space-2)',
+                    border: '1px solid var(--color-border-strong)',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'transparent',
+                    color: 'var(--color-text)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    fontSize: 'var(--text-xs)',
+                    cursor: isResetting ? 'wait' : 'pointer',
+                    opacity: isResetting ? 0.5 : 1,
+                    transition: 'background var(--dur-fast) var(--ease-out-expo)',
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = 'var(--color-bg-sunken)')
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.background = 'transparent')
+                  }
+                >
+                  {isResetting ? 'resetting…' : 'reset'}
+                </button>
+              );
+            }
+            return (
+              <span
+                key={action}
+                className="mono faint"
+                style={{ textTransform: 'uppercase' }}
+              >
+                {action}
+              </span>
+            );
+          })}
         </div>
       </Link>
     </li>
+  );
+}
+
+/**
+ * True when the pipeline's current status has a dwell budget worth showing.
+ * Mirrors the engine's `reconcilableStatuses()` envelope: idle / succeeded /
+ * failed / cancelled have no dwell concept (they're terminal or pre-dispatch),
+ * so the badge renders "—" to keep the column visually quiet for them.
+ */
+function pipelineHasDwell(p: PipelineSummary): boolean {
+  return (
+    p.status === 'provisioning' ||
+    p.status === 'dispatching' ||
+    p.status === 'running' ||
+    p.status === 'awaiting_review' ||
+    p.status === 'stalled'
   );
 }
 
