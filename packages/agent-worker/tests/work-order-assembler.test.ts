@@ -237,4 +237,40 @@ describe('assembleWorkOrder', () => {
       expect(wo.description).toContain('Update the README');
     });
   });
+
+  describe('claudeHome — Phase 3 Task 8 wiring', () => {
+    it('injects the legacy static `deps.claudeHome` into metadata when no resolver is wired', async () => {
+      const deps = makeDeps({ claudeHome: '/legacy/static/.claude' });
+      const wo = await assembleWorkOrder(baseJobData, deps);
+      expect(wo.metadata['claudeHome']).toBe('/legacy/static/.claude');
+      expect(wo.metadata['claudeHomeEphemeral']).toBeUndefined();
+    });
+
+    it('uses the per-dispatch resolver in preference to legacy static path', async () => {
+      const resolver = vi.fn().mockResolvedValue({
+        claudeHome: '/run/ouija/claude-home/disp-456',
+      });
+      const deps = makeDeps({
+        claudeHome: '/legacy/static/.claude',
+        resolveDispatchClaudeHome: resolver,
+      });
+      const wo = await assembleWorkOrder(baseJobData, deps);
+      expect(resolver).toHaveBeenCalledWith('disp-456');
+      expect(wo.metadata['claudeHome']).toBe('/run/ouija/claude-home/disp-456');
+      expect(wo.metadata['claudeHomeEphemeral']).toBe('1');
+    });
+
+    it('does not set the ephemeral flag when only the static path is wired', async () => {
+      const deps = makeDeps({ claudeHome: '/legacy/static/.claude' });
+      const wo = await assembleWorkOrder(baseJobData, deps);
+      expect(wo.metadata['claudeHomeEphemeral']).toBeUndefined();
+    });
+
+    it('omits both metadata fields when neither claudeHome nor resolver is wired', async () => {
+      const deps = makeDeps();
+      const wo = await assembleWorkOrder(baseJobData, deps);
+      expect(wo.metadata['claudeHome']).toBeUndefined();
+      expect(wo.metadata['claudeHomeEphemeral']).toBeUndefined();
+    });
+  });
 });

@@ -49,14 +49,15 @@ services:
       # their repos + agents. Without this mount the server boots with env-
       # var defaults (no agents defined) and dispatches no-op.
       - ./ouija.config.yaml:/app/ouija.config.yaml:ro
-      # Subscription auth (optional). Self-hosters running `runner: local` or
-      # `runner: stream-json` who want to dispatch against their Claude Pro/
-      # Max subscription bind-mount ~/.claude/ read-only. API-billed setups
-      # (runner: sdk or ANTHROPIC_API_KEY set) can omit this mount.
-      #
-      # uid 1000 inside the container reads this; make sure your host user
-      # owns ~/.claude/ (the default on macOS/Linux).
-      - ${HOME}/.claude:/home/node/.claude:ro
+      # Phase 3 Task 8: NO `${HOME}/.claude` bind mount any more. The agent-
+      # worker auto-detects an `AuthProvider` (env / credential-file / helper-
+      # command / Keychain) and materialises a fresh per-dispatch home under
+      # `/run/ouija/claude-home/<dispatchId>/` — see the `tmpfs` mount below.
+      # Self-hosters using subscription auth need to set up a credential
+      # provider that runs on the host (KeychainProvider on macOS reads via
+      # `security find-generic-password` from outside the container; on Linux
+      # set ANTHROPIC_API_KEY for the `EnvProvider` path or wire a
+      # HelperCommandProvider against your secrets store).
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,8 +79,15 @@ services:
       - /tmp
       # gh CLI + git credential helper need a writable home for per-dispatch
       # scratch (auth cache, short-lived tokens). /home/node maps to the
-      # non-root user; the .claude mount above lands here read-only.
+      # non-root user.
       - /home/node
+      # Phase 3 Task 8: per-dispatch materialised Claude home dirs land
+      # here. The agent-worker writes `<dispatchId>/.credentials.json`
+      # (mode 0600) + neutral settings.json + .claude.json before each
+      # dispatch and cleans up on completion. tmpfs gives us isolation
+      # from the host fs, automatic cleanup on container restart, and
+      # prevents an OOM-during-shutdown from leaving stale credentials.
+      - /run/ouija/claude-home
     restart: unless-stopped
 
   # ---------- Database ----------

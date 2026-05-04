@@ -118,8 +118,23 @@ export interface AssemblerDeps {
   serverBaseUrl: string;
   /** Issue a short-lived JWT for agent callbacks. */
   issueJwt(instanceId: string, boardId: string, workspaceId: string): Promise<string>;
-  /** Global claudeHome setting from ouija.config.yaml — injected into metadata. */
+  /**
+   * Legacy global claudeHome from `ouija.config.yaml`. Honoured only
+   * when `resolveDispatchClaudeHome` is unset (deprecated path —
+   * pre-Phase-3 self-hosters relied on bind-mounting `~/.claude`
+   * into the runner). Phase 3 Task 8 prefers the dispatch-scoped
+   * resolver below.
+   */
   claudeHome?: string | null | undefined;
+  /**
+   * Phase 3 Task 8 — when set, this callback is invoked per dispatch
+   * to materialise a private home dir for the agent subprocess. The
+   * returned path is injected into `metadata.claudeHome` and
+   * `metadata.claudeHomeEphemeral` is flipped on so the plugin's
+   * `_runAgent` finally block deletes the dir. Takes precedence
+   * over the static `claudeHome` field above.
+   */
+  resolveDispatchClaudeHome?: (dispatchId: string) => Promise<{ claudeHome: string }>;
 }
 
 // ---- assembleWorkOrder ----
@@ -199,7 +214,17 @@ export async function assembleWorkOrder(
   if (repoPath) metadata['repoPath'] = repoPath;
   if (profile.configDir) metadata['configDir'] = profile.configDir;
   if (profile.authMethod) metadata['authMethod'] = profile.authMethod;
-  if (deps.claudeHome) metadata['claudeHome'] = deps.claudeHome;
+  // Per-dispatch identity (Phase 3 Task 8) takes precedence over the
+  // legacy static `deps.claudeHome`. When the resolver is wired, the
+  // dir is ephemeral and gets cleaned up by the plugin's `_runAgent`
+  // finally block.
+  if (deps.resolveDispatchClaudeHome) {
+    const { claudeHome } = await deps.resolveDispatchClaudeHome(jobData.dispatchId);
+    metadata['claudeHome'] = claudeHome;
+    metadata['claudeHomeEphemeral'] = '1';
+  } else if (deps.claudeHome) {
+    metadata['claudeHome'] = deps.claudeHome;
+  }
   if (profile.runner) metadata['runner'] = profile.runner;
 
   // 5a. Review-loop metadata — on follow-up iterations, record the iteration

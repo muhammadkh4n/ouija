@@ -524,6 +524,27 @@ export class ClaudeAgentPlugin implements AgentPlugin<ClaudeAgentConfig> {
           });
         }
       }
+
+      // 7. Clean up the per-dispatch claudeHome (Phase 3 Task 8). The
+      // worker's IdentityResolver materialises a private home for the
+      // agent subprocess; we own its lifetime here. Skip when the
+      // home is the legacy static path (no `claudeHomeEphemeral` flag).
+      const ephemeralHome = workOrder.metadata['claudeHome'];
+      if (
+        workOrder.metadata['claudeHomeEphemeral'] === '1' &&
+        typeof ephemeralHome === 'string' &&
+        ephemeralHome.length > 0
+      ) {
+        try {
+          const { rm } = await import('node:fs/promises');
+          await rm(ephemeralHome, { recursive: true, force: true });
+        } catch (err) {
+          this.logger.warn('Failed to clean up ephemeral claudeHome', {
+            claudeHome: ephemeralHome,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
     }
   }
 }

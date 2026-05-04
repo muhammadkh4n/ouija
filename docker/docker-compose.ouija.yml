@@ -58,7 +58,9 @@ services:
       # runner: stream-json bind-mount ~/.claude/ read-only so the bundled
       # Claude CLI picks up their Pro/Max session. API-billed setups can
       # omit this mount.
-      - ${HOME}/.claude:/home/node/.claude:ro
+      # Phase 3 Task 8: NO `${HOME}/.claude` bind mount. AuthProvider
+      # materialises a per-dispatch home under /run/ouija/claude-home (see
+      # tmpfs below). Setup notes in docker-compose.yml.
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,6 +82,9 @@ services:
     tmpfs:
       - /tmp
       - /home/node
+      # Phase 3 Task 8: per-dispatch materialised Claude home dirs (see
+      # docker-compose.yml for the full rationale).
+      - /run/ouija/claude-home
     restart: unless-stopped
 
   postgres:
