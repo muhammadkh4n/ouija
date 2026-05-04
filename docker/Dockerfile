@@ -1,6 +1,10 @@
 # ---- Stage 1: Build ----
 # Install all dependencies and compile TypeScript via Turborepo.
-FROM node:22-alpine AS build
+#
+# Phase 3 Task 9: swapped from `node:22-alpine` to `node:22-bookworm-slim`.
+# Build stage is matched to runtime so any node-gyp / native-binding deltas
+# between musl and glibc don't surface only at runtime.
+FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -38,7 +42,14 @@ RUN npx turbo build
 
 # ---- Stage 2: Production ----
 # Minimal runtime image — no dev dependencies, no build tools.
-FROM node:22-alpine AS production
+#
+# Phase 3 Task 9: swapped from `node:22-alpine` to `node:22-bookworm-slim`
+# (glibc, real bash, real `/bin/sh`). Closes friction-log #10 — Alpine's
+# busybox `sh` rejected Claude CLI's Bash tool with "No suitable shell
+# found" so commit-push-PR sequences silently aborted mid-run. Image grows
+# from ~150MB to ~250MB; cost we accept for shell correctness + the
+# bundled `gh` CLI from cli.github.com.
+FROM node:22-bookworm-slim AS production
 
 WORKDIR /app
 
@@ -46,27 +57,60 @@ WORKDIR /app
 #   - git + openssh-client: LocalWorkspaceProvider clones the target repo,
 #     over HTTPS or SSH depending on the repo URL.
 #   - ca-certificates: HTTPS to github.com / anthropic.com.
-#   - github-cli: the agent prompt tells Claude to `gh pr create`, so the
-#     binary must be present. GH_TOKEN is injected by plugin-agent-claude.
-# Kept before the global npm install so the layer cache stays warm across
-# source-only rebuilds.
-RUN apk add --no-cache git openssh-client ca-certificates github-cli
+#   - gh (from cli.github.com APT repo): the agent prompt tells Claude to
+#     `gh pr create`, so the binary must be present. GH_TOKEN is injected
+#     by plugin-agent-claude.
+#   - curl + gnupg: required to add the gh APT repo. curl stays on the
+#     final image because the healthcheck below uses it (replacing the
+#     Alpine wget that no longer ships).
+#
+# `--no-install-recommends` keeps the layer lean by skipping suggested
+# packages. Trailing `apt-get clean + rm -rf /var/lib/apt/lists/*` strips
+# package metadata so the layer doesn't carry ~30MB of stale lists into
+# the published image.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+        openssh-client \
+ && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+ && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends gh \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
 
 # Bundle the Claude Code CLI globally so self-hosters don't have to install
 # it separately on the host or mount a binary in. The LocalAgentRunner and
 # StreamJsonAgentRunner spawn `claude` at dispatch time; we resolve it
 # through $PATH inside the container.
 #
-# Subscription auth: the CLI reads credentials from $HOME/.claude/ — self-
-# hosters who want flat-rate Pro/Max billing must bind-mount their host
-# ~/.claude into the container (see docker-compose.yml). API-billed self-
-# hosters set ANTHROPIC_API_KEY via .env and don't need the mount.
-# shellcheck disable=SC2094
+# Subscription auth (Phase 3 Task 8): credentials no longer come from a
+# `${HOME}/.claude` bind mount. The agent-worker resolves an `AuthProvider`
+# (env / Keychain / credential-file / helper-command) per worker, then
+# materialises a private home under `/run/ouija/claude-home/<dispatchId>/`
+# per dispatch. The plugin sets HOME to that path so `claude` reads its
+# config there. API-billed self-hosters set ANTHROPIC_API_KEY in `.env`
+# and skip the credential-file path entirely.
 RUN npm install -g @anthropic-ai/claude-code \
  && claude --version
 
-# Use the existing node user (uid 1000) that ships with the node:alpine image.
-# This avoids UID conflicts and matches the compose user: "1000:1000" mapping.
+# Force `bash` as the default shell for the runtime user. Phase 3 Task 9:
+# Claude CLI's Bash tool reads $SHELL when picking which shell to spawn
+# subcommands through. Setting it explicitly is the belt-and-braces fix
+# alongside the bookworm-slim base — closes friction-log #10 and #11
+# together.
+ENV SHELL=/bin/bash
+
+# Use the existing node user (uid 1000) that ships with node:22-bookworm-slim.
+# Same UID as the previous Alpine image, so the compose `user: "1000:1000"`
+# mapping keeps working without churn for self-hosters who already pulled
+# v0.4.x.
 
 # Copy only what is needed to run the server:
 #   - Root package.json so Node can resolve workspace symlinks.
@@ -115,8 +159,11 @@ USER node
 
 EXPOSE 4000
 
-# Healthcheck — lightweight ping against the /health endpoint.
+# Healthcheck — lightweight ping against /healthz.
+# Phase 3 Task 9: bookworm-slim doesn't ship `wget` by default (Alpine did
+# via busybox). Use `curl` instead — it's installed in the apt-get block
+# above and is the conventional Debian choice.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:4000/healthz || exit 1
+  CMD curl -fsS http://localhost:4000/healthz || exit 1
 
 CMD ["node", "packages/server/dist/index.js"]
