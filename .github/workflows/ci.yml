@@ -155,3 +155,147 @@ jobs:
           fi
           echo ""
           docker compose --project-directory . -f docker/docker-compose.ouija.yml down -v
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Phase 3 Task 11 — Fizzy preset smoke. Mirrors `fresh-install-smoke`
+  # but boots `--preset self-hosted-fizzy` so the only kanban path we
+  # ship is exercised every PR. Catches:
+  #   - Fizzy image (ghcr.io/basecamp/fizzy:main) can't be pulled.
+  #   - docker-compose.fizzy.yml syntax / env / volume regressions.
+  #   - Ouija's `depends_on: fizzy` doesn't deadlock on the start path.
+  #   - Anything Phase 3 Task 8's identity-layer wiring breaks under
+  #     the Fizzy compose specifically (the env-var plumbing differs
+  #     slightly from the BYO-kanban compose, and that's exactly the
+  #     class of asymmetry that bit Task 8's first CI run).
+  # Validates the boot side of Phase 3 Task 7's check (b) — the image
+  # actually starts with the new identity layer in place. The deeper
+  # "Claude CLI authenticates from a materialised .credentials.json
+  # inside a real dispatch" assertion is post-v0.5.0 work; it needs a
+  # mocked claude binary or a real subscription token in CI, both of
+  # which are larger pieces than this smoke gate.
+  fresh-install-fizzy-smoke:
+    runs-on: ubuntu-latest
+    needs: [check]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - name: pack cli
+        id: pack
+        run: |
+          cd packages/cli
+          tarball=$(npm pack --silent)
+          echo "tarball=$(pwd)/$tarball" >> "$GITHUB_OUTPUT"
+
+      - name: fresh init + validate fizzy compose
+        run: |
+          set -euo pipefail
+          export CI_SMOKE_DIR="$RUNNER_TEMP/ouija-fresh-fizzy"
+          mkdir -p "$CI_SMOKE_DIR"
+          cd "$CI_SMOKE_DIR"
+          npm init -y > /dev/null
+          npm install "${{ steps.pack.outputs.tarball }}"
+          ./node_modules/.bin/ouija init --preset self-hosted-fizzy -y
+          rm -rf node_modules package.json package-lock.json
+
+          # Phase 3 Task 11: --preset self-hosted-fizzy ships this compose.
+          for f in .env ouija.config.yaml docker/docker-compose.fizzy.yml; do
+            if [ ! -f "$f" ]; then
+              echo "::error::expected file missing: $f"
+              exit 1
+            fi
+          done
+          # The legacy Plane bundle is gone (Task 10).
+          if [ -f docker/docker-compose.yml ]; then
+            echo "::error::docker/docker-compose.yml shouldn't ship in v0.5.0"
+            exit 1
+          fi
+
+          docker compose \
+            --project-directory "$CI_SMOKE_DIR" \
+            -f docker/docker-compose.fizzy.yml \
+            config > /tmp/compose-rendered-fizzy.yml
+
+          python3 - <<'PY'
+          import sys, yaml
+          with open('/tmp/compose-rendered-fizzy.yml') as f:
+              doc = yaml.safe_load(f)
+          services = doc.get('services', {})
+          ouija_svc = services.get('ouija', {})
+          fizzy_svc = services.get('fizzy', {})
+          ouija_image = ouija_svc.get('image', '')
+          fizzy_image = fizzy_svc.get('image', '')
+          if not ouija_image.startswith('ghcr.io/muhammadkh4n/ouija:'):
+              print(f"::error::services.ouija.image expected 'ghcr.io/muhammadkh4n/ouija:<tag>', got '{ouija_image}'")
+              sys.exit(1)
+          if 'fizzy' not in fizzy_image:
+              print(f"::error::services.fizzy.image expected to reference fizzy, got '{fizzy_image}'")
+              sys.exit(1)
+          # Must depend on fizzy so the smoke flow has a kanban backend live.
+          deps = ouija_svc.get('depends_on', {})
+          if 'fizzy' not in deps:
+              print(f"::error::services.ouija.depends_on must include `fizzy`; got {list(deps)}")
+              sys.exit(1)
+          # Phase 3 Task 8 — confirm tmpfs for /run/ouija/claude-home is set.
+          tmpfs = ouija_svc.get('tmpfs', [])
+          if not any('/run/ouija/claude-home' in t for t in tmpfs):
+              print(f"::error::services.ouija.tmpfs must include /run/ouija/claude-home; got {tmpfs}")
+              sys.exit(1)
+          print(f"services.ouija.image = {ouija_image}")
+          print(f"services.fizzy.image = {fizzy_image}")
+          print("fresh-install-fizzy compose validates ✓")
+          PY
+
+      - name: Build local image for boot smoke
+        run: docker build -t ouija:ci -f docker/Dockerfile .
+
+      - name: Boot fizzy stack + hit /healthz
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/ouija-fresh-fizzy"
+          export OUIJA_IMAGE=ouija:ci
+          # Phase 3 Task 8: agent-worker fail-loud's at startup if no
+          # AuthProvider auto-detects. Placeholder ANTHROPIC_API_KEY for
+          # EnvProvider; never used (no real dispatch in this smoke).
+          export ANTHROPIC_API_KEY=sk-ant-ci-smoke-placeholder
+          docker compose \
+            --project-directory . \
+            -f docker/docker-compose.fizzy.yml \
+            up -d
+          # Fizzy needs longer than the BYO smoke — Rails migrations run
+          # on first boot. Give it 120s before declaring failure.
+          for i in $(seq 1 120); do
+            if curl -sf http://localhost:4000/healthz >/dev/null 2>&1; then
+              echo "ouija healthy after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          if ! curl -sf http://localhost:4000/healthz; then
+            echo "::error::ouija failed to become healthy — dumping logs"
+            docker compose --project-directory . -f docker/docker-compose.fizzy.yml logs ouija
+            docker compose --project-directory . -f docker/docker-compose.fizzy.yml logs fizzy
+            exit 1
+          fi
+          # Fizzy's /up readiness probe should also be reachable from the
+          # host (port 3333 → fizzy:3000). Catches Fizzy mis-pull /
+          # mis-configuration distinctly from Ouija boot regressions.
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3333/up >/dev/null 2>&1; then
+              echo "fizzy /up healthy after ${i}s"
+              break
+            fi
+            sleep 2
+          done
+          if ! curl -sf http://localhost:3333/up; then
+            echo "::error::fizzy failed to become healthy — dumping logs"
+            docker compose --project-directory . -f docker/docker-compose.fizzy.yml logs fizzy
+            exit 1
+          fi
+          echo ""
+          docker compose --project-directory . -f docker/docker-compose.fizzy.yml down -v
