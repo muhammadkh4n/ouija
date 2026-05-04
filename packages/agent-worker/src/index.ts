@@ -22,8 +22,9 @@
  */
 
 import { BullMQJobQueue } from '@ouija-dev/bus';
-import { ClaudeAgentPlugin } from '@ouija-dev/plugin-agent-claude';
+import { autoDetectAuthProvider, ClaudeAgentPlugin } from '@ouija-dev/plugin-agent-claude';
 import { AgentDispatchWorker } from './worker.js';
+import { IdentityResolver } from './identity-resolver.js';
 import type { AssemblerDeps, AgentProfile } from './work-order-assembler.js';
 
 export type { AgentProfile } from './work-order-assembler.js';
@@ -75,8 +76,35 @@ export interface StartWorkerOptions {
    * is available so dashboard-created agents dispatch without YAML edits.
    */
   getAgentProfileFromDb?: (agentId: string) => Promise<import('./work-order-assembler.js').AgentProfile | undefined>;
-  /** Global claudeHome setting from ouija.config.yaml */
+  /**
+   * Legacy static claudeHome from `ouija.config.yaml`. **Deprecated** —
+   * pre-Phase-3 self-hosters bind-mounted `~/.claude` into the runner
+   * and pointed `claudeHome` at the mount target. Phase 3 Task 8
+   * removes the bind mount; new self-hosters get a per-dispatch
+   * materialised home via `identityResolver` instead.
+   */
   claudeHome?: string | null;
+  /**
+   * Phase 3 Task 8 — pre-built `IdentityResolver` (test injection).
+   * When unset, `startAgentWorker` auto-detects an `AuthProvider`
+   * from the environment via `autoDetectAuthProvider()` and wraps
+   * it. Setting this skips auto-detection (used by the integration
+   * test harness + by ops who pre-resolved the provider).
+   */
+  identityResolver?: import('./identity-resolver.js').IdentityResolver;
+  /**
+   * Override the per-dispatch claudeHome root dir. Defaults to
+   * `/run/ouija/claude-home` (path Phase 3's compose reserves).
+   */
+  claudeHomeRoot?: string;
+  /**
+   * When `true` and no `identityResolver` / `assemblerDeps` is
+   * provided, fail loud at startup if no `AuthProvider` auto-
+   * detects. Default `true` — Phase 3 Task 8 deliberately removes
+   * the legacy bind-mount fallback. Set `false` only for migration
+   * smokes that must boot without subscription auth wired.
+   */
+  failWhenNoIdentity?: boolean;
 }
 
 export interface WorkerHandle {
@@ -114,10 +142,42 @@ export async function startAgentWorker(options: StartWorkerOptions): Promise<Wor
   });
   await claudePlugin.start();
 
+  // 2a. Identity resolver (Phase 3 Task 8) — auto-detect an
+  // AuthProvider and wrap it so each dispatch gets a private
+  // materialised home. Test harnesses pass a pre-built resolver via
+  // `options.identityResolver` to skip auto-detection. Setting
+  // `assemblerDeps` directly also bypasses this — those callers own
+  // their own dispatch-home wiring.
+  let identityResolver: IdentityResolver | null = options.identityResolver ?? null;
+  const failWhenNoIdentity = options.failWhenNoIdentity ?? true;
+  if (identityResolver === null && options.assemblerDeps === undefined) {
+    const provider = await autoDetectAuthProvider();
+    if (provider !== null) {
+      const resolverOpts: { rootDir?: string } = {};
+      if (options.claudeHomeRoot !== undefined) {
+        resolverOpts.rootDir = options.claudeHomeRoot;
+      }
+      identityResolver = new IdentityResolver(provider, resolverOpts);
+      logger.info('IdentityResolver wired', { source: provider.kind });
+    } else if (failWhenNoIdentity) {
+      throw new Error(
+        'startAgentWorker: no AuthProvider auto-detected. ' +
+          'Set ANTHROPIC_API_KEY (EnvProvider), sign into Claude CLI ' +
+          '(KeychainProvider on macOS, CredentialFileProvider on Linux), ' +
+          'or pass `identityResolver` explicitly. Set `failWhenNoIdentity: false` ' +
+          'to boot without subscription auth (migration smokes only).',
+      );
+    } else {
+      logger.warn(
+        'No AuthProvider auto-detected; agents will run without a materialised home — set ANTHROPIC_API_KEY or sign into Claude CLI to enable.',
+      );
+    }
+  }
+
   // 3. Assembler deps — DB first, YAML map second, hardcoded stub last. That
   // order means dashboard-created agents override any YAML entry with the same
   // id, which is the expected UX: edits in the dashboard win.
-  const assemblerDeps: AssemblerDeps = options.assemblerDeps ?? {
+  const baseDeps: AssemblerDeps = {
     getAgentProfile: async (agentId: string) => {
       if (options.getAgentProfileFromDb) {
         const dbProfile = await options.getAgentProfileFromDb(agentId);
@@ -154,6 +214,11 @@ export async function startAgentWorker(options: StartWorkerOptions): Promise<Wor
     issueJwt: issueAgentJWT,
     claudeHome: options.claudeHome ?? undefined,
   };
+  if (identityResolver !== null) {
+    baseDeps.resolveDispatchClaudeHome = (dispatchId: string) =>
+      identityResolver!.resolve(dispatchId).then(({ claudeHome }) => ({ claudeHome }));
+  }
+  const assemblerDeps: AssemblerDeps = options.assemblerDeps ?? baseDeps;
 
   // 4. Worker
   const worker = new AgentDispatchWorker({
