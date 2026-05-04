@@ -4,7 +4,7 @@
  * Examples:
  *   ouija logs                  # tail all services, follow by default
  *   ouija logs ouija            # only the ouija container
- *   ouija logs --stack full     # tail the full stack (Ouija + Plane)
+ *   ouija logs --stack fizzy    # tail the Fizzy-bundled stack
  *   ouija logs --no-follow      # print once and exit
  */
 

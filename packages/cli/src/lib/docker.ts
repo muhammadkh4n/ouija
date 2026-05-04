@@ -3,11 +3,16 @@ import { existsSync } from 'node:fs';
 import { projectPath } from './paths.js';
 import { die, log } from './logger.js';
 
-export type StackName = 'ouija' | 'full' | 'fizzy';
+/**
+ * Supported compose stacks. Phase 3 Task 10 dropped the legacy
+ * `'full'` preset (Plane-AIO bundle) — its image
+ * `makeplane/plane-aio:v0.23-dev` was never on Docker Hub, so the
+ * preset literally couldn't start (friction-log #1).
+ */
+export type StackName = 'ouija' | 'fizzy';
 
 const COMPOSE_FILES: Record<StackName, string> = {
   ouija: 'docker/docker-compose.ouija.yml',
-  full: 'docker/docker-compose.yml',
   fizzy: 'docker/docker-compose.fizzy.yml',
 };
 
@@ -70,8 +75,17 @@ export function parseStackFlag(argv: readonly string[]): StackName {
   const idx = argv.findIndex((a) => a === '--stack' || a === '-s');
   if (idx === -1) return 'ouija';
   const value = argv[idx + 1];
-  if (value === 'ouija' || value === 'full' || value === 'fizzy') {
+  if (value === 'ouija' || value === 'fizzy') {
     return value;
   }
-  die(`Unknown stack: ${value ?? '(empty)'}. Use ouija, full, or fizzy.`);
+  // Phase 3 Task 10: explicit migration message for self-hosters who still
+  // pass `--stack full` from a v0.4.x muscle-memory.
+  if (value === 'full') {
+    die(
+      `--stack full was removed in v0.5.0. The Plane preset is gone (friction-log #1).\n` +
+        `  Use --stack ouija (BYO kanban or 'ouija watch') or --stack fizzy.\n` +
+        `  Re-run 'npx @ouija-dev/cli init --force --preset byo-kanban' (or self-hosted-fizzy) to refresh your project.`,
+    );
+  }
+  die(`Unknown stack: ${value ?? '(empty)'}. Use ouija or fizzy.`);
 }
