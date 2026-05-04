@@ -26,7 +26,7 @@
     "lint": "echo 'no linter configured'"
   },
   "dependencies": {
-    "yaml": "^2.7.0",
+    "yaml": "^2.8.4",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.0"
   },
