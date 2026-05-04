@@ -35,6 +35,12 @@ services:
       OUIJA_API_KEY: ${OUIJA_API_KEY:-}
       OUIJA_DATABASE_URL: postgres://ouija:ouija@postgres:5432/ouija_db
       OUIJA_REDIS_URL: redis://ouija-redis:6379
+      # Anthropic API key — required for the `EnvProvider` AuthProvider path
+      # (Phase 3 Task 8). Set in `.env` for API-billed self-hosters or CI.
+      # Subscription-auth self-hosters can leave it empty; KeychainProvider
+      # (macOS) or CredentialFileProvider (Linux/WSL) will be picked up by
+      # the agent-worker's auto-detection instead.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # Forwarded to the agent subprocess so it can push commits and open PRs
       # via the bundled `gh` CLI. Optional — omit for read-only dry runs.
       GITHUB_PAT: ${GITHUB_PAT:-}

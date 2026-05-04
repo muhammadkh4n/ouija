@@ -125,6 +125,12 @@ jobs:
           # Point the compose at the locally-built image so we don't need
           # a registry pull.
           export OUIJA_IMAGE=ouija:ci
+          # Phase 3 Task 8: agent-worker fail-loud's at startup if no
+          # AuthProvider auto-detects. The smoke doesn't dispatch anything
+          # real, but the worker still needs ONE provider to be detectable
+          # so the boot sequence finishes. EnvProvider with a placeholder
+          # value is the cheapest path — the key never gets used.
+          export ANTHROPIC_API_KEY=sk-ant-ci-smoke-placeholder
           docker compose \
             --project-directory . \
             -f docker/docker-compose.ouija.yml \
