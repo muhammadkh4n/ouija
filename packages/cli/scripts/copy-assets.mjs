@@ -18,7 +18,9 @@ const files = [
   { src: '.env.example', dest: '.env.example' },
   { src: 'ouija.config.example.yaml', dest: 'ouija.config.example.yaml' },
   { src: 'infra/setup.sh', dest: 'infra/setup.sh' },
-  { src: 'docker/docker-compose.yml', dest: 'docker/docker-compose.yml' },
+  // Phase 3 Task 10: docker-compose.yml (the legacy Plane-AIO bundle) is
+  // no longer shipped. Self-hosters pick `--stack ouija` (BYO kanban or
+  // `ouija watch`) or `--stack fizzy` (bundled 37signals Fizzy).
   { src: 'docker/docker-compose.ouija.yml', dest: 'docker/docker-compose.ouija.yml' },
   { src: 'docker/docker-compose.fizzy.yml', dest: 'docker/docker-compose.fizzy.yml' },
   { src: 'docker/Dockerfile', dest: 'docker/Dockerfile' },

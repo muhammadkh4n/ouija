@@ -4,9 +4,13 @@ From zero to your first AI-generated pull request in about 15 minutes. This
 walkthrough uses the BYO-kanban path: Ouija + a Plane workspace you already
 have access to (either Plane Cloud or a self-hosted instance).
 
-If you want a fully self-contained demo with Plane bundled in, skip to
-[Path B: Full Stack with Self-Hosted Plane](#path-b-full-stack-with-self-hosted-plane)
-at the end.
+> **Migration note (v0.4.x → v0.5.0):** the `self-hosted-plane` preset and
+> `--stack full` flag were removed. The Plane-AIO image they pinned
+> (`makeplane/plane-aio:v0.23-dev`) was never on Docker Hub
+> ([friction-log #1](../docs/superpowers/specs/2026-04-01-bridge-to-product.md))
+> so the preset literally couldn't start. If you pulled it: `docker compose
+> down -v`, then `npx @ouija-dev/cli init --force --preset byo-kanban`
+> (or `self-hosted-fizzy` for a bundled lightweight kanban).
 
 ---
 
@@ -246,28 +250,6 @@ the common failure modes. The fastest signal is usually:
 ```bash
 npx @ouija-dev/cli logs ouija --no-follow | grep -E "(error|warn)"
 ```
-
----
-
-## Path B: Full stack with self-hosted Plane
-
-If you don't already have a Plane workspace and want everything bundled:
-
-```bash
-mkdir my-ouija && cd my-ouija
-npx @ouija-dev/cli init
-$EDITOR ouija.config.yaml
-npx @ouija-dev/cli up --stack full
-```
-
-**Plane AIO needs ~5 GB of RAM** and takes 1–2 minutes to finish booting.
-Once ready:
-
-1. Open `http://localhost:80`, create a workspace
-2. Plane → Settings → API Tokens → create one → paste into `.env` as `PLANE_API_TOKEN`
-3. Plane → Settings → Webhooks → point at `http://ouija:4000/hooks/plane/<PLANE_WEBHOOK_SECRET>`
-4. `npx @ouija-dev/cli down --stack full && npx @ouija-dev/cli up --stack full`
-5. Continue from [Step 5](#step-5-assign-the-agent-to-a-board)
 
 ---
 

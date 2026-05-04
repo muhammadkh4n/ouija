@@ -15,7 +15,16 @@ import { generateHexSecret } from '../lib/secrets.js';
 import { applyEnvUpdates, type EnvUpdates } from '../lib/env-file.js';
 import { log, die } from '../lib/logger.js';
 
-export type PresetName = 'self-hosted-plane' | 'self-hosted-fizzy' | 'byo-kanban';
+/**
+ * Supported config presets. Phase 3 Task 10 dropped
+ * `'self-hosted-plane'` — its compose stack pinned a Plane-AIO image
+ * that doesn't exist on Docker Hub, so the preset couldn't start
+ * (friction-log #1). Self-hosters who want the bundled-kanban
+ * experience now pick `self-hosted-fizzy` (37signals' Fizzy);
+ * everyone else uses `byo-kanban` and either `ouija watch` or wires
+ * their own kanban via the plugin SDK.
+ */
+export type PresetName = 'self-hosted-fizzy' | 'byo-kanban';
 
 export interface InitOptions {
   force: boolean;
@@ -24,7 +33,6 @@ export interface InitOptions {
 }
 
 const VALID_PRESETS: ReadonlySet<PresetName> = new Set([
-  'self-hosted-plane',
   'self-hosted-fizzy',
   'byo-kanban',
 ]);
@@ -42,6 +50,14 @@ export function parseInitArgs(argv: readonly string[]): InitOptions {
     if (arg === '--preset') value = argv[i + 1];
     else if (arg.startsWith('--preset=')) value = arg.slice('--preset='.length);
     if (value !== undefined) {
+      // Phase 3 Task 10: explicit migration message for the dropped Plane
+      // preset, separate from the generic "unknown preset" path.
+      if (value === 'self-hosted-plane') {
+        throw new Error(
+          'self-hosted-plane was removed in v0.5.0. The Plane-AIO image it pinned was never on Docker Hub (friction-log #1). ' +
+            "Use --preset self-hosted-fizzy for a bundled kanban, or --preset byo-kanban + 'ouija watch <repo>' to skip kanban entirely.",
+        );
+      }
       if (!VALID_PRESETS.has(value as PresetName)) {
         throw new Error(
           `Unknown preset: ${value}. Valid: ${[...VALID_PRESETS].join(', ')}`,
@@ -114,15 +130,7 @@ export async function runInit(options: InitOptions): Promise<number> {
   );
 
   log.step('Next steps');
-  if (options.preset === 'self-hosted-plane') {
-    console.log(`  1. Run ${log.code('ouija up')} — brings up Plane + Ouija on one Docker network`);
-    console.log(`  2. Open http://localhost:3333 — sign up, create workspace "ouija-dev", generate an API token`);
-    console.log(`  3. Paste the API token into .env's PLANE_API_TOKEN`);
-    console.log(`  4. Run ${log.code('ouija doctor')} — all 13 checks should pass`);
-    console.log(`  5. Drag a card on Plane → PR appears on muhammadkh4n/ouija-demo-template`);
-    console.log('');
-    console.log(`  Swap to your real repo in ouija.config.yaml when ready.`);
-  } else if (options.preset === 'self-hosted-fizzy') {
+  if (options.preset === 'self-hosted-fizzy') {
     console.log(`  1. Run ${log.code('ouija up')} — brings up Fizzy + Ouija`);
     console.log(`  2. Open http://localhost:3333 — create the admin user + workspace + board + bot user`);
     console.log(`  3. Paste the bot user's ULID into ouija.config.yaml (agents[].kanbanUserId)`);

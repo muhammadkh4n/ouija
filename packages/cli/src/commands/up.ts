@@ -2,7 +2,7 @@
  * `ouija up [--stack ouija|full|fizzy]` — start the Ouija docker stack.
  *
  * Thin wrapper around `docker compose up -d`. Default stack is `ouija`
- * (BYO kanban, ~1.5GB RAM). Use --stack full for Ouija+Plane or
+ * (BYO kanban, ~1.5GB RAM). Use
  * --stack fizzy for Ouija+Fizzy.
  */
 

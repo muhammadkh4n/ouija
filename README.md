@@ -49,34 +49,43 @@ The niche: **kanban-native + self-hosted + iterative review loop.** Nothing else
 
 ```bash
 mkdir my-ouija && cd my-ouija
-npx @ouija-dev/cli init --preset self-hosted-plane    # generates secrets, docker-compose, config
-npx @ouija-dev/cli up                                  # brings up Plane + Ouija + Postgres + Redis
+npx @ouija-dev/cli init --preset byo-kanban           # generates secrets, docker-compose, config
+npx @ouija-dev/cli up                                  # brings up Ouija + Postgres + Redis
 npx @ouija-dev/cli doctor                              # preflight audit (Claude CLI, webhook, auth)
 ```
 
 Open [`http://localhost:4000/dashboard`](http://localhost:4000/dashboard), paste the `OUIJA_API_KEY` the CLI printed, and you're in. Create your first agent via the **Agents** form — no YAML editing required.
 
-Point your Plane (or Fizzy) webhook at `http://<ouija-host>:4000/hooks/plane/$PLANE_WEBHOOK_SECRET`. If your kanban is in the cloud, expose with [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) or [ngrok](https://ngrok.com/).
+**No kanban?** Point Ouija straight at a GitHub repo:
 
-Drag a card to **In Progress** — the dashboard's live indicator turns green when the first webhook lands. Card moves to Review when the PR opens. Loop runs until you merge.
+```bash
+npx @ouija-dev/cli github connect <owner/repo>   # registers the webhook
+npx @ouija-dev/cli watch <owner/repo>             # polls for `ouija`-labeled issues
+```
+
+**Have a kanban?** Point your Plane (or Fizzy) webhook at `http://<ouija-host>:4000/hooks/plane/$PLANE_WEBHOOK_SECRET`. Drag a card to **In Progress** — the dashboard's live indicator turns green when the first webhook lands. Card moves to Review when the PR opens. Loop runs until you merge. If your kanban is in the cloud, expose with [Tailscale Funnel](https://tailscale.com/kb/1223/funnel), [ngrok](https://ngrok.com/), or `ouija tunnel` (cloudflared quick-tunnel).
 
 ### Presets
 
 | Preset | Use when |
 |---|---|
-| `self-hosted-plane` | You want the bundled Plane kanban (~5 GB RAM). |
-| `self-hosted-fizzy` | You prefer Fizzy (Basecamp fork, lighter). |
-| `byo-kanban` | You already have Plane/Fizzy running — point Ouija at it. |
+| `byo-kanban` | Default. You'll use `ouija watch <repo>`, an existing Plane/Fizzy instance you already host, or Plane Cloud. |
+| `self-hosted-fizzy` | You want Ouija to bundle a kanban for you (37signals' Fizzy — Basecamp fork). |
+
+> **Migration note (v0.4.x → v0.5.0):** the `self-hosted-plane` preset and `--stack full` flag were removed. The Plane-AIO image (`makeplane/plane-aio:v0.23-dev`) was never on Docker Hub, so the preset literally couldn't start (friction-log #1). Self-hosters who pulled it: `docker compose down -v`, then `npx @ouija-dev/cli init --force --preset byo-kanban` (or `self-hosted-fizzy`).
 
 CLI reference:
 
 ```bash
-ouija init [--preset P]      # bootstrap; P = self-hosted-plane | self-hosted-fizzy | byo-kanban
-ouija up [--stack S]         # start stack; S = ouija | full | fizzy
+ouija init [--preset P]      # bootstrap; P = self-hosted-fizzy | byo-kanban
+ouija up [--stack S]         # start stack; S = ouija | fizzy
 ouija down [-v]              # stop; -v also removes volumes
 ouija logs [service]         # tail compose logs
 ouija status                 # docker compose ps
 ouija doctor                 # preflight audit
+ouija watch <owner/repo>     # poll GitHub for `ouija`-labeled issues / @ouija mentions
+ouija github connect <repo>  # register the GitHub webhook
+ouija tunnel [--connect R]   # cloudflared quick-tunnel + auto-register webhook
 ```
 
 Full walkthrough: [docs/getting-started.md](docs/getting-started.md).

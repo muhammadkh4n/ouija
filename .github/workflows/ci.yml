@@ -66,13 +66,16 @@ jobs:
           # which shells out to sh and errors with EACCES on macOS + Linux.
           npm init -y > /dev/null
           npm install "${{ steps.pack.outputs.tarball }}"
-          ./node_modules/.bin/ouija init --preset self-hosted-plane -y
+          # Phase 3 Task 10: --preset self-hosted-plane removed. The smoke
+          # uses byo-kanban (the default for `ouija watch` flows) since
+          # that's the path most self-hosters land on now.
+          ./node_modules/.bin/ouija init --preset byo-kanban -y
           # Clean up the installer scaffolding so the init-generated files
           # are the only thing left for the compose check.
           rm -rf node_modules package.json package-lock.json
 
           # Files we expect the init to have created.
-          for f in .env ouija.config.yaml docker/docker-compose.ouija.yml docker/docker-compose.yml; do
+          for f in .env ouija.config.yaml docker/docker-compose.ouija.yml; do
             if [ ! -f "$f" ]; then
               echo "::error::expected file missing: $f"
               exit 1

@@ -57,9 +57,12 @@ describe('ouija init --non-interactive', () => {
     const configStat = await stat(join(workDir, 'ouija.config.yaml'));
     expect(configStat.isFile()).toBe(true);
 
-    // docker compose files copied
+    // docker compose files copied (Phase 3 Task 10: docker-compose.yml — the
+    // Plane-AIO bundle — is no longer shipped; --stack ouija and --stack fizzy
+    // are the supported paths now).
     expect(existsSync(join(workDir, 'docker/docker-compose.ouija.yml'))).toBe(true);
-    expect(existsSync(join(workDir, 'docker/docker-compose.yml'))).toBe(true);
+    expect(existsSync(join(workDir, 'docker/docker-compose.fizzy.yml'))).toBe(true);
+    expect(existsSync(join(workDir, 'docker/docker-compose.yml'))).toBe(false);
     expect(existsSync(join(workDir, 'docker/Dockerfile'))).toBe(true);
 
     // infra/setup.sh copied
@@ -103,7 +106,7 @@ describe('ouija init --preset', () => {
     expect(result.stdout + result.stderr).toMatch(/Unknown preset: bogus/);
   });
 
-  it('scaffolds a self-hosted-plane project with the demo repo wired', async () => {
+  it('rejects --preset self-hosted-plane with a migration message (Phase 3 Task 10)', () => {
     if (!existsSync(CLI_ENTRY)) return;
 
     const result = spawnSync(
@@ -112,14 +115,11 @@ describe('ouija init --preset', () => {
       { cwd: workDir, encoding: 'utf8' },
     );
 
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('preset self-hosted-plane');
-
-    const configBody = await readFile(join(workDir, 'ouija.config.yaml'), 'utf8');
-    expect(configBody).toContain('muhammadkh4n/ouija-demo-template');
-    expect(configBody).toContain('runner: stream-json');
-    // The preset config must have a boards block so Plane auto-bootstrap fires.
-    expect(configBody).toMatch(/boards:\s*\n/);
+    expect(result.status).not.toBe(0);
+    const out = result.stdout + result.stderr;
+    expect(out).toContain('self-hosted-plane was removed in v0.5.0');
+    expect(out).toContain('self-hosted-fizzy');
+    expect(out).toContain('byo-kanban');
   });
 
   it('scaffolds a self-hosted-fizzy project with ULID placeholders', async () => {
