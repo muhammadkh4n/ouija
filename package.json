@@ -10,7 +10,8 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "gen:migrations": "node scripts/gen-status-migration.mjs",
-    "gen:migrations:check": "node scripts/gen-status-migration.mjs --check"
+    "gen:migrations:check": "node scripts/gen-status-migration.mjs --check",
+    "smoke:keychain": "node scripts/smoke/keychain-provider-check.mjs"
   },
   "devDependencies": {
     "turbo": "^2.9.6",
