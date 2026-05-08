@@ -40,7 +40,7 @@
     "@ouija-dev/types": "*",
     "fastify": "^5.3.2",
     "ioredis": "^5.6.1",
-    "jose": "^6.2.2"
+    "jose": "^6.2.3"
   },
   "devDependencies": {
     "@ouija-dev/dashboard": "*",
