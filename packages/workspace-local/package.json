@@ -20,7 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.126",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.138",
     "@ouija-dev/types": "*"
   },
   "devDependencies": {
