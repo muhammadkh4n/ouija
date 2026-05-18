@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@ouija-dev/types": "*",
-    "bullmq": "^5.76.6",
+    "bullmq": "^5.76.10",
     "ioredis": "^5.3.0"
   },
   "devDependencies": {
