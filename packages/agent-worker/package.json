@@ -30,7 +30,7 @@
     "jose": "^6.2.3"
   },
   "devDependencies": {
-    "@types/node": "^25.6.2",
+    "@types/node": "^25.8.0",
     "typescript": "^6.0.3",
     "vitest": "^3.2.4"
   }
