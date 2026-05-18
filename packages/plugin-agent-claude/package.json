@@ -28,6 +28,6 @@
     "@ouija-dev/plugin-sdk": "*",
     "@types/node": "^25.6.2",
     "typescript": "^6.0.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.6"
   }
 }
