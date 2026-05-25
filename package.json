@@ -14,9 +14,9 @@
     "smoke:keychain": "node scripts/smoke/keychain-provider-check.mjs"
   },
   "devDependencies": {
-    "turbo": "^2.9.12",
+    "turbo": "^2.9.14",
     "typescript": "^6.0.3",
     "vitest": "^3.2.4",
-    "@types/node": "^25.6.2"
+    "@types/node": "^25.9.1"
   }
 }
