@@ -39,7 +39,7 @@
     "@ouija-dev/plugin-sdk": "*",
     "@ouija-dev/types": "*",
     "fastify": "^5.3.2",
-    "ioredis": "^5.6.1",
+    "ioredis": "^5.11.0",
     "jose": "^6.2.3"
   },
   "devDependencies": {
