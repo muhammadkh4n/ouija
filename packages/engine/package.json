@@ -23,7 +23,7 @@
   "dependencies": {
     "@ouija-dev/bus": "*",
     "@ouija-dev/types": "*",
-    "pg": "^8.13.3"
+    "pg": "^8.21.0"
   },
   "devDependencies": {
     "@types/pg": "^8.11.11",
