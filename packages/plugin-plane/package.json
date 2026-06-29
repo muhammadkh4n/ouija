@@ -35,7 +35,7 @@
     "@ouija-dev/plugin-sdk": "*"
   },
   "devDependencies": {
-    "fastify": "^5.8.4",
+    "fastify": "^5.9.0",
     "typescript": "^6.0.3",
     "vitest": "^3.2.4",
     "@types/node": "^25.6.2"
