@@ -27,7 +27,7 @@
     "@ouija-dev/engine": "*",
     "@ouija-dev/plugin-sdk": "*",
     "@ouija-dev/plugin-agent-claude": "*",
-    "jose": "^6.2.3"
+    "jose": "^6.2.8"
   },
   "devDependencies": {
     "@types/node": "^25.6.2",
